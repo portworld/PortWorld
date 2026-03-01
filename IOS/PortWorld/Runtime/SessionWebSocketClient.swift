@@ -121,6 +121,9 @@ public actor SessionWebSocketClient {
     }
 
     if webSocketTask == nil && reconnectTask == nil {
+      // Reset reconnect attempt to avoid stale backoff from previous failures.
+      // After foreground recovery, we want fresh reconnect timing.
+      reconnectAttempt = 0
       publishState(.connecting)
       openSocket()
     }

@@ -27,6 +27,12 @@ final class SessionOrchestrator {
     var queryCount: Int = 0
     var photoUploadCount: Int = 0
     var playbackChunkCount: Int = 0
+    /// Number of audio buffers currently pending playback (queue depth).
+    var pendingPlaybackBufferCount: Int = 0
+    /// Estimated pending audio duration in milliseconds.
+    var pendingPlaybackDurationMs: Int = 0
+    /// Whether playback queue is under backpressure.
+    var playbackBackpressured: Bool = false
     var videoFrameCount: Int = 0
     var wakeEngine: String = WakeWordEngineKind.manual.rawValue
     var wakeRuntimeStatus: String = WakeWordRuntimeStatus.idle.rawValue
@@ -139,6 +145,9 @@ final class SessionOrchestrator {
   private var queryBundlesUploaded = 0
   private var queryBundlesFailed = 0
   private var wsReconnectAttempts = 0
+  /// Counts full session restarts (deactivate+activate cycles), persists across activations.
+  /// Distinguishes from wsReconnectAttempts which tracks transport-level reconnects within a session.
+  private var sessionRestartCount = 0
   private var sessionActivatedAtMs: Int64 = 0
   private var lastKnownPlaybackRoute = "unknown"
   private var healthTask: Task<Void, Never>?
@@ -187,6 +196,7 @@ final class SessionOrchestrator {
     guard !isActivated else { return }
 
     isActivated = true
+    sessionRestartCount += 1  // Track full session restarts (persists across activations)
     let sessionID = "sess_\(UUID().uuidString)"
     activeSessionID = sessionID
 
@@ -317,6 +327,9 @@ final class SessionOrchestrator {
   private func handleWakeDetected(_ event: WakeWordDetectionEvent) {
     guard isActivated else { return }
     guard activeQueryContext == nil else { return }
+
+    // Cancel any in-flight playback from previous response to avoid queue buildup
+    playbackEngine.cancelResponse()
 
     let queryID = "query_\(UUID().uuidString)"
     activeQueryContext = ActiveQueryContext(
@@ -486,9 +499,12 @@ final class SessionOrchestrator {
       do {
         try playbackEngine.appendChunk(envelope.payload)
         snapshot.playbackChunkCount += 1
+        snapshot.pendingPlaybackBufferCount = playbackEngine.pendingBufferCount
+        snapshot.pendingPlaybackDurationMs = Int(playbackEngine.pendingBufferDurationMs)
+        snapshot.playbackBackpressured = playbackEngine.isBackpressured
         snapshot.playbackState = envelope.payload.isLast ? "idle" : "playing"
         publishSnapshot()
-        print("[DEBUG] Audio chunk processed successfully, playbackChunkCount: \(snapshot.playbackChunkCount)")
+        print("[DEBUG] Audio chunk processed successfully, playbackChunkCount: \(snapshot.playbackChunkCount), pendingBuffers: \(snapshot.pendingPlaybackBufferCount), pendingDurationMs: \(snapshot.pendingPlaybackDurationMs), backpressured: \(snapshot.playbackBackpressured)")
       } catch {
         print("[DEBUG] Audio chunk error: \(error.localizedDescription)")
         setError(error.localizedDescription)
@@ -568,6 +584,8 @@ final class SessionOrchestrator {
 
     let photoRate = effectivePhotoUploadRate()
     let reconnectAttempts = await webSocketClient.reconnectAttemptCount()
+    let pendingDurationMs = Int(playbackEngine.pendingBufferDurationMs)
+    let backpressured = playbackEngine.isBackpressured
     let statsPayload = HealthStatsPayload(
       wakeState: snapshot.wakeState,
       queryState: snapshot.queryState,
@@ -580,6 +598,9 @@ final class SessionOrchestrator {
       videoBufferDurationMs: Int(rollingVideoBuffer.bufferedDurationMs),
       audioBufferDurationMs: dependencies.audioBufferDurationProvider(),
       wsReconnectAttempts: max(wsReconnectAttempts, reconnectAttempts),
+      sessionRestartCount: sessionRestartCount,
+      pendingPlaybackDurationMs: pendingDurationMs,
+      playbackBackpressured: backpressured,
       playbackRoute: lastKnownPlaybackRoute
     )
     await sendOutbound(type: .healthStats, payload: statsPayload)
@@ -596,7 +617,10 @@ final class SessionOrchestrator {
         "query_bundles_failed": .number(Double(queryBundlesFailed)),
         "video_buffer_duration_ms": .number(Double(rollingVideoBuffer.bufferedDurationMs)),
         "audio_buffer_duration_ms": .number(Double(dependencies.audioBufferDurationProvider())),
-        "ws_reconnect_attempts": .number(Double(wsReconnectAttempts)),
+        "ws_reconnect_attempts": .number(Double(max(wsReconnectAttempts, reconnectAttempts))),
+        "session_restart_count": .number(Double(sessionRestartCount)),
+        "pending_playback_duration_ms": .number(Double(pendingDurationMs)),
+        "playback_backpressured": .bool(backpressured),
         "playback_route": .string(lastKnownPlaybackRoute)
       ]
     )

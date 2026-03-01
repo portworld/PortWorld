@@ -68,6 +68,7 @@ class StreamSessionViewModel: ObservableObject {
   @Published var runtimeVideoFrameCount: Int = 0
   @Published var runtimePhotoUploadCount: Int = 0
   @Published var runtimePlaybackChunkCount: Int = 0
+  @Published var runtimePendingPlaybackBufferCount: Int = 0
 
   @Published var exampleTestStateText: String = "idle"
   @Published var exampleTestDetailText: String = "Ready"
@@ -278,6 +279,7 @@ class StreamSessionViewModel: ObservableObject {
       self.runtimeQueryCount = snapshot.queryCount
       self.runtimePhotoUploadCount = snapshot.photoUploadCount
       self.runtimePlaybackChunkCount = snapshot.playbackChunkCount
+      self.runtimePendingPlaybackBufferCount = snapshot.pendingPlaybackBufferCount
       self.runtimeVideoFrameCount = snapshot.videoFrameCount
       self.runtimeErrorText = snapshot.lastError
 
@@ -591,8 +593,13 @@ class StreamSessionViewModel: ObservableObject {
   }
 
   private func estimatedAudioBufferDurationMs() -> Int {
-    // Audio chunks are recorded as PCM16 mono @ 8kHz: 16 bytes/ms.
-    Int(audioByteCount / 16)
+    // Use playback queue depth if available (pending buffers * ~100ms per buffer)
+    // Otherwise fall back to capture byte count estimate
+    if runtimePendingPlaybackBufferCount > 0 {
+      return runtimePendingPlaybackBufferCount * 100  // ~100ms per buffer chunk
+    }
+    // Fallback: Audio chunks are recorded as PCM16 mono @ 8kHz: 16 bytes/ms.
+    return Int(audioByteCount / 16)
   }
 
   func handleScenePhaseChange(_ phase: ScenePhase) {

@@ -226,6 +226,13 @@ public struct HealthStatsPayload: Codable {
   public let videoBufferDurationMs: Int
   public let audioBufferDurationMs: Int
   public let wsReconnectAttempts: Int
+  /// Number of full session restarts (deactivate+activate cycles).
+  /// Unlike wsReconnectAttempts, this persists across session activations.
+  public let sessionRestartCount: Int
+  /// Estimated pending playback audio duration in milliseconds.
+  public let pendingPlaybackDurationMs: Int
+  /// Whether playback queue is under backpressure.
+  public let playbackBackpressured: Bool
   public let playbackRoute: String
 
   public init(
@@ -240,6 +247,9 @@ public struct HealthStatsPayload: Codable {
     videoBufferDurationMs: Int,
     audioBufferDurationMs: Int,
     wsReconnectAttempts: Int,
+    sessionRestartCount: Int,
+    pendingPlaybackDurationMs: Int,
+    playbackBackpressured: Bool,
     playbackRoute: String
   ) {
     self.wakeState = wakeState
@@ -253,6 +263,9 @@ public struct HealthStatsPayload: Codable {
     self.videoBufferDurationMs = videoBufferDurationMs
     self.audioBufferDurationMs = audioBufferDurationMs
     self.wsReconnectAttempts = wsReconnectAttempts
+    self.sessionRestartCount = sessionRestartCount
+    self.pendingPlaybackDurationMs = pendingPlaybackDurationMs
+    self.playbackBackpressured = playbackBackpressured
     self.playbackRoute = playbackRoute
   }
 
@@ -268,6 +281,9 @@ public struct HealthStatsPayload: Codable {
     case videoBufferDurationMs = "video_buffer_duration_ms"
     case audioBufferDurationMs = "audio_buffer_duration_ms"
     case wsReconnectAttempts = "ws_reconnect_attempts"
+    case sessionRestartCount = "session_restart_count"
+    case pendingPlaybackDurationMs = "pending_playback_duration_ms"
+    case playbackBackpressured = "playback_backpressured"
     case playbackRoute = "playback_route"
   }
 }

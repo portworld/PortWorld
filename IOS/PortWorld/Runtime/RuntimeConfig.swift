@@ -34,7 +34,7 @@ public struct RuntimeConfig {
     apiKey: String = "",
     bearerToken: String = "",
     photoFps: Double = 1.0,
-    silenceTimeoutMs: Int = 5_000,
+    silenceTimeoutMs: Int = 2_000,
     preWakeVideoMs: Int = 5_000,
     wakePhrase: String = "hey mario",
     wakeWordMode: WakeWordMode = .onDevicePreferred,
@@ -98,7 +98,7 @@ public struct RuntimeConfig {
     )
     let queryPath = resolvePath(
       infoPlistKey: "SON_QUERY_PATH",
-      defaultPath: "/query",
+      defaultPath: "/v1/query",
       bundle: bundle
     )
 
