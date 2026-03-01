@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <b>Port:World🌍 has been built during Mistral Worlwide Hackathon 2026 🥖🇫🇷</b>
+  <b>Port:World🌍 has been built during Mistral Worlwide Hackathon 2026 with the (huge) help of Mistral Vibe 🥖🇫🇷</b>
 </p>
 
 <p align="center">
