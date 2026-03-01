@@ -2,7 +2,7 @@
 <p> <img width="7173" height="1758" alt="Associer@3x" src="https://github.com/user-attachments/assets/f65cca33-ff43-47fc-bb5f-96af42dd660d" />
 
 <p align="center">
-  <b>Open-source multimodal framework to plug your AI solution in few minutes into the real world through smart glasses.</b>
+  <b>Open-source platform that connects in one-click AI solution to the real world. Smart glasses, the new voice and vision interface.</b>
 </p>
 
 <p align="center">
