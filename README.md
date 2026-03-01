@@ -1,6 +1,8 @@
-# Port:🌍
+<h1 align="center">Port:🌍</h1>
 
-Open-source multimodal framework to plug your AI expertise into the real world through smart glasses.
+<p align="center">
+  Open-source multimodal framework to plug your AI expertise into the real world through smart glasses.
+</p>
 
 `Port:🌍` combines an iOS glasses client with a FastAPI backend for voice + vision + tool orchestration.  
 You own the domain logic and prompts; Port provides the runtime, transport, and integration surface.
