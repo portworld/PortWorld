@@ -75,24 +75,38 @@ private struct StreamRuntimeOverlay: View {
   @ObservedObject var viewModel: StreamSessionViewModel
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text("Session: \(viewModel.runtimeSessionStateText)")
-      Text("Wake: \(viewModel.runtimeWakeStateText)  Query: \(viewModel.runtimeQueryStateText)")
-      Text("Photo: \(viewModel.runtimePhotoStateText)  Playback: \(viewModel.runtimePlaybackStateText)")
-      Text("Frames: \(viewModel.runtimeVideoFrameCount)  Uploaded: \(viewModel.runtimePhotoUploadCount)")
-      Text("Backend: \(viewModel.runtimeBackendText)")
-        .lineLimit(1)
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 6) {
+        Image(systemName: "bolt.fill")
+          .foregroundColor(.appPrimary)
+        Text("Session: \(viewModel.runtimeSessionStateText)")
+      }
+      
+      HStack(spacing: 6) {
+        Image(systemName: "waveform")
+          .foregroundColor(.white.opacity(0.7))
+        Text("Wake: \(viewModel.runtimeWakeStateText)")
+      }
+      
+      HStack(spacing: 6) {
+        Image(systemName: "camera.fill")
+          .foregroundColor(.white.opacity(0.7))
+        Text("Photo: \(viewModel.runtimePhotoStateText)")
+      }
 
       if !viewModel.runtimeErrorText.isEmpty {
-        Text("Error: \(viewModel.runtimeErrorText)")
-          .foregroundColor(.red)
+        HStack(alignment: .top, spacing: 6) {
+          Image(systemName: "exclamationmark.triangle.fill")
+          Text(viewModel.runtimeErrorText)
+        }
+        .foregroundColor(.red.opacity(0.9))
       }
     }
-    .font(.system(size: 12, weight: .medium))
+    .font(.system(.caption, design: .rounded).weight(.semibold))
     .foregroundColor(.white)
-    .padding(10)
-    .background(Color.black.opacity(0.45))
-    .cornerRadius(10)
+    .padding(14)
+    .background(.ultraThinMaterial)
+    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
   }
 }
 
