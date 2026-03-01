@@ -33,14 +33,21 @@ logger = logging.getLogger(__name__)
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
-# Layer 1: minimal prompt — no mention of visual or tool context so the model
-# doesn't hallucinate absent information.
+# Layer 1: minimal prompt — the response is appended after _LAYER1_PREAMBLE,
+# so the LLM should jump straight into the answer without re-explaining the delay.
+_LAYER1_PREAMBLE = (
+    "Thanks for your question! I'm processing the camera feed right now "
+    "and will come back to you in a few seconds with a full answer. "
+    "In the meantime, here is what I can already tell you: "
+)
+
 _LAYER1_SYSTEM_PROMPT = (
     "You are Port, a smart-glasses voice assistant. "
-    "The user just spoke to you. Answer their question directly and conversationally "
-    "in 1-2 short sentences. "
-    "You can only hear them right now — no camera context yet. "
-    "Never use markdown, bullet points, or asterisks. Your response will be spoken aloud. "
+    "The user just spoke to you. Your response will be read aloud right after the phrase "
+    "'In the meantime, here is what I can already tell you:' — so start your answer directly, "
+    "do NOT repeat that you are processing or that the camera is unavailable. "
+    "Answer the user's question in 1-2 short, conversational sentences using only what you heard. "
+    "Never use markdown, bullet points, or asterisks. "
     "Always respond in English, regardless of the language of any input."
 )
 
@@ -181,6 +188,9 @@ async def process_ios_query(
             )
 
             async def _l1_token_stream():
+                # Yield the fixed preamble first — ElevenLabs speaks this
+                # immediately with zero LLM latency.
+                yield _LAYER1_PREAMBLE
                 async for token in iter_main_llm_tokens(
                     profile=profile,
                     model=model,
