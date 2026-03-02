@@ -1,0 +1,10 @@
+__pycache__/
+.venv/
+.env
+realtime_*.md
+priority_*.md
+
+# Xcode per-user data
+xcuserdata/
+*.xcuserstate
+xcschememanagement.plist
