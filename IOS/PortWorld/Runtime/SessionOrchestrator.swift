@@ -588,8 +588,8 @@ final class SessionOrchestrator {
   }()
 
   /// Play the thinking chime through the playback engine (routes to glasses).
-  /// The chime is automatically stopped when `start_response` arrives from
-  /// the backend because `startResponse()` resets the player node.
+  /// This schedules a short chime on the existing playback route; it will play
+  /// to completion unless stopped or interrupted by other playback controls.
   private func playThinkingChime() {
     let format = AssistantAudioFormat(codec: "pcm_s16le", sampleRate: 16_000, channels: 1)
     do {
