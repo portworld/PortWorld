@@ -1,18 +1,16 @@
-
-<p> <img width="7173" height="1758" alt="Associer@3x" src="https://github.com/user-attachments/assets/f65cca33-ff43-47fc-bb5f-96af42dd660d" />
-
 <p align="center">
-  <b>Open-source platform that connects in one-click AI solution to the real world. Smart glasses, the new voice and vision interface.</b>
+  <img src="Port World logo.png" width="100%" alt="Port:World Logo">
 </p>
 
-<p align="center">
-  <b>Port:World🌍 has been built during Mistral Worlwide Hackathon 2026 with the (huge) help of Mistral Vibe 🥖🇫🇷</b>
-</p>
+What if AI could see the world the way we do?
 
-<p align="center">
-  <b> It combines an iOS glasses client with a FastAPI backend for voice + vision + tool orchestration. You own the domain logic and prompts; Port provides the runtime, transport, and integration surface.</b>
-</p>
+Port:World is an open source framework that turns smart glasses into a live interface between human perception and AI reasoning.
 
+Built during the Mistral Worldwide Hackathon 2026 by Pierre Haas, Vassili de Rosen, Arman Artola.
+
+It combines an iOS glasses client with a FastAPI backend for voice + vision + tool orchestration. You own the domain logic and prompts; Port provides the runtime, transport, and integration surface.
+
+The uses cases are infinite, connect your AI agents, customize them, prompt them, link your MCP, connect your Openclaw...
 
 
 
