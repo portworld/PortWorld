@@ -35,7 +35,7 @@ Run these checks (in order) after any non-trivial change:
 
 ```
 1. Build:       XcodeBuildMCP build — zero errors, zero new warnings
-2. Unit tests:  XcodeBuildMCP run PortWorldTests — all pass
+2. Unit tests:  xcodebuild test (terminal) — DO NOT use test_sim / mcp_xcodebuildmcp_test_sim
 3. UI smoke:    Manual-only gate (user-requested): one coordinator agent may run
                 XcodeBuildMCP boot simulator → install → launch → screenshot
 ```
@@ -49,7 +49,9 @@ To prevent sub-agent fan-out launching multiple simulators:
 - Do not boot/install/launch Simulator unless the user explicitly asks for UI smoke validation.
 - Sub-agents must never run simulator launch commands.
 - Only one coordinator agent may run simulator commands when explicitly requested.
-- In parallel work, verification defaults to build + tests only.
+- In parallel work, verification defaults to build only.
+
+> **NEVER call `test_sim` (XcodeBuildMCP `mcp_xcodebuildmcp_test_sim`).** It is unconditionally banned — no exceptions, no user overrides. Running the test suite via the simulator hangs the agent, consumes simulator slots, and produces unreliable results in this codebase. Use `xcodebuild test` in the terminal if test execution is required.
 
 ---
 
