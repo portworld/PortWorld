@@ -15,7 +15,7 @@ struct QueryBundleUploadResult {
 enum QueryBundleBuilderError: LocalizedError {
   case invalidAudioFile(URL)
   case invalidVideoFile(URL)
-  case metadataEncodingFailed
+  case metadataEncodingFailed(Error)
   case timeout
   case transport(message: String)
   case uploadFailed(statusCode: Int, message: String?)
@@ -26,8 +26,8 @@ enum QueryBundleBuilderError: LocalizedError {
       return "Audio file does not exist or is unreadable: \(url.path)"
     case .invalidVideoFile(let url):
       return "Video file does not exist or is unreadable: \(url.path)"
-    case .metadataEncodingFailed:
-      return "Unable to encode query metadata JSON"
+    case .metadataEncodingFailed(let error):
+      return "Unable to encode query metadata JSON: \(error.localizedDescription)"
     case .timeout:
       return "Query bundle upload timed out"
     case .transport(let message):
@@ -39,7 +39,7 @@ enum QueryBundleBuilderError: LocalizedError {
   }
 }
 
-final class QueryBundleBuilder {
+final class QueryBundleBuilder: QueryBundleBuilderProtocol {
   private let endpointURL: URL
   private let defaultHeaders: [String: String]
   private let urlSession: URLSession
@@ -150,8 +150,11 @@ final class QueryBundleBuilder {
     videoData: Data,
     videoFileName: String
   ) throws -> Data {
-    guard let metadataJSON = try? JSONEncoder().encode(metadata) else {
-      throw QueryBundleBuilderError.metadataEncodingFailed
+    let metadataJSON: Data
+    do {
+      metadataJSON = try JSONEncoder().encode(metadata)
+    } catch {
+      throw QueryBundleBuilderError.metadataEncodingFailed(error)
     }
 
     var body = Data()

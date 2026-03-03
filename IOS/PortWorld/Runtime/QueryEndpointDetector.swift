@@ -80,7 +80,7 @@ final class QueryEndpointDetector {
     }
   }
 
-  func beginQuery(queryId: String = "query_\(UUID().uuidString)", startedAtMs: Int64 = QueryEndpointClock.nowMs()) {
+  func beginQuery(queryId: String = "query_\(UUID().uuidString)", startedAtMs: Int64 = Clocks.nowMs()) {
     queue.async {
       guard self.state == nil else {
         return
@@ -100,7 +100,7 @@ final class QueryEndpointDetector {
     }
   }
 
-  func recordSpeechActivity(at timestampMs: Int64 = QueryEndpointClock.nowMs()) {
+  func recordSpeechActivity(at timestampMs: Int64 = Clocks.nowMs()) {
     queue.async {
       guard var current = self.state else {
         return
@@ -116,7 +116,7 @@ final class QueryEndpointDetector {
     }
   }
 
-  func forceEnd(reason: QueryEndpointReason = .manualStop, endedAtMs: Int64 = QueryEndpointClock.nowMs()) {
+  func forceEnd(reason: QueryEndpointReason = .manualStop, endedAtMs: Int64 = Clocks.nowMs()) {
     queue.async {
       self.endCurrentQueryLocked(reason: reason, endedAtMs: endedAtMs)
     }
@@ -124,7 +124,7 @@ final class QueryEndpointDetector {
 
   func reset() {
     queue.async {
-      self.endCurrentQueryLocked(reason: .reset, endedAtMs: QueryEndpointClock.nowMs())
+      self.endCurrentQueryLocked(reason: .reset, endedAtMs: Clocks.nowMs())
     }
   }
 
@@ -156,7 +156,7 @@ final class QueryEndpointDetector {
       return
     }
 
-    let nowMs = QueryEndpointClock.nowMs()
+    let nowMs = Clocks.nowMs()
     let silenceElapsed = nowMs - current.lastSpeechAtMs
     if silenceElapsed >= silenceTimeoutMs {
       endCurrentQueryLocked(reason: .silenceTimeout, endedAtMs: nowMs)
@@ -183,11 +183,5 @@ final class QueryEndpointDetector {
     callbackQueue.async {
       self.onQueryEnded?(event)
     }
-  }
-}
-
-enum QueryEndpointClock {
-  static func nowMs() -> Int64 {
-    Int64(Date().timeIntervalSince1970 * 1000)
   }
 }

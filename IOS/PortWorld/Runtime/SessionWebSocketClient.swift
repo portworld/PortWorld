@@ -31,23 +31,17 @@ public enum SessionWebSocketClientError: Error, LocalizedError {
   }
 }
 
-public actor SessionWebSocketClient {
-  public typealias StateHandler = (SessionWebSocketConnectionState) -> Void
-  public typealias MessageHandler = (WSInboundMessage) -> Void
-  public typealias ErrorHandler = (SessionWebSocketClientError) -> Void
-
+actor SessionWebSocketClient: SessionWebSocketClientProtocol {
   private let url: URL
   private let requestHeaders: [String: String]
   private let urlSession: URLSession
   private let baseReconnectDelayMs: UInt64
   private let maxReconnectDelayMs: UInt64
   private let pingIntervalMs: UInt64
-  private let onStateChange: StateHandler?
-  private let onMessage: MessageHandler?
-  private let onError: ErrorHandler?
-  private let eventLogger: EventLogger?
-  private let jsonDecoder = JSONDecoder()
-  private let jsonEncoder = JSONEncoder()
+  private var onStateChange: SessionWebSocketStateHandler?
+  private var onMessage: SessionWebSocketMessageHandler?
+  private var onError: SessionWebSocketErrorHandler?
+  private var eventLogger: EventLoggerProtocol?
 
   private var webSocketTask: URLSessionWebSocketTask?
   private var receiveTask: Task<Void, Never>?
@@ -59,17 +53,17 @@ public actor SessionWebSocketClient {
   private var outboundSeq = 0
   private var hasPublishedConnectedForSocket = false
 
-  public init(
+  init(
     url: URL,
     requestHeaders: [String: String] = [:],
     urlSession: URLSession = .shared,
     baseReconnectDelayMs: UInt64 = 500,
     maxReconnectDelayMs: UInt64 = 30_000,
     pingIntervalMs: UInt64 = 15_000,
-    onStateChange: StateHandler? = nil,
-    onMessage: MessageHandler? = nil,
-    onError: ErrorHandler? = nil,
-    eventLogger: EventLogger? = nil
+    onStateChange: SessionWebSocketStateHandler? = nil,
+    onMessage: SessionWebSocketMessageHandler? = nil,
+    onError: SessionWebSocketErrorHandler? = nil,
+    eventLogger: EventLoggerProtocol? = nil
   ) {
     self.url = url
     self.requestHeaders = requestHeaders
@@ -92,12 +86,28 @@ public actor SessionWebSocketClient {
   }
 
   public func connect() {
+    if let webSocketTask,
+       webSocketTask.state == .canceling || webSocketTask.state == .completed {
+      self.webSocketTask = nil
+    }
     guard webSocketTask == nil, reconnectTask == nil else { return }
 
     shouldReconnect = true
     reconnectAttempt = 0
     publishState(.connecting)
     openSocket()
+  }
+
+  func bindHandlers(
+    onStateChange: SessionWebSocketStateHandler?,
+    onMessage: SessionWebSocketMessageHandler?,
+    onError: SessionWebSocketErrorHandler?,
+    eventLogger: EventLoggerProtocol?
+  ) {
+    self.onStateChange = onStateChange
+    self.onMessage = onMessage
+    self.onError = onError
+    self.eventLogger = eventLogger
   }
 
   public func disconnect(closeCode: URLSessionWebSocketTask.CloseCode = .normalClosure) {
@@ -152,7 +162,9 @@ public actor SessionWebSocketClient {
   public func sendEnvelope<Payload: Codable>(_ envelope: WSMessageEnvelope<Payload>) async throws {
     let data: Data
     do {
-      data = try WSMessageCodec.encodeEnvelope(envelope, encoder: jsonEncoder)
+      data = try await MainActor.run {
+        try WSMessageCodec.encodeEnvelope(envelope)
+      }
     } catch {
       throw SessionWebSocketClientError.encoding(error.localizedDescription)
     }
@@ -164,12 +176,15 @@ public actor SessionWebSocketClient {
     sessionID: String,
     payload: Payload
   ) async throws {
-    let envelope = WSMessageEnvelope(
-      type: type.rawValue,
-      sessionID: sessionID,
-      seq: nextOutboundSequence(),
-      payload: payload
-    )
+    let sequence = nextOutboundSequence()
+    let envelope = await MainActor.run {
+      WSMessageEnvelope(
+        type: type.rawValue,
+        sessionID: sessionID,
+        seq: sequence,
+        payload: payload
+      )
+    }
     try await sendEnvelope(envelope)
   }
 
@@ -272,7 +287,9 @@ public actor SessionWebSocketClient {
 
   private func handleInboundData(_ data: Data) async {
     do {
-      let message = try WSMessageCodec.decodeInbound(from: data, decoder: jsonDecoder)
+      let message = try await MainActor.run {
+        try WSMessageCodec.decodeInbound(from: data)
+      }
       reconnectAttempt = 0
       publishConnectedIfReadySignalReceived()
       onMessage?(message)

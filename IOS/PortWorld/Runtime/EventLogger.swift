@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-public final class EventLogger {
+public final class EventLogger: EventLoggerProtocol {
   public typealias Sink = (_ line: String) -> Void
 
   private let maxRetainedEvents: Int
@@ -32,7 +32,9 @@ public final class EventLogger {
     if let sink {
       sink(line)
     } else {
+#if DEBUG
       print(line)
+#endif
     }
   }
 
@@ -43,7 +45,7 @@ public final class EventLogger {
     fields: [String: JSONValue] = [:],
     tsMs: Int64? = nil
   ) {
-    let timestamp = tsMs ?? Int64((Date().timeIntervalSince1970 * 1000.0).rounded())
+    let timestamp = tsMs ?? Clocks.nowMs()
     let event = AppEvent(name: name, sessionID: sessionID, queryID: queryID, tsMs: timestamp, fields: fields)
     log(event)
   }

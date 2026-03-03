@@ -59,6 +59,24 @@ protocol WakeWordEngine: AnyObject {
   func processPCMFrame(_ frame: WakeWordPCMFrame)
 }
 
+extension WakeWordEngine {
+  func processPCMFrame(
+    _ samples: [Int16],
+    timestampMs: Int64,
+    sampleRateHz: Double = 8_000,
+    channelCount: Int = 1
+  ) {
+    processPCMFrame(
+      WakeWordPCMFrame(
+        samples: samples,
+        sampleRateHz: sampleRateHz,
+        channelCount: channelCount,
+        timestampMs: timestampMs
+      )
+    )
+  }
+}
+
 enum WakeWordEngineError: LocalizedError {
   case notListening
   case recognizerUnavailable
@@ -113,7 +131,7 @@ final class ManualWakeWordEngine: WakeWordEngine {
 
   func triggerManualWake(
     wakePhrase: String? = nil,
-    timestampMs: Int64 = WakeWordClock.nowMs(),
+    timestampMs: Int64 = Clocks.nowMs(),
     confidence: Float = 1.0
   ) {
     guard isListening else {
@@ -297,7 +315,7 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
     if let result {
       let transcript = Self.normalizePhrase(result.bestTranscription.formattedString)
       if !transcript.isEmpty, transcript.contains(normalizedWakePhrase) {
-        let now = WakeWordClock.nowMs()
+        let now = Clocks.nowMs()
         if now - lastDetectionTimestampMs >= detectionCooldownMs {
           lastDetectionTimestampMs = now
           onWakeDetected?(
@@ -407,11 +425,5 @@ extension SFSpeechWakeWordEngine: SFSpeechRecognizerDelegate {
         self.publishStatus(authorization: self.authorization, runtime: .listening)
       }
     }
-  }
-}
-
-enum WakeWordClock {
-  static func nowMs() -> Int64 {
-    Int64(Date().timeIntervalSince1970 * 1000)
   }
 }

@@ -38,7 +38,7 @@ enum RollingVideoBufferError: LocalizedError {
   }
 }
 
-final class RollingVideoBuffer {
+final class RollingVideoBuffer: RollingVideoBufferProtocol {
   private struct BufferedFrame {
     let timestampMs: Int64
     let image: UIImage
@@ -67,7 +67,7 @@ final class RollingVideoBuffer {
     }
   }
 
-  func append(frame: UIImage, timestampMs: Int64 = RollingVideoClock.nowMs()) {
+  func append(frame: UIImage, timestampMs: Int64 = Clocks.nowMs()) {
     queue.async {
       self.frames.append(BufferedFrame(timestampMs: timestampMs, image: frame))
       self.evictOldFramesLocked(referenceTimestampMs: timestampMs)
@@ -345,11 +345,5 @@ private extension UIImage {
       return nil
     }
     return CGSize(width: width, height: height)
-  }
-}
-
-enum RollingVideoClock {
-  static func nowMs() -> Int64 {
-    Int64(Date().timeIntervalSince1970 * 1000)
   }
 }

@@ -121,7 +121,7 @@ public struct QueryMetadata: Codable {
   }
 }
 
-public struct AssistantAudioChunkPayload: Codable {
+@preconcurrency public struct AssistantAudioChunkPayload: Codable {
   public let responseID: String
   public let chunkID: String
   public let codec: String
@@ -169,7 +169,7 @@ public enum PlaybackControlCommand: String, Codable {
   case cancelResponse = "cancel_response"
 }
 
-public struct PlaybackControlPayload: Codable {
+@preconcurrency public struct PlaybackControlPayload: Codable {
   public let command: PlaybackControlCommand
   public let responseID: String?
 
@@ -184,7 +184,7 @@ public struct PlaybackControlPayload: Codable {
   }
 }
 
-public struct AssistantThinkingPayload: Codable {
+@preconcurrency public struct AssistantThinkingPayload: Codable {
   public let status: String
   public let queryID: String?
 
@@ -210,7 +210,7 @@ public struct AppEvent: Codable {
     name: String,
     sessionID: String,
     queryID: String? = nil,
-    tsMs: Int64 = RuntimeClock.nowMs(),
+    tsMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000),
     fields: [String: JSONValue] = [:]
   ) {
     self.name = name
@@ -303,7 +303,7 @@ public struct HealthStatsPayload: Codable {
   }
 }
 
-public struct RuntimeErrorPayload: Codable {
+@preconcurrency public struct RuntimeErrorPayload: Codable {
   public let code: String
   public let retriable: Bool
   public let message: String
@@ -315,7 +315,7 @@ public struct RuntimeErrorPayload: Codable {
   }
 }
 
-public struct SessionStatePayload: Codable {
+@preconcurrency public struct SessionStatePayload: Codable {
   public let state: SessionState
   public let detail: String?
 
@@ -329,14 +329,14 @@ public struct EmptyPayload: Codable {
   public init() {}
 }
 
-public struct WSMessageEnvelope<Payload: Codable>: Codable {
+@preconcurrency public struct WSMessageEnvelope<Payload: Codable>: Codable {
   public let type: String
   public let sessionID: String
   public let seq: Int
   public let tsMs: Int64
   public let payload: Payload
 
-  public init(type: String, sessionID: String, seq: Int, tsMs: Int64 = RuntimeClock.nowMs(), payload: Payload) {
+  public init(type: String, sessionID: String, seq: Int, tsMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000), payload: Payload) {
     self.type = type
     self.sessionID = sessionID
     self.seq = seq
@@ -353,7 +353,7 @@ public struct WSMessageEnvelope<Payload: Codable>: Codable {
   }
 }
 
-public struct WSRawMessageEnvelope: Codable {
+@preconcurrency public struct WSRawMessageEnvelope: Codable {
   public let type: String
   public let sessionID: String
   public let seq: Int
@@ -390,7 +390,7 @@ public enum WSInboundType: String, Codable {
   case error
 }
 
-public enum WSInboundMessage {
+@preconcurrency public enum WSInboundMessage {
   case sessionState(WSMessageEnvelope<SessionStatePayload>)
   case healthPong(WSMessageEnvelope<JSONValue>)
   case assistantAudioChunk(WSMessageEnvelope<AssistantAudioChunkPayload>)
@@ -400,7 +400,7 @@ public enum WSInboundMessage {
   case unknown(WSRawMessageEnvelope)
 }
 
-public enum WSMessageCodec {
+@preconcurrency public enum WSMessageCodec {
   public static func decodeInbound(from data: Data, decoder: JSONDecoder = JSONDecoder()) throws -> WSInboundMessage {
     let rawEnvelope = try decoder.decode(WSRawMessageEnvelope.self, from: data)
 
@@ -434,13 +434,7 @@ public enum WSMessageCodec {
   }
 }
 
-public enum RuntimeClock {
-  nonisolated public static func nowMs() -> Int64 {
-    Int64((Date().timeIntervalSince1970 * 1000.0).rounded())
-  }
-}
-
-public enum JSONValue: Codable, Equatable {
+@preconcurrency public enum JSONValue: Codable, Equatable {
   case string(String)
   case number(Double)
   case bool(Bool)

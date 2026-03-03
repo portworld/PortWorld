@@ -36,10 +36,10 @@ enum VisionFrameUploadErrorCode: String {
   case unknown = "PHOTO_UPLOAD_UNKNOWN_ERROR"
 }
 
-final class VisionFrameUploader {
+final class VisionFrameUploader: VisionFrameUploaderProtocol {
   typealias UploadResultHandler = (VisionFrameUploadResult) -> Void
 
-  var onUploadResult: UploadResultHandler?
+  private var onUploadResult: UploadResultHandler?
 
   private struct PendingFrame {
     let image: UIImage
@@ -48,7 +48,7 @@ final class VisionFrameUploader {
 
   private let endpointURL: URL
   private let defaultHeaders: [String: String]
-  private let sessionIDProvider: () -> String?
+  private var sessionIDProvider: () -> String?
   private let uploadIntervalMs: Int64
   private let jpegCompression: CGFloat
   private let requestTimeoutMs: Int64
@@ -118,9 +118,19 @@ final class VisionFrameUploader {
     }
   }
 
-  func submitLatestFrame(_ image: UIImage, captureTimestampMs: Int64 = VisionFrameClock.nowMs()) {
+  func submitLatestFrame(_ image: UIImage, captureTimestampMs: Int64 = Clocks.nowMs()) {
     queue.async {
       self.latestFrame = PendingFrame(image: image, captureTimestampMs: captureTimestampMs)
+    }
+  }
+
+  func bindHandlers(
+    sessionIDProvider: @escaping VisionFrameSessionIDProvider,
+    onUploadResult: UploadResultHandler?
+  ) {
+    queue.async {
+      self.sessionIDProvider = sessionIDProvider
+      self.onUploadResult = onUploadResult
     }
   }
 
@@ -195,7 +205,7 @@ final class VisionFrameUploader {
       throw VisionFrameUploaderError.imageEncodingFailed
     }
 
-    let now = VisionFrameClock.nowMs()
+    let now = Clocks.nowMs()
     let frameId = "frame_\(now)"
     let dimensions = pending.image.normalizedPixelSize
 
@@ -338,11 +348,5 @@ private extension UIImage {
     let width = Int(size.width * scale)
     let height = Int(size.height * scale)
     return (max(1, width), max(1, height))
-  }
-}
-
-enum VisionFrameClock {
-  static func nowMs() -> Int64 {
-    Int64(Date().timeIntervalSince1970 * 1000)
   }
 }
