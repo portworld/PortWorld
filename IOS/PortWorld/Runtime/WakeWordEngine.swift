@@ -45,6 +45,7 @@ struct WakeWordPCMFrame {
   let timestampMs: Int64
 }
 
+@MainActor
 protocol WakeWordEngine: AnyObject {
   var onWakeDetected: ((WakeWordDetectionEvent) -> Void)? { get set }
   var onError: ((Error) -> Void)? { get set }
@@ -94,6 +95,7 @@ enum WakeWordEngineError: LocalizedError {
   }
 }
 
+@MainActor
 final class ManualWakeWordEngine: WakeWordEngine {
   var onWakeDetected: ((WakeWordDetectionEvent) -> Void)?
   var onError: ((Error) -> Void)?
@@ -131,7 +133,7 @@ final class ManualWakeWordEngine: WakeWordEngine {
 
   func triggerManualWake(
     wakePhrase: String? = nil,
-    timestampMs: Int64 = Clocks.nowMs(),
+    timestampMs: Int64,
     confidence: Float = 1.0
   ) {
     guard isListening else {
@@ -161,6 +163,7 @@ final class ManualWakeWordEngine: WakeWordEngine {
   }
 }
 
+@MainActor
 final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
   var onWakeDetected: ((WakeWordDetectionEvent) -> Void)?
   var onError: ((Error) -> Void)?
@@ -174,14 +177,14 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
   private let localeIdentifier: String
   private let requiresOnDeviceRecognition: Bool
   private let detectionCooldownMs: Int64
-  private let queue = DispatchQueue(label: "Runtime.SFSpeechWakeWordEngine")
-
+  private let maxConsecutiveRecognitionErrors: Int = 5
   private var recognizer: SFSpeechRecognizer?
   private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
   private var recognitionTask: SFSpeechRecognitionTask?
   private var authorization: WakeWordAuthorizationState = .notDetermined
   private var runtimeStatus: WakeWordRuntimeStatus = .idle
   private var lastDetectionTimestampMs: Int64 = 0
+  private var consecutiveRecognitionErrorCount: Int = 0
 
   init(
     wakePhrase: String,
@@ -199,22 +202,22 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
   }
 
   func currentAuthorizationStatus() -> WakeWordAuthorizationState {
-    queue.sync {
-      authorization = Self.mapAuthorization(SFSpeechRecognizer.authorizationStatus())
-      return authorization
-    }
+    let status = Self.mapAuthorization(SFSpeechRecognizer.authorizationStatus())
+    authorization = status
+    return status
   }
 
   func requestAuthorizationIfNeeded() async -> WakeWordAuthorizationState {
     let current = currentAuthorizationStatus()
     if current != .notDetermined {
-      publishStatus(authorization: current, runtime: runtimeStatus)
+      let runtime: WakeWordRuntimeStatus = current == .authorized ? .idle : .fallbackManual
+      authorization = current
+      runtimeStatus = runtime
+      publishStatus(authorization: current, runtime: runtime)
       return current
     }
 
-    queue.sync {
-      runtimeStatus = .requestingAuthorization
-    }
+    runtimeStatus = .requestingAuthorization
     publishStatus(authorization: .notDetermined, runtime: .requestingAuthorization)
 
     let status = await withCheckedContinuation { continuation in
@@ -223,61 +226,55 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
       }
     }
 
-    queue.sync {
-      authorization = status
-      runtimeStatus = status == .authorized ? .idle : .fallbackManual
-    }
+    authorization = status
+    runtimeStatus = status == .authorized ? .idle : .fallbackManual
     publishStatus(authorization: status, runtime: status == .authorized ? .idle : .fallbackManual)
     return status
   }
 
   func startListening() {
-    queue.async {
-      self.authorization = Self.mapAuthorization(SFSpeechRecognizer.authorizationStatus())
-      guard self.authorization == .authorized else {
-        self.runtimeStatus = .fallbackManual
-        self.publishStatus(authorization: self.authorization, runtime: .fallbackManual)
-        return
-      }
-
-      self.configureRecognizerIfNeeded()
-      guard let recognizer = self.recognizer, recognizer.isAvailable else {
-        self.runtimeStatus = .fallbackManual
-        self.publishStatus(authorization: .unavailable, runtime: .fallbackManual, detail: "Recognizer unavailable")
-        return
-      }
-
-      if self.requiresOnDeviceRecognition, recognizer.supportsOnDeviceRecognition == false {
-        self.runtimeStatus = .fallbackManual
-        self.publishStatus(authorization: .unavailable, runtime: .fallbackManual, detail: "On-device recognition unsupported")
-        self.onError?(WakeWordEngineError.onDeviceRecognitionUnavailable)
-        return
-      }
-
-      self.isListening = true
-      self.lastDetectionTimestampMs = 0
-      self.startRecognitionTaskLocked()
-      self.runtimeStatus = .listening
-      self.publishStatus(authorization: self.authorization, runtime: .listening)
+    authorization = Self.mapAuthorization(SFSpeechRecognizer.authorizationStatus())
+    guard authorization == .authorized else {
+      runtimeStatus = .fallbackManual
+      publishStatus(authorization: authorization, runtime: .fallbackManual)
+      return
     }
+
+    configureRecognizerIfNeeded()
+    guard let recognizer, recognizer.isAvailable else {
+      runtimeStatus = .fallbackManual
+      publishStatus(authorization: .unavailable, runtime: .fallbackManual, detail: "Recognizer unavailable")
+      return
+    }
+
+    if requiresOnDeviceRecognition, recognizer.supportsOnDeviceRecognition == false {
+      runtimeStatus = .fallbackManual
+      publishStatus(authorization: .unavailable, runtime: .fallbackManual, detail: "On-device recognition unsupported")
+      onError?(WakeWordEngineError.onDeviceRecognitionUnavailable)
+      return
+    }
+
+    isListening = true
+    lastDetectionTimestampMs = 0
+    consecutiveRecognitionErrorCount = 0
+    startRecognitionTaskLocked()
+    runtimeStatus = .listening
+    publishStatus(authorization: authorization, runtime: .listening)
   }
 
   func stopListening() {
-    queue.async {
-      self.isListening = false
-      self.stopRecognitionTaskLocked()
-      self.runtimeStatus = .idle
-      self.publishStatus(authorization: self.authorization, runtime: .idle)
-    }
+    isListening = false
+    consecutiveRecognitionErrorCount = 0
+    stopRecognitionTaskLocked()
+    runtimeStatus = .idle
+    publishStatus(authorization: authorization, runtime: .idle)
   }
 
   func processPCMFrame(_ frame: WakeWordPCMFrame) {
-    queue.async {
-      guard self.isListening else { return }
-      guard let request = self.recognitionRequest else { return }
-      guard let buffer = Self.makeRecognitionBuffer(from: frame) else { return }
-      request.append(buffer)
-    }
+    guard isListening else { return }
+    guard let request = recognitionRequest else { return }
+    guard let buffer = Self.makeRecognitionBuffer(from: frame) else { return }
+    request.append(buffer)
   }
 
   private func configureRecognizerIfNeeded() {
@@ -298,7 +295,7 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
 
     recognitionTask = recognizer?.recognitionTask(with: request) { [weak self] result, error in
       guard let self else { return }
-      self.queue.async {
+      Task { @MainActor in
         self.handleRecognitionUpdateLocked(result: result, error: error)
       }
     }
@@ -313,6 +310,7 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
 
   private func handleRecognitionUpdateLocked(result: SFSpeechRecognitionResult?, error: Error?) {
     if let result {
+      consecutiveRecognitionErrorCount = 0
       let transcript = Self.normalizePhrase(result.bestTranscription.formattedString)
       if !transcript.isEmpty, transcript.contains(normalizedWakePhrase) {
         let now = Clocks.nowMs()
@@ -337,7 +335,19 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
     if let error {
       onError?(error)
       if isListening {
+        consecutiveRecognitionErrorCount += 1
         runtimeStatus = .failed
+        if consecutiveRecognitionErrorCount >= maxConsecutiveRecognitionErrors {
+          isListening = false
+          stopRecognitionTaskLocked()
+          publishStatus(
+            authorization: authorization,
+            runtime: .failed,
+            detail: "Recognition failed \(consecutiveRecognitionErrorCount) times consecutively: \(error.localizedDescription)"
+          )
+          return
+        }
+
         publishStatus(authorization: authorization, runtime: .failed, detail: error.localizedDescription)
         startRecognitionTaskLocked()
         runtimeStatus = .listening
@@ -377,10 +387,16 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
   }
 
   private static func normalizePhrase(_ text: String) -> String {
-    text
+    let normalized = text
       .folding(options: .diacriticInsensitive, locale: .current)
       .lowercased()
-      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .components(separatedBy: CharacterSet.punctuationCharacters.union(.symbols))
+      .joined(separator: " ")
+
+    return normalized
+      .components(separatedBy: .whitespacesAndNewlines)
+      .filter { !$0.isEmpty }
+      .joined(separator: " ")
   }
 
   private static func makeRecognitionBuffer(from frame: WakeWordPCMFrame) -> AVAudioPCMBuffer? {
@@ -416,7 +432,7 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
 
 extension SFSpeechWakeWordEngine: SFSpeechRecognizerDelegate {
   func speechRecognizer(_ speechRecognizer: SFSpeechRecognizer, availabilityDidChange available: Bool) {
-    queue.async {
+    Task { @MainActor in
       if !available {
         self.runtimeStatus = .fallbackManual
         self.publishStatus(authorization: .unavailable, runtime: .fallbackManual, detail: "Recognizer unavailable")
