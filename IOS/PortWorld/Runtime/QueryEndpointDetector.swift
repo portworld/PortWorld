@@ -35,29 +35,28 @@ final class QueryEndpointDetector {
 
   var silenceTimeoutMs: Int64 {
     didSet {
-      queue.async { [weak self] in
-        self?.rescheduleTimerLocked()
+      if silenceTimeoutMs < 250 {
+        silenceTimeoutMs = 250
+        return
+      }
+
+      let timeoutMs = silenceTimeoutMs
+      Task { [core] in
+        await core.updateSilenceTimeoutMs(timeoutMs)
       }
     }
   }
 
   var isQueryActive: Bool {
-    queue.sync { state != nil }
+    activeLock.lock()
+    defer { activeLock.unlock() }
+    return cachedIsQueryActive
   }
 
-  private struct State {
-    var queryId: String
-    var startedAtMs: Int64
-    var lastSpeechAtMs: Int64
-  }
-
-  private let queue = DispatchQueue(label: "Runtime.QueryEndpointDetector")
-  private let queueKey = DispatchSpecificKey<Void>()
   private let callbackQueue: DispatchQueue
-  private let checkIntervalMs: Int64
-
-  private var state: State?
-  private var timer: DispatchSourceTimer?
+  private let core: Core
+  private let activeLock = NSLock()
+  private var cachedIsQueryActive = false
 
   init(
     silenceTimeoutMs: Int64 = 5_000,
@@ -65,123 +64,220 @@ final class QueryEndpointDetector {
     callbackQueue: DispatchQueue = .main
   ) {
     self.silenceTimeoutMs = max(250, silenceTimeoutMs)
-    self.checkIntervalMs = max(50, checkIntervalMs)
     self.callbackQueue = callbackQueue
-    self.queue.setSpecific(key: queueKey, value: ())
+    self.core = Core(
+      silenceTimeoutMs: max(250, silenceTimeoutMs),
+      checkIntervalMs: max(50, checkIntervalMs)
+    )
+
+    Task { [core] in
+      await core.setEventSink { [weak self, callbackQueue] event in
+        guard let self else {
+          return
+        }
+
+        switch event {
+        case .started(let started):
+          Task { @MainActor in
+            self.setQueryActive(true)
+          }
+          callbackQueue.async {
+            self.onQueryStarted?(started)
+          }
+
+        case .speechPing(let queryId, let timestampMs):
+          callbackQueue.async {
+            self.onSpeechActivityPing?(queryId, timestampMs)
+          }
+
+        case .ended(let ended):
+          Task { @MainActor in
+            self.setQueryActive(false)
+          }
+          callbackQueue.async {
+            self.onQueryEnded?(ended)
+          }
+        }
+      }
+    }
   }
 
   deinit {
-    if DispatchQueue.getSpecific(key: queueKey) != nil {
-      cancelTimerLocked()
-    } else {
-      queue.sync {
-        cancelTimerLocked()
-      }
+    let core = core
+    Task {
+      await core.shutdown()
     }
   }
 
   func beginQuery(queryId: String = "query_\(UUID().uuidString)", startedAtMs: Int64 = Clocks.nowMs()) {
-    queue.async {
-      guard self.state == nil else {
-        return
-      }
-
-      self.state = State(
-        queryId: queryId,
-        startedAtMs: startedAtMs,
-        lastSpeechAtMs: startedAtMs
-      )
-      self.rescheduleTimerLocked()
-
-      let event = QueryEndpointStartedEvent(queryId: queryId, startedAtMs: startedAtMs)
-      self.callbackQueue.async {
-        self.onQueryStarted?(event)
-      }
+    Task { [core] in
+      await core.beginQuery(queryId: queryId, startedAtMs: startedAtMs)
     }
   }
 
   func recordSpeechActivity(at timestampMs: Int64 = Clocks.nowMs()) {
-    queue.async {
-      guard var current = self.state else {
-        return
-      }
-
-      current.lastSpeechAtMs = max(current.lastSpeechAtMs, timestampMs)
-      self.state = current
-
-      let queryId = current.queryId
-      self.callbackQueue.async {
-        self.onSpeechActivityPing?(queryId, timestampMs)
-      }
+    Task { [core] in
+      await core.recordSpeechActivity(at: timestampMs)
     }
   }
 
   func forceEnd(reason: QueryEndpointReason = .manualStop, endedAtMs: Int64 = Clocks.nowMs()) {
-    queue.async {
-      self.endCurrentQueryLocked(reason: reason, endedAtMs: endedAtMs)
+    Task { [core] in
+      await core.forceEnd(reason: reason, endedAtMs: endedAtMs)
     }
   }
 
   func reset() {
-    queue.async {
-      self.endCurrentQueryLocked(reason: .reset, endedAtMs: Clocks.nowMs())
+    Task { [core] in
+      await core.forceEnd(reason: .reset, endedAtMs: Clocks.nowMs())
     }
   }
 
-  private func rescheduleTimerLocked() {
-    cancelTimerLocked()
-
-    guard state != nil else {
-      return
-    }
-
-    let timer = DispatchSource.makeTimerSource(queue: queue)
-    let intervalNs = UInt64(checkIntervalMs) * 1_000_000
-    timer.schedule(deadline: .now() + .milliseconds(Int(checkIntervalMs)), repeating: .nanoseconds(Int(intervalNs)))
-    timer.setEventHandler { [weak self] in
-      self?.tickLocked()
-    }
-    self.timer = timer
-    timer.resume()
+  private func setQueryActive(_ isActive: Bool) {
+    activeLock.lock()
+    cachedIsQueryActive = isActive
+    activeLock.unlock()
   }
 
-  private func cancelTimerLocked() {
-    timer?.setEventHandler {}
-    timer?.cancel()
-    timer = nil
+  private enum CoreEvent {
+    case started(QueryEndpointStartedEvent)
+    case speechPing(queryId: String, timestampMs: Int64)
+    case ended(QueryEndpointEndedEvent)
   }
 
-  private func tickLocked() {
-    guard let current = state else {
-      return
+  private actor Core {
+    typealias EventSink = @Sendable (CoreEvent) -> Void
+
+    private struct State {
+      var queryId: String
+      var startedAtMs: Int64
+      var lastSpeechAtMs: Int64
     }
 
-    let nowMs = Clocks.nowMs()
-    let silenceElapsed = nowMs - current.lastSpeechAtMs
-    if silenceElapsed >= silenceTimeoutMs {
-      endCurrentQueryLocked(reason: .silenceTimeout, endedAtMs: nowMs)
+    private var silenceTimeoutMs: Int64
+    private let checkIntervalMs: Int64
+
+    private var state: State?
+    private var timerTask: Task<Void, Never>?
+    private var eventSink: EventSink?
+    private var eventBuffer: [CoreEvent] = []
+
+    init(silenceTimeoutMs: Int64, checkIntervalMs: Int64) {
+      self.silenceTimeoutMs = silenceTimeoutMs
+      self.checkIntervalMs = checkIntervalMs
     }
-  }
 
-  private func endCurrentQueryLocked(reason: QueryEndpointReason, endedAtMs: Int64) {
-    guard let current = state else {
-      return
+    func setEventSink(_ sink: @escaping EventSink) {
+      eventSink = sink
+      for event in eventBuffer {
+        sink(event)
+      }
+      eventBuffer.removeAll()
     }
 
-    cancelTimerLocked()
-    state = nil
+    func updateSilenceTimeoutMs(_ timeoutMs: Int64) {
+      silenceTimeoutMs = max(250, timeoutMs)
+    }
 
-    let endedAt = max(current.startedAtMs, endedAtMs)
-    let event = QueryEndpointEndedEvent(
-      queryId: current.queryId,
-      startedAtMs: current.startedAtMs,
-      endedAtMs: endedAt,
-      durationMs: endedAt - current.startedAtMs,
-      reason: reason
-    )
+    func beginQuery(queryId: String, startedAtMs: Int64) {
+      guard state == nil else {
+        return
+      }
 
-    callbackQueue.async {
-      self.onQueryEnded?(event)
+      state = State(
+        queryId: queryId,
+        startedAtMs: startedAtMs,
+        lastSpeechAtMs: startedAtMs
+      )
+      ensureTimerRunning()
+      emit(.started(QueryEndpointStartedEvent(queryId: queryId, startedAtMs: startedAtMs)))
+    }
+
+    func recordSpeechActivity(at timestampMs: Int64) {
+      guard var current = state else {
+        return
+      }
+
+      current.lastSpeechAtMs = max(current.lastSpeechAtMs, timestampMs)
+      state = current
+      emit(.speechPing(queryId: current.queryId, timestampMs: timestampMs))
+    }
+
+    func forceEnd(reason: QueryEndpointReason, endedAtMs: Int64) {
+      endCurrentQuery(reason: reason, endedAtMs: endedAtMs)
+    }
+
+    func shutdown() {
+      stopTimer()
+      state = nil
+    }
+
+    private func ensureTimerRunning() {
+      guard timerTask == nil else {
+        return
+      }
+
+      let intervalNs = UInt64(checkIntervalMs) * 1_000_000
+      timerTask = Task { [weak self] in
+        while !Task.isCancelled {
+          do {
+            try await Task.sleep(nanoseconds: intervalNs)
+          } catch {
+            return
+          }
+
+          guard let self else {
+            return
+          }
+          await self.tick()
+        }
+      }
+    }
+
+    private func stopTimer() {
+      timerTask?.cancel()
+      timerTask = nil
+    }
+
+    private func tick() {
+      guard let current = state else {
+        stopTimer()
+        return
+      }
+
+      let nowMs = Clocks.nowMs()
+      let silenceElapsed = nowMs - current.lastSpeechAtMs
+      if silenceElapsed >= silenceTimeoutMs {
+        endCurrentQuery(reason: .silenceTimeout, endedAtMs: nowMs)
+      }
+    }
+
+    private func endCurrentQuery(reason: QueryEndpointReason, endedAtMs: Int64) {
+      guard let current = state else {
+        return
+      }
+
+      stopTimer()
+      state = nil
+
+      let endedAt = max(current.startedAtMs, endedAtMs)
+      let event = QueryEndpointEndedEvent(
+        queryId: current.queryId,
+        startedAtMs: current.startedAtMs,
+        endedAtMs: endedAt,
+        durationMs: endedAt - current.startedAtMs,
+        reason: reason
+      )
+
+      emit(.ended(event))
+    }
+
+    private func emit(_ event: CoreEvent) {
+      if let eventSink {
+        eventSink(event)
+      } else {
+        eventBuffer.append(event)
+      }
     }
   }
 }
