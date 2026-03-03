@@ -66,7 +66,7 @@
 	<key>SON_API_KEY</key>
 	<string></string>
 	<key>SON_BACKEND_BASE_URL</key>
-	<string>http://172.16.0.104:8082</string>
+	<string>$(BACKEND_BASE_URL)</string>
 	<key>SON_BEARER_TOKEN</key>
 	<string></string>
 	<key>SON_PHOTO_FPS</key>
@@ -97,6 +97,7 @@
 	<array>
 		<string>bluetooth-peripheral</string>
 		<string>external-accessory</string>
+		<string>audio</string>
 	</array>
 	<key>UISupportedExternalAccessoryProtocols</key>
 	<array>

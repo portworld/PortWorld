@@ -25,6 +25,9 @@
 		0C6662DC2F534F350084DE6C /* PortWorld.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PortWorld.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0C66630A2F5353540084DE6C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		0C66635A2F535F2D0084DE6C /* PortWorld.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PortWorld.entitlements; sourceTree = "<group>"; };
+		0C66636B2F5361000084DE6C /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		0C66636C2F5361000084DE6C /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		0C66636D2F5361000084DE6C /* Config.xcconfig.template */ = {isa = PBXFileReference; lastKnownFileType = text; path = Config.xcconfig.template; sourceTree = "<group>"; };
 		AABB00012F53A0010084DE6C /* PortWorldTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PortWorldTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -67,6 +70,7 @@
 				0C6662DE2F534F350084DE6C /* PortWorld */,
 				AABB00022F53A0010084DE6C /* PortWorldTests */,
 				0C6662DD2F534F350084DE6C /* Products */,
+				0C66636E2F5361000084DE6C /* Config */,
 				0C66630A2F5353540084DE6C /* Info.plist */,
 				0C66635A2F535F2D0084DE6C /* PortWorld.entitlements */,
 			);
@@ -79,6 +83,16 @@
 				AABB00012F53A0010084DE6C /* PortWorldTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		0C66636E2F5361000084DE6C /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				0C66636B2F5361000084DE6C /* Debug.xcconfig */,
+				0C66636C2F5361000084DE6C /* Release.xcconfig */,
+				0C66636D2F5361000084DE6C /* Config.xcconfig.template */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -216,6 +230,7 @@
 /* Begin XCBuildConfiguration section */
 		0C6662E52F534F360084DE6C /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C66636B2F5361000084DE6C /* Debug.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -280,6 +295,7 @@
 		};
 		0C6662E62F534F360084DE6C /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C66636C2F5361000084DE6C /* Release.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -337,6 +353,7 @@
 		};
 		0C6662E82F534F360084DE6C /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C66636B2F5361000084DE6C /* Debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -368,6 +385,7 @@
 		};
 		0C6662E92F534F360084DE6C /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C66636C2F5361000084DE6C /* Release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

@@ -87,6 +87,13 @@ run_logs/
 #  Xcode / iOS
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Build configuration secrets
+Config/*.xcconfig
+IOS/Config/*.xcconfig
+!IOS/Config/Debug.xcconfig
+!IOS/Config/Release.xcconfig
+!IOS/Config/Config.xcconfig.template
+
 # User-specific Xcode files
 xcuserdata/
 *.xcuserstate
