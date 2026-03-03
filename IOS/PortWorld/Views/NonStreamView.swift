@@ -7,7 +7,8 @@ import MWDATCore
 import SwiftUI
 
 struct NonStreamView: View {
-  @ObservedObject var viewModel: StreamSessionViewModel
+  let viewModel: SessionViewModel
+  let store: SessionStateStore
   @ObservedObject var wearablesVM: WearablesViewModel
   @State private var sheetHeight: CGFloat = 300
 
@@ -21,7 +22,7 @@ struct NonStreamView: View {
             topBar
             heroCard
             connectionCard
-            RuntimeStatusPanelView(viewModel: viewModel)
+            RuntimeStatusPanelView(store: store)
               .padding(.top, 2)
           }
           .padding(.horizontal, 20)
@@ -112,7 +113,7 @@ struct NonStreamView: View {
         StatusChip(
           icon: "waveform.and.mic",
           label: "Wake mode",
-          value: viewModel.runtimeWakeEngineText.capitalized
+          value: store.runtimeWakeEngineText.capitalized
         )
       }
     }
@@ -135,11 +136,11 @@ struct NonStreamView: View {
 
   private var connectionCard: some View {
     HStack(spacing: 10) {
-      Image(systemName: viewModel.hasActiveDevice ? "checkmark.circle.fill" : "hourglass")
+      Image(systemName: store.hasActiveDevice ? "checkmark.circle.fill" : "hourglass")
         .font(.system(size: 16, weight: .semibold))
-        .foregroundColor(viewModel.hasActiveDevice ? Color.green.opacity(0.85) : Color.orange.opacity(0.9))
+        .foregroundColor(store.hasActiveDevice ? Color.green.opacity(0.85) : Color.orange.opacity(0.9))
 
-      Text(viewModel.hasActiveDevice ? "Active device detected. You can launch runtime now." : "No active device detected yet.")
+      Text(store.hasActiveDevice ? "Active device detected. You can launch runtime now." : "No active device detected yet.")
         .font(.system(.subheadline, design: .rounded).weight(.semibold))
         .foregroundColor(.white.opacity(0.9))
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -172,9 +173,9 @@ struct NonStreamView: View {
       }
       .buttonStyle(.plain)
       .foregroundColor(.white)
-      .background(viewModel.canActivateAssistantRuntime ? Color.appPrimary : Color.gray.opacity(0.5))
+      .background(store.canActivateAssistantRuntime ? Color.appPrimary : Color.gray.opacity(0.5))
       .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-      .disabled(!viewModel.canActivateAssistantRuntime)
+      .disabled(!store.canActivateAssistantRuntime)
     }
     .padding(.horizontal, 16)
     .padding(.top, 16)
@@ -187,7 +188,7 @@ struct NonStreamView: View {
   }
 
   private var activateButtonTitle: String {
-    switch viewModel.assistantRuntimeState {
+    switch store.assistantRuntimeState {
     case .activating:
       return "Activating..."
     case .failed:
@@ -199,7 +200,7 @@ struct NonStreamView: View {
 }
 
 private struct RuntimeStatusPanelView: View {
-  @ObservedObject var viewModel: StreamSessionViewModel
+  let store: SessionStateStore
   @State private var showDiagnostics = false
 
   var body: some View {
@@ -209,7 +210,7 @@ private struct RuntimeStatusPanelView: View {
           .font(.system(.headline, design: .rounded).weight(.semibold))
           .foregroundColor(.white)
         Spacer()
-        Text(viewModel.runtimeSessionStateText.uppercased())
+        Text(store.runtimeSessionStateText.uppercased())
           .font(.system(.caption2, design: .rounded).weight(.bold))
           .foregroundColor(.white.opacity(0.9))
           .padding(.horizontal, 10)
@@ -218,21 +219,21 @@ private struct RuntimeStatusPanelView: View {
           .clipShape(Capsule())
       }
 
-      RuntimeMetricRow(label: "Wake", value: "\(viewModel.runtimeWakeStateText) (\(viewModel.runtimeWakeCount))")
-      RuntimeMetricRow(label: "Query", value: "\(viewModel.runtimeQueryStateText) (\(viewModel.runtimeQueryCount))")
-      RuntimeMetricRow(label: "Photo Uploads", value: "\(viewModel.runtimePhotoUploadCount)")
-      RuntimeMetricRow(label: "Playback Chunks", value: "\(viewModel.runtimePlaybackChunkCount)")
-      RuntimeMetricRow(label: "Video Frames Routed", value: "\(viewModel.runtimeVideoFrameCount)")
+      RuntimeMetricRow(label: "Wake", value: "\(store.runtimeWakeStateText) (\(store.runtimeWakeCount))")
+      RuntimeMetricRow(label: "Query", value: "\(store.runtimeQueryStateText) (\(store.runtimeQueryCount))")
+      RuntimeMetricRow(label: "Photo Uploads", value: "\(store.runtimePhotoUploadCount)")
+      RuntimeMetricRow(label: "Playback Chunks", value: "\(store.runtimePlaybackChunkCount)")
+      RuntimeMetricRow(label: "Video Frames Routed", value: "\(store.runtimeVideoFrameCount)")
 
       Divider().background(Color.white.opacity(0.2))
 
-      if !viewModel.runtimeErrorText.isEmpty || !viewModel.audioLastError.isEmpty {
+      if !store.runtimeErrorText.isEmpty || !store.audioLastError.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
-          if !viewModel.runtimeErrorText.isEmpty {
-            Text("Runtime Error: \(viewModel.runtimeErrorText)")
+          if !store.runtimeErrorText.isEmpty {
+            Text("Runtime Error: \(store.runtimeErrorText)")
           }
-          if !viewModel.audioLastError.isEmpty {
-            Text("Audio Error: \(viewModel.audioLastError)")
+          if !store.audioLastError.isEmpty {
+            Text("Audio Error: \(store.audioLastError)")
           }
         }
         .font(.system(.caption, design: .rounded).weight(.semibold))
@@ -241,15 +242,15 @@ private struct RuntimeStatusPanelView: View {
 
       DisclosureGroup("Advanced telemetry", isExpanded: $showDiagnostics) {
         VStack(alignment: .leading, spacing: 6) {
-          RuntimeMetricRow(label: "Backend", value: viewModel.runtimeBackendText)
-          RuntimeMetricRow(label: "Session ID", value: viewModel.runtimeSessionIdText)
-          RuntimeMetricRow(label: "Query ID", value: viewModel.runtimeQueryIdText)
-          RuntimeMetricRow(label: "Wake Runtime", value: viewModel.runtimeWakeRuntimeText)
-          RuntimeMetricRow(label: "Speech Auth", value: viewModel.runtimeSpeechAuthorizationText)
-          RuntimeMetricRow(label: "Manual Fallback", value: viewModel.runtimeManualWakeFallbackText)
-          RuntimeMetricRow(label: "Audio State", value: viewModel.audioStateText)
-          RuntimeMetricRow(label: "Audio Stats", value: "chunks \(viewModel.audioChunkCount), bytes \(viewModel.audioByteCount)")
-          RuntimeMetricRow(label: "Audio Session Dir", value: viewModel.audioSessionPath)
+          RuntimeMetricRow(label: "Backend", value: store.runtimeBackendText)
+          RuntimeMetricRow(label: "Session ID", value: store.runtimeSessionIdText)
+          RuntimeMetricRow(label: "Query ID", value: store.runtimeQueryIdText)
+          RuntimeMetricRow(label: "Wake Runtime", value: store.runtimeWakeRuntimeText)
+          RuntimeMetricRow(label: "Speech Auth", value: store.runtimeSpeechAuthorizationText)
+          RuntimeMetricRow(label: "Manual Fallback", value: store.runtimeManualWakeFallbackText)
+          RuntimeMetricRow(label: "Audio State", value: store.audioStateText)
+          RuntimeMetricRow(label: "Audio Stats", value: "chunks \(store.audioChunkCount), bytes \(store.audioByteCount)")
+          RuntimeMetricRow(label: "Audio Session Dir", value: store.audioSessionPath)
         }
         .padding(.top, 8)
       }

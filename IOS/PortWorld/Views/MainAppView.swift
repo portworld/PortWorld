@@ -17,11 +17,18 @@ struct MainAppView: View {
   }
 
   var body: some View {
-    if viewModel.registrationState == .registered {
-      StreamSessionView(wearables: wearables, wearablesVM: viewModel)
-    } else {
-      // User not registered - show registration/onboarding flow
-      HomeScreenView(viewModel: viewModel)
+    Group {
+      if viewModel.registrationState == .registered {
+        StreamSessionView(wearables: wearables, wearablesVM: viewModel)
+      } else {
+        // User not registered - show registration/onboarding flow
+        HomeScreenView(viewModel: viewModel)
+      }
+    }
+    .onOpenURL { url in
+      Task {
+        await viewModel.handleMetaCallback(url: url)
+      }
     }
   }
 }

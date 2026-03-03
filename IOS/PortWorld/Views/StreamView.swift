@@ -8,15 +8,15 @@ import MWDATCore
 import SwiftUI
 
 struct StreamView: View {
-  @ObservedObject var viewModel: StreamSessionViewModel
-  @ObservedObject var wearablesVM: WearablesViewModel
+  let viewModel: SessionViewModel
+  let store: SessionStateStore
 
   var body: some View {
     ZStack {
       Color.black
         .edgesIgnoringSafeArea(.all)
 
-      if let videoFrame = viewModel.currentVideoFrame, viewModel.hasReceivedFirstFrame {
+      if let videoFrame = store.currentVideoFrame, store.hasReceivedFirstFrame {
         GeometryReader { geometry in
           Image(uiImage: videoFrame)
             .resizable()
@@ -33,23 +33,26 @@ struct StreamView: View {
 
       VStack {
         HStack {
-          StreamRuntimeOverlay(viewModel: viewModel)
+          StreamRuntimeOverlay(store: store)
           Spacer()
         }
         Spacer()
-        ControlsView(viewModel: viewModel)
+        ControlsView(viewModel: viewModel, store: store)
       }
       .padding(.all, 24)
     }
     .onDisappear {
       Task {
-        if viewModel.canDeactivateAssistantRuntime {
+        if store.canDeactivateAssistantRuntime {
           await viewModel.deactivateAssistantRuntime()
         }
       }
     }
-    .sheet(isPresented: $viewModel.showPhotoPreview) {
-      if let photo = viewModel.capturedPhoto {
+    .sheet(isPresented: Binding(
+      get: { store.showPhotoPreview },
+      set: { store.showPhotoPreview = $0 }
+    )) {
+      if let photo = store.capturedPhoto {
         PhotoPreviewView(
           photo: photo,
           onDismiss: {
@@ -62,32 +65,32 @@ struct StreamView: View {
 }
 
 private struct StreamRuntimeOverlay: View {
-  @ObservedObject var viewModel: StreamSessionViewModel
+  let store: SessionStateStore
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 6) {
         Image(systemName: "bolt.fill")
           .foregroundColor(.appPrimary)
-        Text("Session: \(viewModel.runtimeSessionStateText)")
+        Text("Session: \(store.runtimeSessionStateText)")
       }
       
       HStack(spacing: 6) {
         Image(systemName: "waveform")
           .foregroundColor(.white.opacity(0.7))
-        Text("Wake: \(viewModel.runtimeWakeStateText)")
+        Text("Wake: \(store.runtimeWakeStateText)")
       }
       
       HStack(spacing: 6) {
         Image(systemName: "camera.fill")
           .foregroundColor(.white.opacity(0.7))
-        Text("Photo: \(viewModel.runtimePhotoStateText)")
+        Text("Photo: \(store.runtimePhotoStateText)")
       }
 
-      if !viewModel.runtimeErrorText.isEmpty {
+      if !store.runtimeErrorText.isEmpty {
         HStack(alignment: .top, spacing: 6) {
           Image(systemName: "exclamationmark.triangle.fill")
-          Text(viewModel.runtimeErrorText)
+          Text(store.runtimeErrorText)
         }
         .foregroundColor(.red.opacity(0.9))
       }
@@ -101,14 +104,15 @@ private struct StreamRuntimeOverlay: View {
 }
 
 struct ControlsView: View {
-  @ObservedObject var viewModel: StreamSessionViewModel
+  let viewModel: SessionViewModel
+  let store: SessionStateStore
 
   var body: some View {
     HStack(spacing: 8) {
       CustomButton(
         title: "Deactivate assistant",
         style: .destructive,
-        isDisabled: !viewModel.canDeactivateAssistantRuntime
+        isDisabled: !store.canDeactivateAssistantRuntime
       ) {
         Task {
           await viewModel.deactivateAssistantRuntime()

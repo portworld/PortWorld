@@ -1,42 +1,60 @@
 // StreamSessionView.swift
 
+import Combine
 import MWDATCore
 import SwiftUI
+
+@MainActor
+private final class SessionViewModelLifetime: ObservableObject {
+  @Published private(set) var viewModel: SessionViewModel?
+
+  func ensureInitialized(wearables: WearablesInterface, store: SessionStateStore) {
+    guard viewModel == nil else { return }
+    viewModel = SessionViewModel(wearables: wearables, store: store)
+  }
+}
 
 struct StreamSessionView: View {
   let wearables: WearablesInterface
   @ObservedObject private var wearablesViewModel: WearablesViewModel
-  @StateObject private var viewModel: StreamSessionViewModel
+  @StateObject private var sessionViewModelLifetime = SessionViewModelLifetime()
+  @State private var store = SessionStateStore()
   @Environment(\.scenePhase) private var scenePhase
 
   init(wearables: WearablesInterface, wearablesVM: WearablesViewModel) {
     self.wearables = wearables
     self.wearablesViewModel = wearablesVM
-    self._viewModel = StateObject(wrappedValue: StreamSessionViewModel(wearables: wearables))
   }
 
   var body: some View {
     ZStack {
-      if viewModel.isStreaming {
-        // Full-screen video view with streaming controls
-        StreamView(viewModel: viewModel, wearablesVM: wearablesViewModel)
+      if let viewModel = sessionViewModelLifetime.viewModel {
+        if store.isStreaming {
+          StreamView(viewModel: viewModel, store: store)
+        } else {
+          NonStreamView(viewModel: viewModel, store: store, wearablesVM: wearablesViewModel)
+        }
       } else {
-        // Pre-streaming setup view with permissions and start button
-        NonStreamView(viewModel: viewModel, wearablesVM: wearablesViewModel)
+        ProgressView()
       }
     }
-    .alert("Error", isPresented: $viewModel.showError) {
+    .alert("Error", isPresented: Binding(
+      get: { store.showError },
+      set: { store.showError = $0 }
+    )) {
       Button("OK") {
-        viewModel.dismissError()
+        sessionViewModelLifetime.viewModel?.dismissError()
       }
     } message: {
-      Text(viewModel.errorMessage)
+      Text(store.errorMessage)
     }
     .onAppear {
-      viewModel.handleScenePhaseChange(scenePhase)
+      sessionViewModelLifetime.ensureInitialized(wearables: wearables, store: store)
+      sessionViewModelLifetime.viewModel?.handleScenePhaseChange(scenePhase)
     }
     .onChange(of: scenePhase) { _, newPhase in
-      viewModel.handleScenePhaseChange(newPhase)
+      sessionViewModelLifetime.ensureInitialized(wearables: wearables, store: store)
+      sessionViewModelLifetime.viewModel?.handleScenePhaseChange(newPhase)
     }
   }
 }
