@@ -142,7 +142,7 @@ Phases 3, 4, 5 can proceed in parallel once Phase 2 is complete.
 - ✅ **P0-07 complete.**
   - Added `audio` to `UIBackgroundModes` in `IOS/Info.plist`.
 - ✅ **Build verification complete.**
-  - XcodeBuildMCP simulator build succeeds for `PortWorld` after Phase 0 changes.
+  - xcodebuild simulator build succeeds for `PortWorld` after Phase 0 changes.
 
 ### P0-01 Remove committed LAN IP
 

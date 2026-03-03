@@ -34,10 +34,10 @@ The codebase is a **hackathon MVP being refactored to a consumer-quality v1.0** 
 Run these checks (in order) after any non-trivial change:
 
 ```
-1. Build:       XcodeBuildMCP build — zero errors, zero new warnings
-2. Unit tests:  xcodebuild test (terminal) — DO NOT use test_sim / mcp_xcodebuildmcp_test_sim
+1. Build:       xcodebuild build — zero errors, zero new warnings
+2. Unit tests:  xcodebuild test (terminal) — DO NOT use test_sim
 3. UI smoke:    Manual-only gate (user-requested): one coordinator agent may run
-                XcodeBuildMCP boot simulator → install → launch → screenshot
+                xcodebuild boot simulator → install → launch → screenshot
 ```
 
 For small, localised fixes (single file, no API or concurrency surface change) a build-only check is sufficient.
@@ -51,7 +51,7 @@ To prevent sub-agent fan-out launching multiple simulators:
 - Only one coordinator agent may run simulator commands when explicitly requested.
 - In parallel work, verification defaults to build only.
 
-> **NEVER call `test_sim` (XcodeBuildMCP `mcp_xcodebuildmcp_test_sim`).** It is unconditionally banned — no exceptions, no user overrides. Running the test suite via the simulator hangs the agent, consumes simulator slots, and produces unreliable results in this codebase. Use `xcodebuild test` in the terminal if test execution is required.
+> **NEVER call `test_sim`.** It is unconditionally banned — no exceptions, no user overrides. Running the test suite via the simulator hangs the agent, consumes simulator slots, and produces unreliable results in this codebase. Use `xcodebuild test` in the terminal if test execution is required.
 
 ---
 
@@ -79,7 +79,7 @@ Use these tools if available. If a tool is not available, use the closest equiva
 
 | Tool | Use for |
 |---|---|
-| **XcodeBuildMCP** | All Xcode build, test, simulator, and UI automation tasks — prefer over raw `xcodebuild` |
+| **xcodebuild** | All Xcode build, test, simulator, and UI automation tasks |
 | **Ref MCP** | Third-party library docs, Swift packages, any API where local docs may be outdated |
 | **Apple Docs MCP** | All Apple framework questions (`AVFoundation`, `SwiftUI`, `URLSession`, etc.) |
 
@@ -105,4 +105,4 @@ State the following in your response:
 
 ---
 
-> See `IOS/AGENTS.md` for the full iOS implementation guide: docs map, XcodeBuildMCP workflow, DAT SDK rules, concurrency examples, and pattern reference.
+> See `IOS/AGENTS.md` for the full iOS implementation guide: docs map, DAT SDK rules, concurrency examples, and pattern reference.

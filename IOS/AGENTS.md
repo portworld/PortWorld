@@ -23,9 +23,9 @@ For **small, localised fixes** (single file, no API surface or concurrency chang
 
 ---
 
-## XcodeBuildMCP Workflow
 
-**Always use XcodeBuildMCP for Xcode tasks.** Do not invoke `xcodebuild` directly in the terminal unless XcodeBuildMCP is unavailable (note the substitute if so).
+
+
 
 ### Simulator Launch Guard (Mandatory)
 
@@ -41,9 +41,9 @@ To prevent accidental multi-simulator launches during sub-agent parallelization:
 
 ```
 1. session_show_defaults          — check any saved configuration
-2. mcp_xcodebuildmcp_discover_projs(workspaceRoot: "IOS/")  — locate the project
-3. mcp_xcodebuildmcp_list_schemes — confirm available schemes
-4. mcp_xcodebuildmcp_list_sims    — discover available simulators (only if a user-requested UI smoke run is planned)
+2. Locate the project in IOS/
+3. Confirm available schemes
+4. Discover available simulators (only if a user-requested UI smoke run is planned)
 ```
 
 Discover the project path, scheme, and simulator each session. If a local machine override file exists at the repo root (e.g. `local.xcconfig` or `.local-defaults.json`), prefer its values.
@@ -53,10 +53,10 @@ Do **not** assume a fixed simulator ID or absolute local path — these change a
 ### Common operations
 
 ```
-Build app:        XcodeBuildMCP build (scheme: PortWorld)
-Run unit tests:   XcodeBuildMCP test (target: PortWorldTests)
-Boot simulator:   XcodeBuildMCP boot → install → launch  (manual-only, user-requested)
-Screenshot:       mcp_xcodebuildmcp_screenshot  (only during explicit UI smoke validation)
+Build app:        xcodebuild build (scheme: PortWorld)
+Run unit tests:   xcodebuild test (target: PortWorldTests)
+Boot simulator:   xcodebuild boot → install → launch  (manual-only, user-requested)
+Screenshot:       xcodebuild screenshot  (only during explicit UI smoke validation)
 UI automation:    snapshot/tap/type tools to verify UI states
 ```
 
