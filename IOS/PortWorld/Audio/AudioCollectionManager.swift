@@ -292,7 +292,7 @@ final class AudioCollectionManager: ObservableObject {
     }
 
     private static func nowMs() -> Int64 {
-        Int64((Date().timeIntervalSince1970 * 1000.0).rounded())
+        Clocks.nowMs()
     }
 
     private static func computeRMS(_ buffer: AVAudioPCMBuffer) -> Float {
@@ -473,9 +473,11 @@ final class AudioCollectionManager: ObservableObject {
         }
 
         guard !mergedPCM.isEmpty else {
+            #if DEBUG
             // Diagnostic logging: print requested window vs available chunks
             let chunkRanges = chunks.map { "[\($0.startedAtMs)-\($0.startedAtMs + Int64($0.durationMs))]" }.joined(separator: ", ")
             print("[AudioCollectionManager] No audio data in window. Requested: [\(window.startTimestampMs)-\(window.endTimestampMs)], Available chunks: \(chunkRanges.isEmpty ? "none" : chunkRanges)")
+            #endif
             throw AudioClipExportError.noAudioDataInWindow
         }
 
