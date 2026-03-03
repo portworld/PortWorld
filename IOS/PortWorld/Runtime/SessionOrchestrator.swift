@@ -1,5 +1,6 @@
 import AVFAudio
 import Foundation
+import OSLog
 import UIKit
 
 @MainActor
@@ -9,7 +10,10 @@ final class SessionOrchestrator {
     typealias MakeVisionFrameUploader = (_ config: RuntimeConfig) -> VisionFrameUploaderProtocol
     typealias MakeRollingVideoBuffer = (_ config: RuntimeConfig) -> RollingVideoBufferProtocol
     typealias MakeQueryBundleBuilder = (_ config: RuntimeConfig) -> QueryBundleBuilderProtocol
-    typealias MakePlaybackEngine = (_ sharedAudioEngine: AVAudioEngine?) -> AssistantPlaybackEngineProtocol
+    typealias MakePlaybackEngine = (
+      _ sharedAudioEngine: AVAudioEngine?,
+      _ stuckDetectionThresholdMs: Int64
+    ) -> AssistantPlaybackEngineProtocol
 
     let startStream: () async -> Void
     let stopStream: () async -> Void
@@ -60,8 +64,11 @@ final class SessionOrchestrator {
         makeQueryBundleBuilder: { config in
           QueryBundleBuilder(endpointURL: config.queryURL, defaultHeaders: config.requestHeaders)
         },
-        makePlaybackEngine: { sharedAudioEngine in
-          AssistantPlaybackEngine(audioEngine: sharedAudioEngine)
+        makePlaybackEngine: { sharedAudioEngine, stuckDetectionThresholdMs in
+          AssistantPlaybackEngine(
+            audioEngine: sharedAudioEngine,
+            stuckDetectionThresholdMs: stuckDetectionThresholdMs
+          )
         },
         eventLogger: EventLogger()
       )
@@ -99,6 +106,13 @@ final class SessionOrchestrator {
     let queryID: String
     let wakeTsMs: Int64
     var startTsMs: Int64
+  }
+
+  private struct BufferedOutboundMessage {
+    let type: WSOutboundType
+    let sessionID: String
+    let payload: JSONValue
+    let enqueuedAtMs: Int64
   }
 
   var onStatusUpdated: ((StatusSnapshot) -> Void)?
@@ -168,6 +182,12 @@ final class SessionOrchestrator {
   private var sessionActivatedAtMs: Int64 = 0
   private var lastKnownPlaybackRoute = "unknown"
   private var healthTask: Task<Void, Never>?
+  private var currentUploadTask: Task<QueryBundleUploadResult, Error>?
+  private var webSocketConnectionState: SessionWebSocketConnectionState = .idle
+  private var outboundMessageBuffer: [BufferedOutboundMessage] = []
+  private let outboundMessageBufferLimit = 20
+  private let outboundMessageTTLms: Int64 = 60_000
+  private let logger = Logger(subsystem: "PortWorld", category: "SessionOrchestrator")
 
   init(config: RuntimeConfig, dependencies: Dependencies) {
     self.config = config
@@ -201,6 +221,10 @@ final class SessionOrchestrator {
     self.init(config: config, dependencies: .live)
   }
 
+  func hasPendingPlayback() -> Bool {
+    playbackEngine?.hasActivePendingPlayback() ?? false
+  }
+
   private func configureInjectedServices() async {
     let webSocketClient = dependencies.makeWebSocketClient(config)
     await webSocketClient.bindHandlers(
@@ -224,7 +248,7 @@ final class SessionOrchestrator {
     self.webSocketClient = webSocketClient
 
     let visionFrameUploader = dependencies.makeVisionFrameUploader(config)
-    visionFrameUploader.bindHandlers(
+    await visionFrameUploader.bindHandlers(
       sessionIDProvider: { [weak self] in self?.activeSessionID },
       onUploadResult: { [weak self] result in
         Task { @MainActor in
@@ -235,7 +259,10 @@ final class SessionOrchestrator {
     self.visionFrameUploader = visionFrameUploader
     self.rollingVideoBuffer = dependencies.makeRollingVideoBuffer(config)
     self.queryBundleBuilder = dependencies.makeQueryBundleBuilder(config)
-    self.playbackEngine = dependencies.makePlaybackEngine(dependencies.sharedAudioEngine)
+    self.playbackEngine = dependencies.makePlaybackEngine(
+      dependencies.sharedAudioEngine,
+      config.assistantStuckDetectionThresholdMs
+    )
     configurePlaybackEngine()
   }
 
@@ -271,7 +298,9 @@ final class SessionOrchestrator {
     sessionActivatedAtMs = dependencies.clock()
 
     await dependencies.startStream()
-    visionFrameUploader?.start()
+    if let visionFrameUploader {
+      await visionFrameUploader.start()
+    }
     manualWakeEngine.startListening()
     if primaryWakeEngine !== manualWakeEngine {
       _ = await primaryWakeEngine.requestAuthorizationIfNeeded()
@@ -291,13 +320,19 @@ final class SessionOrchestrator {
   func deactivate() async {
     guard isActivated else { return }
 
+    currentUploadTask?.cancel()
+    currentUploadTask = nil
     queryEndpointDetector.reset()
     manualWakeEngine.stopListening()
     if primaryWakeEngine !== manualWakeEngine {
       primaryWakeEngine.stopListening()
     }
-    visionFrameUploader?.stop()
-    rollingVideoBuffer?.clear()
+    if let visionFrameUploader {
+      await visionFrameUploader.stop()
+    }
+    if let rollingVideoBuffer {
+      await rollingVideoBuffer.clear()
+    }
     playbackEngine?.shutdown()
     stopHealthLoop()
 
@@ -309,6 +344,7 @@ final class SessionOrchestrator {
 
     activeQueryContext = nil
     activeSessionID = nil
+    outboundMessageBuffer.removeAll(keepingCapacity: false)
     isActivated = false
     sessionRestartCount += 1
     webSocketClient = nil
@@ -359,8 +395,10 @@ final class SessionOrchestrator {
     guard isActivated else { return }
     guard let rollingVideoBuffer, let visionFrameUploader else { return }
 
-    rollingVideoBuffer.append(frame: image, timestampMs: timestampMs)
-    visionFrameUploader.submitLatestFrame(image, captureTimestampMs: timestampMs)
+    Task {
+      await rollingVideoBuffer.append(frame: image, timestampMs: timestampMs)
+      await visionFrameUploader.submitLatestFrame(image, captureTimestampMs: timestampMs)
+    }
 
     snapshot.videoFrameCount += 1
     publishSnapshot()
@@ -369,7 +407,9 @@ final class SessionOrchestrator {
   func submitCapturedPhoto(_ image: UIImage, timestampMs: Int64) {
     guard isActivated else { return }
     guard let visionFrameUploader else { return }
-    visionFrameUploader.submitLatestFrame(image, captureTimestampMs: timestampMs)
+    Task {
+      await visionFrameUploader.submitLatestFrame(image, captureTimestampMs: timestampMs)
+    }
   }
 
   func processWakePCMFrame(_ frame: WakeWordPCMFrame) {
@@ -385,7 +425,7 @@ final class SessionOrchestrator {
   }
 
   func triggerWakeForTesting() {
-    manualWakeEngine.triggerManualWake()
+    manualWakeEngine.triggerManualWake(timestampMs: dependencies.clock())
   }
 
   var wakeEngineType: String {
@@ -497,14 +537,19 @@ final class SessionOrchestrator {
       snapshot.queryState = .uploading
       publishSnapshot()
 
-      let uploadResult = try await queryBundleBuilder.uploadQueryBundle(
-        metadata: metadata,
-        audioFileURL: audioURL,
-        videoFileURL: videoResult.outputURL
-      )
+      let uploadTask = Task {
+        try await queryBundleBuilder.uploadQueryBundle(
+          metadata: metadata,
+          audioFileURL: audioURL,
+          videoFileURL: videoResult.outputURL
+        )
+      }
+      currentUploadTask = uploadTask
+      let uploadResult = try await uploadTask.value
+      currentUploadTask = nil
       queryBundlesUploaded += 1
 
-      await sendOutbound(
+      let didEnqueueUploadedMessage = await sendOutbound(
         type: .queryBundleUploaded,
         payload: QueryBundleUploadedPayload(
           queryID: context.queryID,
@@ -517,9 +562,16 @@ final class SessionOrchestrator {
       snapshot.queryState = .idle
       snapshot.queryID = "-"
       activeQueryContext = nil
+      if !didEnqueueUploadedMessage {
+        debugLog("Failed to notify backend of uploaded bundle for \(context.queryID); context cleared anyway")
+      }
       publishSnapshot()
       await emitHealth(reason: "query_uploaded")
+    } catch is CancellationError {
+      currentUploadTask = nil
+      debugLog("Query bundle upload cancelled for query \(context.queryID)")
     } catch {
+      currentUploadTask = nil
       queryBundlesFailed += 1
       setError(error.localizedDescription)
       snapshot.queryState = .failed
@@ -546,6 +598,7 @@ final class SessionOrchestrator {
   }
 
   private func handleWebSocketState(_ state: SessionWebSocketConnectionState) {
+    webSocketConnectionState = state
     switch state {
     case .idle:
       snapshot.sessionState = .idle
@@ -565,6 +618,9 @@ final class SessionOrchestrator {
     }
     publishSnapshot()
     Task {
+      if case .connected = state {
+        await replayBufferedOutboundMessages()
+      }
       await emitHealth(reason: "ws_state")
     }
   }
@@ -736,7 +792,14 @@ final class SessionOrchestrator {
       guard let self else { return }
       while !Task.isCancelled {
         await self.emitHealth(reason: "interval")
-        try? await Task.sleep(nanoseconds: healthIntervalMs * 1_000_000)
+        do {
+          try await Task.sleep(nanoseconds: healthIntervalMs * 1_000_000)
+        } catch is CancellationError {
+          return
+        } catch {
+          self.debugLog("Health loop terminated after sleep error: \(error.localizedDescription)")
+          return
+        }
       }
     }
   }
@@ -765,7 +828,7 @@ final class SessionOrchestrator {
       photoUploadRateEffective: photoRate,
       photosUploaded: snapshot.photoUploadCount,
       photosFailed: photosFailed,
-      videoBufferDurationMs: Int(rollingVideoBuffer.bufferedDurationMs),
+      videoBufferDurationMs: Int(await rollingVideoBuffer.bufferedDurationMs),
       audioBufferDurationMs: dependencies.audioBufferDurationProvider(),
       wsReconnectAttempts: max(wsReconnectAttempts, reconnectAttempts),
       sessionRestartCount: sessionRestartCount,
@@ -785,7 +848,7 @@ final class SessionOrchestrator {
         "queries_completed": .number(Double(snapshot.queryCount)),
         "query_bundles_uploaded": .number(Double(queryBundlesUploaded)),
         "query_bundles_failed": .number(Double(queryBundlesFailed)),
-        "video_buffer_duration_ms": .number(Double(rollingVideoBuffer.bufferedDurationMs)),
+        "video_buffer_duration_ms": .number(Double(await rollingVideoBuffer.bufferedDurationMs)),
         "audio_buffer_duration_ms": .number(Double(dependencies.audioBufferDurationProvider())),
         "ws_reconnect_attempts": .number(Double(max(wsReconnectAttempts, reconnectAttempts))),
         "session_restart_count": .number(Double(sessionRestartCount)),
@@ -806,21 +869,89 @@ final class SessionOrchestrator {
     return Int64(max(100, (1000.0 / clamped).rounded()))
   }
 
-  private func sendOutbound<Payload: Codable>(type: WSOutboundType, payload: Payload) async {
-    guard let sessionID = activeSessionID else { return }
-    guard let webSocketClient else { return }
+  @discardableResult
+  private func sendOutbound<Payload: Codable>(type: WSOutboundType, payload: Payload) async -> Bool {
+    guard let sessionID = activeSessionID else { return false }
+    guard let webSocketClient else { return false }
+
+    let payloadJSON: JSONValue
+    do {
+      payloadJSON = try encodePayloadAsJSONValue(payload)
+    } catch {
+      setError(error.localizedDescription)
+      return false
+    }
 
     do {
-      try await webSocketClient.send(type: type, sessionID: sessionID, payload: payload)
+      try await webSocketClient.send(type: type, sessionID: sessionID, payload: payloadJSON)
+      return true
     } catch let wsError as SessionWebSocketClientError {
       // Expected while socket is transitioning/disconnected; avoid spamming
       // app-level error state with redundant transport noise.
       if case .notConnected = wsError {
-        return
+        enqueueOutboundMessage(type: type, sessionID: sessionID, payload: payloadJSON)
+        return true
       }
       setError(wsError.localizedDescription)
+      return false
     } catch {
       setError(error.localizedDescription)
+      return false
+    }
+  }
+
+  private func encodePayloadAsJSONValue<Payload: Codable>(_ payload: Payload) throws -> JSONValue {
+    let data = try JSONEncoder().encode(payload)
+    return try JSONDecoder().decode(JSONValue.self, from: data)
+  }
+
+  private func enqueueOutboundMessage(type: WSOutboundType, sessionID: String, payload: JSONValue) {
+    pruneOutboundMessageBuffer()
+    outboundMessageBuffer.append(
+      BufferedOutboundMessage(
+        type: type,
+        sessionID: sessionID,
+        payload: payload,
+        enqueuedAtMs: dependencies.clock()
+      )
+    )
+    if outboundMessageBuffer.count > outboundMessageBufferLimit {
+      let dropCount = outboundMessageBuffer.count - outboundMessageBufferLimit
+      outboundMessageBuffer.removeFirst(dropCount)
+      debugLog("Dropped \(dropCount) buffered outbound message(s) due to capacity")
+    }
+  }
+
+  private func pruneOutboundMessageBuffer() {
+    let nowMs = dependencies.clock()
+    outboundMessageBuffer.removeAll { nowMs - $0.enqueuedAtMs > outboundMessageTTLms }
+  }
+
+  private func replayBufferedOutboundMessages() async {
+    guard !outboundMessageBuffer.isEmpty else { return }
+    guard case .connected = webSocketConnectionState else { return }
+    guard let webSocketClient else { return }
+
+    pruneOutboundMessageBuffer()
+    while !outboundMessageBuffer.isEmpty {
+      let nextMessage = outboundMessageBuffer[0]
+      do {
+        try await webSocketClient.send(
+          type: nextMessage.type,
+          sessionID: nextMessage.sessionID,
+          payload: nextMessage.payload
+        )
+        outboundMessageBuffer.removeFirst()
+      } catch let wsError as SessionWebSocketClientError {
+        if case .notConnected = wsError {
+          return
+        }
+        outboundMessageBuffer.removeFirst()
+        setError(wsError.localizedDescription)
+      } catch {
+        outboundMessageBuffer.removeFirst()
+        setError(error.localizedDescription)
+      }
     }
   }
 
@@ -835,7 +966,7 @@ final class SessionOrchestrator {
 
   private func debugLog(_ message: String) {
 #if DEBUG
-    print("[SessionOrchestrator] \(message)")
+    logger.debug("[SessionOrchestrator] \(message, privacy: .public)")
 #endif
   }
 }
