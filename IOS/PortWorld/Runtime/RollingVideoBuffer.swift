@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import OSLog
 import UIKit
 
 struct RollingVideoExportResult {
@@ -38,46 +39,50 @@ enum RollingVideoBufferError: LocalizedError {
   }
 }
 
-final class RollingVideoBuffer: RollingVideoBufferProtocol {
+actor RollingVideoBuffer: RollingVideoBufferProtocol {
   private struct BufferedFrame {
     let timestampMs: Int64
     let image: UIImage
   }
 
-  private let queue = DispatchQueue(label: "Runtime.RollingVideoBuffer")
-  private let workerQueue = DispatchQueue(label: "Runtime.RollingVideoBuffer.Writer", qos: .userInitiated)
   private let maxDurationMs: Int64
+  private let clipsDirectoryURL: URL
+  nonisolated private static let logger = Logger(subsystem: "PortWorld", category: "RollingVideoBuffer")
 
   private var frames: [BufferedFrame] = []
+  private var managedTempOutputs: Set<URL> = []
 
   init(maxDurationMs: Int64 = 30_000) {
     self.maxDurationMs = max(1_000, maxDurationMs)
+    self.clipsDirectoryURL = Self.makeClipsDirectoryURL()
+    Self.prepareClipsDirectoryAndSweep(at: clipsDirectoryURL)
+  }
+
+  deinit {
+    Self.cleanupFiles(Array(managedTempOutputs))
   }
 
   var bufferedFrameCount: Int {
-    queue.sync { frames.count }
+    frames.count
   }
 
   var bufferedDurationMs: Int64 {
-    queue.sync {
-      guard let first = frames.first, let last = frames.last else {
-        return 0
-      }
-      return max(0, last.timestampMs - first.timestampMs)
+    guard let first = frames.first, let last = frames.last else {
+      return 0
     }
+    return max(0, last.timestampMs - first.timestampMs)
   }
 
-  func append(frame: UIImage, timestampMs: Int64 = Clocks.nowMs()) {
-    queue.async {
-      self.frames.append(BufferedFrame(timestampMs: timestampMs, image: frame))
-      self.evictOldFramesLocked(referenceTimestampMs: timestampMs)
-    }
+  func append(frame: UIImage, timestampMs: Int64) {
+    frames.append(BufferedFrame(timestampMs: timestampMs, image: frame))
+    evictOldFramesLocked(referenceTimestampMs: timestampMs)
   }
 
   func clear() {
-    queue.async {
-      self.frames.removeAll(keepingCapacity: false)
-    }
+    frames.removeAll(keepingCapacity: false)
+    let tempOutputs = Array(managedTempOutputs)
+    managedTempOutputs.removeAll()
+    Self.cleanupFiles(tempOutputs)
   }
 
   func exportInterval(
@@ -89,33 +94,27 @@ final class RollingVideoBuffer: RollingVideoBufferProtocol {
     guard startTimestampMs <= endTimestampMs else {
       throw RollingVideoBufferError.invalidInterval(startMs: startTimestampMs, endMs: endTimestampMs)
     }
+    try Task.checkCancellation()
 
-    let exportFrames: [BufferedFrame] = queue.sync {
-      frames.filter { $0.timestampMs >= startTimestampMs && $0.timestampMs <= endTimestampMs }
-    }
+    let exportFrames = frames.filter { $0.timestampMs >= startTimestampMs && $0.timestampMs <= endTimestampMs }
 
     guard !exportFrames.isEmpty else {
       throw RollingVideoBufferError.noFramesInInterval(startMs: startTimestampMs, endMs: endTimestampMs)
     }
 
-    let resolvedURL = outputURL ?? Self.makeDefaultOutputURL()
-
-    return try await withCheckedThrowingContinuation { continuation in
-      workerQueue.async {
-        do {
-          let result = try Self.writeMP4(
-            frames: exportFrames,
-            startTimestampMs: startTimestampMs,
-            endTimestampMs: endTimestampMs,
-            outputURL: resolvedURL,
-            bitrate: bitrate
-          )
-          continuation.resume(returning: result)
-        } catch {
-          continuation.resume(throwing: error)
-        }
-      }
+    let resolvedURL = outputURL ?? Self.makeDefaultOutputURL(clipsDirectoryURL: clipsDirectoryURL)
+    if Self.isManagedTemporaryOutput(url: resolvedURL, clipsDirectoryURL: clipsDirectoryURL) {
+      managedTempOutputs.insert(resolvedURL)
     }
+    try Task.checkCancellation()
+
+    return try await Self.writeMP4(
+      frames: exportFrames,
+      startTimestampMs: startTimestampMs,
+      endTimestampMs: endTimestampMs,
+      outputURL: resolvedURL,
+      bitrate: bitrate
+    )
   }
 
   private func evictOldFramesLocked(referenceTimestampMs: Int64) {
@@ -126,22 +125,33 @@ final class RollingVideoBuffer: RollingVideoBufferProtocol {
     }
   }
 
-  private static func writeMP4(
+  nonisolated private static func writeMP4(
     frames: [BufferedFrame],
     startTimestampMs: Int64,
     endTimestampMs: Int64,
     outputURL: URL,
     bitrate: Int
-  ) throws -> RollingVideoExportResult {
+  ) async throws -> RollingVideoExportResult {
+    try Task.checkCancellation()
+
     if FileManager.default.fileExists(atPath: outputURL.path) {
-      try? FileManager.default.removeItem(at: outputURL)
+      do {
+        try FileManager.default.removeItem(at: outputURL)
+      } catch {
+        throw RollingVideoBufferError.writerFailed(
+          reason: "Failed to remove existing file at output URL: \(error.localizedDescription)"
+        )
+      }
     }
 
     guard let firstSize = frames.first?.image.pixelSize else {
       throw RollingVideoBufferError.noFramesInInterval(startMs: startTimestampMs, endMs: endTimestampMs)
     }
 
-    guard let writer = try? AVAssetWriter(outputURL: outputURL, fileType: .mp4) else {
+    let writer: AVAssetWriter
+    do {
+      writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+    } catch {
       throw RollingVideoBufferError.unableToCreateWriter
     }
 
@@ -190,8 +200,10 @@ final class RollingVideoBuffer: RollingVideoBufferProtocol {
 
     for frame in frames {
       while !input.isReadyForMoreMediaData {
-        Thread.sleep(forTimeInterval: 0.002)
+        try Task.checkCancellation()
+        try await Task.sleep(for: .milliseconds(2))
       }
+      try Task.checkCancellation()
 
       guard let pixelBuffer = makePixelBuffer(
         from: frame.image,
@@ -222,8 +234,10 @@ final class RollingVideoBuffer: RollingVideoBufferProtocol {
       let targetTime = CMTime(value: targetDurationMs, timescale: 1000)
       if targetTime > lastPresentationTime {
         while !input.isReadyForMoreMediaData {
-          Thread.sleep(forTimeInterval: 0.002)
+          try Task.checkCancellation()
+          try await Task.sleep(for: .milliseconds(2))
         }
+        try Task.checkCancellation()
 
         if let pixelBuffer = makePixelBuffer(
           from: lastFrame.image,
@@ -238,17 +252,25 @@ final class RollingVideoBuffer: RollingVideoBufferProtocol {
     }
 
     input.markAsFinished()
-    let semaphore = DispatchSemaphore(value: 0)
-    writer.finishWriting {
-      semaphore.signal()
+    try Task.checkCancellation()
+    await withCheckedContinuation { continuation in
+      writer.finishWriting {
+        continuation.resume()
+      }
     }
-    semaphore.wait()
+    try Task.checkCancellation()
 
     guard writer.status == .completed else {
       throw RollingVideoBufferError.writerFailed(reason: writer.error?.localizedDescription ?? "finishWriting did not complete")
     }
 
-    let bytes = (try? FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+    let bytes: Int64
+    do {
+      let attributes = try FileManager.default.attributesOfItem(atPath: outputURL.path)
+      bytes = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+    } catch {
+      bytes = 0
+    }
 
     return RollingVideoExportResult(
       outputURL: outputURL,
@@ -258,7 +280,7 @@ final class RollingVideoBuffer: RollingVideoBufferProtocol {
     )
   }
 
-  private static func makePixelBuffer(
+  nonisolated private static func makePixelBuffer(
     from image: UIImage,
     width: Int,
     height: Int,
@@ -326,15 +348,73 @@ final class RollingVideoBuffer: RollingVideoBufferProtocol {
     return pixelBuffer
   }
 
-  private static func makeDefaultOutputURL() -> URL {
-    FileManager.default.temporaryDirectory
+  nonisolated private static func makeDefaultOutputURL(clipsDirectoryURL: URL) -> URL {
+    clipsDirectoryURL
       .appendingPathComponent("query_video_\(UUID().uuidString)")
       .appendingPathExtension("mp4")
+  }
+
+  nonisolated private static func makeClipsDirectoryURL() -> URL {
+    FileManager.default.temporaryDirectory
+      .appendingPathComponent("clips", isDirectory: true)
+  }
+
+  nonisolated private static func prepareClipsDirectoryAndSweep(at clipsDirectoryURL: URL) {
+    let fileManager = FileManager.default
+    do {
+      try fileManager.createDirectory(at: clipsDirectoryURL, withIntermediateDirectories: true)
+      let urls = try fileManager.contentsOfDirectory(
+        at: clipsDirectoryURL,
+        includingPropertiesForKeys: nil,
+        options: [.skipsHiddenFiles]
+      )
+      for url in urls where url.pathExtension.lowercased() == "mp4" {
+        do {
+          try fileManager.removeItem(at: url)
+        } catch {
+#if DEBUG
+          logger.debug(
+            "Failed to remove stale clip \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+          )
+#endif
+        }
+      }
+    } catch {
+#if DEBUG
+      logger.debug(
+        "Failed to prepare clips directory: \(error.localizedDescription, privacy: .public)"
+      )
+#endif
+    }
+  }
+
+  nonisolated private static func cleanupFiles(_ urls: [URL]) {
+    let fileManager = FileManager.default
+    for url in urls {
+      do {
+        if fileManager.fileExists(atPath: url.path) {
+          try fileManager.removeItem(at: url)
+        }
+      } catch {
+#if DEBUG
+        logger.debug(
+          "Failed to clean up clip \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+        )
+#endif
+      }
+    }
+  }
+
+  nonisolated private static func isManagedTemporaryOutput(url: URL, clipsDirectoryURL: URL) -> Bool {
+    let standardizedURL = url.standardizedFileURL.resolvingSymlinksInPath()
+    let standardizedClipsDirectory = clipsDirectoryURL.standardizedFileURL.resolvingSymlinksInPath()
+    return standardizedURL.path.hasPrefix(standardizedClipsDirectory.path + "/")
+      || standardizedURL.path == standardizedClipsDirectory.path
   }
 }
 
 private extension UIImage {
-  var pixelSize: CGSize? {
+  nonisolated var pixelSize: CGSize? {
     if let cgImage {
       return CGSize(width: cgImage.width, height: cgImage.height)
     }
