@@ -1,17 +1,7 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * This source code is licensed under the license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
-//
 // NonStreamView.swift
 //
 // Default screen to show getting started tips after app connection
 // Initiates runtime activation
-//
 
 import MWDATCore
 import SwiftUI
@@ -185,35 +175,6 @@ struct NonStreamView: View {
       .background(viewModel.canActivateAssistantRuntime ? Color.appPrimary : Color.gray.opacity(0.5))
       .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
       .disabled(!viewModel.canActivateAssistantRuntime)
-
-      Button {
-        Task {
-          await viewModel.runExampleMediaPipelineTest()
-        }
-      } label: {
-        HStack(spacing: 10) {
-          Image(systemName: viewModel.isRunningExampleTest ? "hourglass" : "sparkles")
-            .font(.system(size: 15, weight: .semibold))
-          Text(exampleTestButtonTitle)
-            .font(.system(.subheadline, design: .rounded).weight(.semibold))
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 48)
-      }
-      .buttonStyle(.plain)
-      .foregroundColor(.white)
-      .background(Color.white.opacity(0.16))
-      .overlay(
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(Color.white.opacity(0.24), lineWidth: 1)
-      )
-      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-      .disabled(viewModel.isRunningExampleTest)
-
-      Text("Test button sends bundled image + audio + video example media to backend.")
-        .font(.system(.caption, design: .rounded).weight(.medium))
-        .foregroundColor(.white.opacity(0.72))
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
     .padding(.horizontal, 16)
     .padding(.top, 16)
@@ -233,17 +194,6 @@ struct NonStreamView: View {
       return "Retry activation"
     default:
       return "Activate assistant"
-    }
-  }
-
-  private var exampleTestButtonTitle: String {
-    switch viewModel.exampleTestStateText {
-    case "sending":
-      return "Sending example media..."
-    case "playing":
-      return "Playing audio on iPhone..."
-    default:
-      return "TEST BACKEND (Example Media)"
     }
   }
 }
@@ -275,19 +225,6 @@ private struct RuntimeStatusPanelView: View {
       RuntimeMetricRow(label: "Video Frames Routed", value: "\(viewModel.runtimeVideoFrameCount)")
 
       Divider().background(Color.white.opacity(0.2))
-
-      VStack(alignment: .leading, spacing: 4) {
-        Text("Example Test: \(viewModel.exampleTestStateText)")
-          .font(.system(.subheadline, design: .rounded).weight(.semibold))
-          .foregroundColor(.white)
-        Text(viewModel.exampleTestDetailText)
-          .font(.system(.caption, design: .rounded).weight(.medium))
-          .foregroundColor(.white.opacity(0.8))
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(10)
-      .background(Color.white.opacity(0.08))
-      .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
       if !viewModel.runtimeErrorText.isEmpty || !viewModel.audioLastError.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
@@ -414,7 +351,7 @@ struct GettingStartedSheetView: View {
       VStack(spacing: 12) {
         TipRowView(
           resource: .videoIcon,
-          text: "First, Camera Access needs permission to use your glasses camera.",
+          text: "First, Microphone Access needs permission to use your glasses microphone.",
           iconColor: .primary,
           titleColor: .primary,
           textColor: .primary

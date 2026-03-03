@@ -1,16 +1,6 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * This source code is licensed under the license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
-//
 // CircleButton.swift
 //
 // Reusable circular button component used in streaming controls and UI actions.
-//
 
 import SwiftUI
 

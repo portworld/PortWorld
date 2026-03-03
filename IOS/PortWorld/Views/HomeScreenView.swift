@@ -1,27 +1,13 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * This source code is licensed under the license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
-//
 // HomeScreenView.swift
 //
 // Welcome screen that guides users through the DAT SDK registration process.
 // This view is displayed when the app is not yet registered.
-//
 
 import MWDATCore
 import SwiftUI
 
 struct HomeScreenView: View {
   @ObservedObject var viewModel: WearablesViewModel
-  @State private var isRunningExampleTest = false
-  @State private var exampleTestStateText = "idle"
-  @State private var exampleTestDetailText = "Backend test not started yet."
-  @State private var exampleTester = ExampleMediaPipelineTester(runtimeConfig: RuntimeConfig.load())
   @Namespace private var onboardingAnimation
 
   private var isRegistering: Bool {
@@ -80,11 +66,6 @@ struct HomeScreenView: View {
       ScrollView(showsIndicators: false) {
         VStack(alignment: .leading, spacing: 16) {
           VStack(alignment: .leading, spacing: 10) {
-            Text("OPEN SOURCE BOOST")
-              .font(.system(.caption, design: .rounded).weight(.bold))
-              .foregroundColor(.white.opacity(0.72))
-              .tracking(1.2)
-
             Text("PortWorld")
               .font(.system(.largeTitle, design: .rounded).weight(.bold))
               .foregroundColor(.white)
@@ -193,35 +174,6 @@ struct HomeScreenView: View {
         .background(isRegistering ? Color.gray.opacity(0.5) : Color.appPrimary)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .disabled(isRegistering)
-
-        Button {
-          Task {
-            await runHomeExampleMediaPipelineTest()
-          }
-        } label: {
-          HStack(spacing: 10) {
-            Image(systemName: isRunningExampleTest ? "hourglass" : "sparkles")
-            Text(isRunningExampleTest ? "Running backend test..." : "TEST BACKEND (Example Media)")
-          }
-          .font(.system(.subheadline, design: .rounded).weight(.semibold))
-          .foregroundColor(.white.opacity(0.92))
-          .frame(maxWidth: .infinity)
-          .frame(height: 46)
-        }
-        .buttonStyle(.plain)
-        .background(Color.white.opacity(0.12))
-        .overlay(
-          RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(Color.white.opacity(0.24), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .disabled(isRunningExampleTest)
-
-        Text("Backend test: \(exampleTestStateText) - \(exampleTestDetailText)")
-          .font(.system(.caption2, design: .rounded).weight(.medium))
-          .foregroundColor(.white.opacity(0.72))
-          .lineLimit(2)
-          .frame(maxWidth: .infinity, alignment: .leading)
       }
       .padding(.horizontal, 16)
       .padding(.top, 12)
@@ -232,27 +184,6 @@ struct HomeScreenView: View {
       }
     }
   }
-
-  @MainActor
-  private func runHomeExampleMediaPipelineTest() async {
-    guard !isRunningExampleTest else { return }
-
-    isRunningExampleTest = true
-    exampleTestStateText = "sending"
-    exampleTestDetailText = "Uploading example image, audio, and video..."
-
-    do {
-      let result = try await exampleTester.runExamplePipeline()
-      exampleTestStateText = "done"
-      exampleTestDetailText = "HTTP \(result.statusCode), \(result.responseBytes) bytes, playback \(max(0, result.playbackDurationMs)) ms"
-    } catch {
-      exampleTestStateText = "failed"
-      exampleTestDetailText = error.localizedDescription
-    }
-
-    isRunningExampleTest = false
-  }
-
 }
 
 private extension HomeScreenView {

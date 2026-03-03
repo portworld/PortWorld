@@ -1,18 +1,8 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * This source code is licensed under the license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
-//
 // WearablesViewModel.swift
 //
 // Primary view model for the CameraAccess app that manages DAT SDK integration.
 // Demonstrates how to listen to device availability changes using the DAT SDK's
 // device stream functionality and handle permission requests.
-//
 
 import Combine
 import Foundation
@@ -143,10 +133,8 @@ class WearablesViewModel: ObservableObject {
 
     do {
       _ = try await wearables.handleUrl(url)
-    } catch let error as RegistrationError {
-      showError(error.description)
     } catch {
-      showError("Unknown error: \(error.localizedDescription)")
+      showError(error.localizedDescription)
     }
   }
 }

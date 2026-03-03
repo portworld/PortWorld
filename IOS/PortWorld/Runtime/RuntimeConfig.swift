@@ -34,7 +34,7 @@ public struct RuntimeConfig {
     apiKey: String = "",
     bearerToken: String = "",
     photoFps: Double = 1.0,
-    silenceTimeoutMs: Int = 2_000,
+    silenceTimeoutMs: Int = 5_000,
     preWakeVideoMs: Int = 5_000,
     wakePhrase: String = "hey mario",
     wakeWordMode: WakeWordMode = .onDevicePreferred,

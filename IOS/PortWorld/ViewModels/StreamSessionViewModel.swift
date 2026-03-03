@@ -1,18 +1,8 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * This source code is licensed under the license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
-//
 // StreamSessionViewModel.swift
 //
 // Core view model demonstrating video streaming from Meta wearable devices using the DAT SDK.
 // This class showcases the key streaming patterns: device selection, session management,
 // video frame handling, photo capture, and error handling.
-//
 
 import MWDATCamera
 import MWDATCore
@@ -70,10 +60,6 @@ class StreamSessionViewModel: ObservableObject {
   @Published var runtimePlaybackChunkCount: Int = 0
   @Published var runtimePendingPlaybackBufferCount: Int = 0
 
-  @Published var exampleTestStateText: String = "idle"
-  @Published var exampleTestDetailText: String = "Ready"
-  @Published var isRunningExampleTest: Bool = false
-
   @Published var audioStateText: String = "idle"
   @Published var audioStatsText: String = "Chunks: 0  Bytes: 0"
   @Published var isAudioReady: Bool = false
@@ -126,7 +112,6 @@ class StreamSessionViewModel: ObservableObject {
   private let photoUploadCadenceMs: Int64 = 1000
   private var lastFramePhotoUploadTimestampMs: Int64 = 0
   private let runtimeConfig: RuntimeConfig
-  private lazy var exampleMediaPipelineTester = ExampleMediaPipelineTester(runtimeConfig: runtimeConfig)
 
   private lazy var runtimeOrchestrator: SessionOrchestrator = makeRuntimeOrchestrator()
 
@@ -394,35 +379,6 @@ class StreamSessionViewModel: ObservableObject {
 
   func triggerWakeForTesting() {
     runtimeOrchestrator.triggerWakeForTesting()
-  }
-
-  func runExampleMediaPipelineTest() async {
-    guard !isRunningExampleTest else { return }
-
-    isRunningExampleTest = true
-    exampleTestStateText = "sending"
-    exampleTestDetailText = "Uploading image, video and audio to backend..."
-
-    do {
-      let result = try await exampleMediaPipelineTester.runExamplePipeline()
-      exampleTestStateText = "playing"
-      exampleTestDetailText = "Backend HTTP \(result.statusCode), \(result.responseBytes) bytes"
-
-      let playbackMs = max(0, result.playbackDurationMs)
-      if playbackMs > 0 {
-        try? await Task.sleep(nanoseconds: UInt64(playbackMs) * 1_000_000)
-      }
-
-      exampleTestStateText = "done"
-      exampleTestDetailText = "Audio played on iPhone (\(playbackMs) ms)."
-    } catch {
-      let message = error.localizedDescription
-      exampleTestStateText = "failed"
-      exampleTestDetailText = message
-      runtimeErrorText = message
-    }
-
-    isRunningExampleTest = false
   }
 
   func dismissPhotoPreview() {
