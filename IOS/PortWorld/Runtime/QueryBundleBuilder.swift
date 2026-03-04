@@ -369,8 +369,8 @@ final class QueryBundleBuilder: QueryBundleBuilderProtocol {
   }
 
   private func mapTransportError(_ error: Error) -> Error {
-    if error is CancellationError {
-      return error
+    if isCancellation(error) {
+      return CancellationError()
     }
 
     if let queryError = error as? QueryBundleBuilderError {
@@ -390,6 +390,10 @@ final class QueryBundleBuilder: QueryBundleBuilderProtocol {
 
   private func isCancellation(_ error: Error) -> Bool {
     if error is CancellationError {
+      return true
+    }
+    let nsError = error as NSError
+    if nsError.domain == "Swift.CancellationError" {
       return true
     }
     guard let urlError = error as? URLError else {
