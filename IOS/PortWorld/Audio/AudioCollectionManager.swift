@@ -22,8 +22,10 @@ final class AudioCollectionManager: ObservableObject {
     /// AssistantPlaybackEngine can attach its player node to the same engine.
     let sharedAudioEngine = AVAudioEngine()
 
-    private let audioSession = AVAudioSession.sharedInstance()
-    private let processor = AudioChunkProcessor()
+    private let audioSessionClient: AudioSessionControlling
+    private let observerCenter: NotificationObserving
+    private let tapController: AudioTapControlling
+    private let processor: AudioChunkProcessing
     private let realtimePCMSinkRelay = RealtimePCMSinkRelay()
     private let chunkDurationMs = 500
     private let speechRMSActivityThreshold: Float
@@ -38,12 +40,25 @@ final class AudioCollectionManager: ObservableObject {
         category: "AudioCollectionManager"
     )
 
-    init(speechRMSThreshold: Float = 0.02, speechActivityDebounceMs: Int64 = 250) {
+    init(
+        speechRMSThreshold: Float = 0.02,
+        speechActivityDebounceMs: Int64 = 250,
+        audioSessionClient: AudioSessionControlling = SystemAudioSessionClient(),
+        observerCenter: NotificationObserving = SystemNotificationCenter(),
+        tapControllerFactory: (AVAudioEngine) -> AudioTapControlling = { engine in
+            EngineAudioTapController(engine: engine)
+        },
+        processor: AudioChunkProcessing = AudioChunkProcessor()
+    ) {
         self.speechRMSActivityThreshold = speechRMSThreshold
         self.speechActivityDebounceMs = speechActivityDebounceMs
-        interruptionObserver = NotificationCenter.default.addObserver(
+        self.audioSessionClient = audioSessionClient
+        self.observerCenter = observerCenter
+        self.tapController = tapControllerFactory(sharedAudioEngine)
+        self.processor = processor
+        interruptionObserver = observerCenter.addObserver(
             forName: AVAudioSession.interruptionNotification,
-            object: audioSession,
+            object: audioSessionClient.notificationObject,
             queue: .main
         ) { [weak self] notification in
             let interruptionType = Self.interruptionType(from: notification)
@@ -55,10 +70,10 @@ final class AudioCollectionManager: ObservableObject {
 
     deinit {
         if let routeObserver {
-            NotificationCenter.default.removeObserver(routeObserver)
+            observerCenter.removeObserver(routeObserver)
         }
         if let interruptionObserver {
-            NotificationCenter.default.removeObserver(interruptionObserver)
+            observerCenter.removeObserver(interruptionObserver)
         }
     }
 
@@ -75,8 +90,8 @@ final class AudioCollectionManager: ObservableObject {
         do {
             // Use .default mode and .allowBluetoothHFP per DAT SDK recommendations for HFP.
             // .voiceChat mode can apply aggressive audio processing that interferes with TTS playback.
-            try audioSession.setCategory(.playAndRecord, mode: .default, options: [.allowBluetoothHFP])
-            try audioSession.setActive(true, options: [.notifyOthersOnDeactivation])
+            try audioSessionClient.setCategory(.playAndRecord, mode: .default, options: [.allowBluetoothHFP])
+            try audioSessionClient.setActive(true, options: [.notifyOthersOnDeactivation])
             registerRouteObserverIfNeeded()
             isAudioSessionReady = true
             refreshDeviceAvailabilityState()
@@ -104,8 +119,7 @@ final class AudioCollectionManager: ObservableObject {
             let indexURL = sessionDirectory.appendingPathComponent("index.jsonl")
             FileManager.default.createFile(atPath: indexURL.path, contents: nil)
 
-            let inputNode = sharedAudioEngine.inputNode
-            let inputFormat = inputNode.inputFormat(forBus: 0)
+            let inputFormat = tapController.inputFormat()
 
             try processor.configure(
                 sessionId: sessionId,
@@ -131,13 +145,13 @@ final class AudioCollectionManager: ObservableObject {
             )
 
             if isTapInstalled {
-                inputNode.removeTap(onBus: 0)
+                tapController.removeTap()
                 isTapInstalled = false
             }
 
             let processor = self.processor
             let realtimePCMSinkRelay = self.realtimePCMSinkRelay
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+            tapController.installTap(format: inputFormat) { [weak self] buffer, _ in
                 let rms = Self.computeRMS(buffer)
                 let timestampMs = Self.nowMs()
                 Task { @MainActor in
@@ -164,8 +178,8 @@ final class AudioCollectionManager: ObservableObject {
             }
             isTapInstalled = true
 
-            sharedAudioEngine.prepare()
-            try sharedAudioEngine.start()
+            tapController.prepareEngine()
+            try tapController.startEngine()
 
             currentSessionDirectory = sessionDirectory
             stats = .default
@@ -211,9 +225,8 @@ final class AudioCollectionManager: ObservableObject {
     }
 
     private func teardownEngineIfNeeded() {
-        let inputNode = sharedAudioEngine.inputNode
         if isTapInstalled {
-            inputNode.removeTap(onBus: 0)
+            tapController.removeTap()
             isTapInstalled = false
         }
 
@@ -221,14 +234,14 @@ final class AudioCollectionManager: ObservableObject {
             return
         }
 
-        sharedAudioEngine.stop()
+        tapController.stopEngine()
     }
 
     private func registerRouteObserverIfNeeded() {
         guard routeObserver == nil else { return }
-        routeObserver = NotificationCenter.default.addObserver(
+        routeObserver = observerCenter.addObserver(
             forName: AVAudioSession.routeChangeNotification,
-            object: audioSession,
+            object: audioSessionClient.notificationObject,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -262,7 +275,7 @@ final class AudioCollectionManager: ObservableObject {
             }
         case .ended:
             do {
-                try audioSession.setActive(true, options: [])
+                try audioSessionClient.setActive(true, options: [])
                 refreshDeviceAvailabilityState()
             } catch {
                 markFailed("Failed to reactivate audio session after interruption: \(error.localizedDescription)")
@@ -286,13 +299,11 @@ final class AudioCollectionManager: ObservableObject {
     }
 
     private func hasBluetoothHFPInput() -> Bool {
-        audioSession.currentRoute.inputs.contains { input in
-            input.portType == .bluetoothHFP
-        }
+        audioSessionClient.hasBluetoothHFPInput()
     }
 
     private func requestRecordPermission() async -> Bool {
-        await AVAudioApplication.requestRecordPermission()
+        await audioSessionClient.requestRecordPermission()
     }
 
     private nonisolated static func interruptionType(from notification: Notification) -> AVAudioSession.InterruptionType? {
@@ -631,6 +642,124 @@ private enum AudioChunkProcessorError: Error {
     case missingConvertedChannelData
 }
 
+protocol AudioSessionControlling {
+    var notificationObject: AnyObject? { get }
+    func requestRecordPermission() async -> Bool
+    func setCategory(
+        _ category: AVAudioSession.Category,
+        mode: AVAudioSession.Mode,
+        options: AVAudioSession.CategoryOptions
+    ) throws
+    func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws
+    func hasBluetoothHFPInput() -> Bool
+}
+
+private final class SystemAudioSessionClient: AudioSessionControlling {
+    private let session: AVAudioSession
+
+    init(session: AVAudioSession = .sharedInstance()) {
+        self.session = session
+    }
+
+    var notificationObject: AnyObject? {
+        session
+    }
+
+    func requestRecordPermission() async -> Bool {
+        await AVAudioApplication.requestRecordPermission()
+    }
+
+    func setCategory(
+        _ category: AVAudioSession.Category,
+        mode: AVAudioSession.Mode,
+        options: AVAudioSession.CategoryOptions
+    ) throws {
+        try session.setCategory(category, mode: mode, options: options)
+    }
+
+    func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws {
+        try session.setActive(active, options: options)
+    }
+
+    func hasBluetoothHFPInput() -> Bool {
+        session.currentRoute.inputs.contains { input in
+            input.portType == .bluetoothHFP
+        }
+    }
+}
+
+protocol NotificationObserving {
+    func addObserver(
+        forName name: NSNotification.Name?,
+        object obj: Any?,
+        queue: OperationQueue?,
+        using block: @escaping (Notification) -> Void
+    ) -> NSObjectProtocol
+    func removeObserver(_ observer: NSObjectProtocol)
+}
+
+private final class SystemNotificationCenter: NotificationObserving {
+    private let center: NotificationCenter
+
+    init(center: NotificationCenter = .default) {
+        self.center = center
+    }
+
+    func addObserver(
+        forName name: NSNotification.Name?,
+        object obj: Any?,
+        queue: OperationQueue?,
+        using block: @escaping (Notification) -> Void
+    ) -> NSObjectProtocol {
+        center.addObserver(forName: name, object: obj, queue: queue, using: block)
+    }
+
+    func removeObserver(_ observer: NSObjectProtocol) {
+        center.removeObserver(observer)
+    }
+}
+
+protocol AudioTapControlling {
+    func inputFormat() -> AVAudioFormat
+    func installTap(format: AVAudioFormat, block: @escaping AVAudioNodeTapBlock)
+    func removeTap()
+    func prepareEngine()
+    func startEngine() throws
+    func stopEngine()
+}
+
+private final class EngineAudioTapController: AudioTapControlling {
+    private let engine: AVAudioEngine
+
+    init(engine: AVAudioEngine) {
+        self.engine = engine
+    }
+
+    func inputFormat() -> AVAudioFormat {
+        engine.inputNode.inputFormat(forBus: 0)
+    }
+
+    func installTap(format: AVAudioFormat, block: @escaping AVAudioNodeTapBlock) {
+        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: block)
+    }
+
+    func removeTap() {
+        engine.inputNode.removeTap(onBus: 0)
+    }
+
+    func prepareEngine() {
+        engine.prepare()
+    }
+
+    func startEngine() throws {
+        try engine.start()
+    }
+
+    func stopEngine() {
+        engine.stop()
+    }
+}
+
 // SAFETY: `RealtimePCMSinkRelay` is manually marked `@unchecked Sendable` because
 // mutable state is protected with `lock`, and sink invocation is dispatched on the
 // private serial `callbackQueue`.
@@ -670,7 +799,24 @@ private final class RealtimePCMSinkRelay: @unchecked Sendable {
 // converter/session/chunk state are performed exclusively while executing on that
 // single queue (validated via `queueKey` checks where needed). This establishes an
 // exclusive mutable-state access policy and prevents concurrent access races.
-private final class AudioChunkProcessor: @unchecked Sendable {
+protocol AudioChunkProcessing: Sendable {
+    func configure(
+        sessionId: String,
+        sessionDirectory: URL,
+        indexFileURL: URL,
+        inputFormat: AVAudioFormat,
+        chunkTargetDurationMs: Int,
+        startTimestampMs: Int64,
+        onChunkWritten: @escaping @Sendable (AudioChunkMetadata, Int64) -> Void,
+        onError: @escaping @Sendable (String) -> Void
+    ) throws
+    func enqueue(buffer: AVAudioPCMBuffer)
+    func stopAndFlush()
+    func flushPartialChunk()
+    func enqueueError(_ message: String)
+}
+
+private final class AudioChunkProcessor: AudioChunkProcessing, @unchecked Sendable {
     private let queue = DispatchQueue(label: "PortWorld.AudioChunkProcessor")
     private let queueKey = DispatchSpecificKey<Void>()
     private let encoder = JSONEncoder()
