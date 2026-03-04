@@ -40,6 +40,7 @@ actor SessionWebSocketClient: SessionWebSocketClientProtocol {
   private let pingIntervalMs: UInt64
   private var onStateChange: SessionWebSocketStateHandler?
   private var onMessage: SessionWebSocketMessageHandler?
+  private var onRawMessage: SessionWebSocketRawMessageHandler?
   private var onError: SessionWebSocketErrorHandler?
   private var eventLogger: EventLoggerProtocol?
 
@@ -49,6 +50,7 @@ actor SessionWebSocketClient: SessionWebSocketClientProtocol {
   private var reconnectTask: Task<Void, Never>?
   private var state: SessionWebSocketConnectionState = .idle
   private var shouldReconnect = false
+  private var isNetworkAvailable = true
   private var reconnectAttempt = 0
   private var outboundSeq = 0
   private var hasPublishedConnectedForSocket = false
@@ -85,6 +87,24 @@ actor SessionWebSocketClient: SessionWebSocketClientProtocol {
     reconnectAttempt
   }
 
+  func setNetworkAvailable(_ isAvailable: Bool) {
+    guard isNetworkAvailable != isAvailable else { return }
+    isNetworkAvailable = isAvailable
+
+    if !isAvailable {
+      reconnectTask?.cancel()
+      reconnectTask = nil
+      return
+    }
+
+    guard shouldReconnect, webSocketTask == nil else { return }
+    reconnectTask?.cancel()
+    reconnectTask = nil
+    reconnectAttempt = 0
+    publishState(.connecting)
+    openSocket()
+  }
+
   public func connect() {
     if let webSocketTask,
        webSocketTask.state == .canceling || webSocketTask.state == .completed {
@@ -94,6 +114,12 @@ actor SessionWebSocketClient: SessionWebSocketClientProtocol {
 
     shouldReconnect = true
     reconnectAttempt = 0
+
+    guard isNetworkAvailable else {
+      publishState(.disconnected)
+      return
+    }
+
     publishState(.connecting)
     openSocket()
   }
@@ -108,6 +134,10 @@ actor SessionWebSocketClient: SessionWebSocketClientProtocol {
     self.onMessage = onMessage
     self.onError = onError
     self.eventLogger = eventLogger
+  }
+
+  func bindRawMessageHandler(_ onRawMessage: SessionWebSocketRawMessageHandler?) {
+    self.onRawMessage = onRawMessage
   }
 
   public func disconnect(closeCode: URLSessionWebSocketTask.CloseCode = .normalClosure) {
@@ -131,6 +161,10 @@ actor SessionWebSocketClient: SessionWebSocketClientProtocol {
     }
 
     if webSocketTask == nil && reconnectTask == nil {
+      guard isNetworkAvailable else {
+        publishState(.disconnected)
+        return
+      }
       // Reset reconnect attempt to avoid stale backoff from previous failures.
       // After foreground recovery, we want fresh reconnect timing.
       reconnectAttempt = 0
@@ -235,8 +269,10 @@ actor SessionWebSocketClient: SessionWebSocketClientProtocol {
 
         switch message {
         case .data(let data):
+          onRawMessage?(.binary(data))
           await handleInboundData(data)
         case .string(let text):
+          onRawMessage?(.text(text))
           guard let data = text.data(using: .utf8) else {
             publishError(.decoding("Unable to decode UTF-8 text payload"))
             continue
@@ -307,11 +343,16 @@ actor SessionWebSocketClient: SessionWebSocketClientProtocol {
       return
     }
 
+    guard isNetworkAvailable else {
+      publishState(.disconnected)
+      return
+    }
+
     scheduleReconnectIfNeeded()
   }
 
   private func scheduleReconnectIfNeeded() {
-    guard reconnectTask == nil else { return }
+    guard reconnectTask == nil, isNetworkAvailable else { return }
 
     reconnectAttempt += 1
     let delayMs = reconnectDelayMs(for: reconnectAttempt)

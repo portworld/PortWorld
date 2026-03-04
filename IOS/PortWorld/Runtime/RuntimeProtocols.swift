@@ -6,9 +6,15 @@ import UIKit
 // Keep @MainActor off these protocol contracts to preserve background execution.
 typealias SessionWebSocketStateHandler = (SessionWebSocketConnectionState) -> Void
 typealias SessionWebSocketMessageHandler = (WSInboundMessage) -> Void
+typealias SessionWebSocketRawMessageHandler = (SessionWebSocketRawMessage) -> Void
 typealias SessionWebSocketErrorHandler = (SessionWebSocketClientError) -> Void
 typealias VisionFrameSessionIDProvider = () -> String?
 typealias VisionFrameUploadResultHandler = (VisionFrameUploadResult) -> Void
+
+enum SessionWebSocketRawMessage: Sendable {
+  case text(String)
+  case binary(Data)
+}
 
 /// Actor-isolated transport contract for the websocket control plane.
 protocol SessionWebSocketClientProtocol: Actor {
@@ -18,11 +24,41 @@ protocol SessionWebSocketClientProtocol: Actor {
     onError: SessionWebSocketErrorHandler?,
     eventLogger: EventLoggerProtocol?
   )
+  func bindRawMessageHandler(_ onRawMessage: SessionWebSocketRawMessageHandler?)
+  func setNetworkAvailable(_ isAvailable: Bool)
   func connect()
   func disconnect(closeCode: URLSessionWebSocketTask.CloseCode)
   func ensureConnected()
   func reconnectAttemptCount() -> Int
+  func sendText(_ text: String) async throws
+  func sendData(_ data: Data) async throws
   func send<Payload: Codable>(type: WSOutboundType, sessionID: String, payload: Payload) async throws
+}
+
+extension SessionWebSocketClientProtocol {
+  func bindHandlers(
+    onStateChange: SessionWebSocketStateHandler?,
+    onMessage: SessionWebSocketMessageHandler?,
+    onRawMessage: SessionWebSocketRawMessageHandler?,
+    onError: SessionWebSocketErrorHandler?,
+    eventLogger: EventLoggerProtocol?
+  ) {
+    bindHandlers(
+      onStateChange: onStateChange,
+      onMessage: onMessage,
+      onError: onError,
+      eventLogger: eventLogger
+    )
+    bindRawMessageHandler(onRawMessage)
+  }
+
+  func bindRawMessageHandler(_ onRawMessage: SessionWebSocketRawMessageHandler?) {
+    // Default no-op preserves compatibility for existing typed-only websocket clients.
+  }
+
+  func setNetworkAvailable(_ isAvailable: Bool) {
+    // Default no-op preserves compatibility for clients that do not gate reconnects.
+  }
 }
 
 /// Actor-isolated photo uploader contract.
@@ -33,6 +69,7 @@ protocol VisionFrameUploaderProtocol: Actor {
   )
   func start()
   func stop()
+  func consumeFrameDropCount() -> Int
   func submitLatestFrame(_ image: UIImage, captureTimestampMs: Int64)
 }
 
@@ -83,6 +120,7 @@ protocol EventLoggerProtocol: AnyObject {
     fields: [String: JSONValue],
     tsMs: Int64?
   )
+  func exportCurrentLog() -> URL
 }
 
 extension EventLoggerProtocol {
@@ -93,6 +131,10 @@ extension EventLoggerProtocol {
     fields: [String: JSONValue] = [:]
   ) {
     log(name: name, sessionID: sessionID, queryID: queryID, fields: fields, tsMs: nil)
+  }
+
+  func exportCurrentLog() -> URL {
+    URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
   }
 }
 
