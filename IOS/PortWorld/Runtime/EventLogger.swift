@@ -96,7 +96,9 @@ public final class EventLogger: EventLoggerProtocol {
   }
 }
 
-private final class EventLogDiskStore {
+fileprivate struct EventLogDiskStore {
+  private static let queueSpecificKey = DispatchSpecificKey<UInt8>()
+  private static let queueSpecificValue: UInt8 = 1
   private let fileManager: FileManager
   private let maxLogFileBytes: UInt64
   private let maxLogFiles: Int
@@ -120,6 +122,7 @@ private final class EventLogDiskStore {
       fileManager: fileManager,
       explicitLogsDirectoryURL: logsDirectoryURL
     )
+    ioQueue.setSpecific(key: Self.queueSpecificKey, value: Self.queueSpecificValue)
   }
 
   func enqueueAppend(line: String) {
@@ -129,16 +132,33 @@ private final class EventLogDiskStore {
   }
 
   func exportCurrentLog() -> URL {
-    ioQueue.sync {
-      self.ensureLogsDirectoryExists()
-      let currentURL = self.fileURL(index: 1)
-      self.ensureFileExists(at: currentURL)
+    let currentURL = fileURL(index: 1)
+    if isOnIOQueue() {
+      ensureLogsDirectoryExists()
+      ensureFileExists(at: currentURL)
       return currentURL
     }
+
+    let group = DispatchGroup()
+    group.enter()
+    ioQueue.async {
+      self.ensureLogsDirectoryExists()
+      self.ensureFileExists(at: currentURL)
+      group.leave()
+    }
+    group.wait()
+    return currentURL
   }
 
   func flushPendingWrites() {
-    ioQueue.sync {}
+    if isOnIOQueue() { return }
+
+    let group = DispatchGroup()
+    group.enter()
+    ioQueue.async {
+      group.leave()
+    }
+    group.wait()
   }
 
   private func appendLine(_ line: String) {
@@ -152,6 +172,10 @@ private final class EventLogDiskStore {
 
     rotateIfNeeded(incomingBytes: UInt64(data.count))
     appendData(data, to: fileURL(index: 1))
+  }
+
+  private func isOnIOQueue() -> Bool {
+    DispatchQueue.getSpecific(key: Self.queueSpecificKey) == Self.queueSpecificValue
   }
 
   private func rotateIfNeeded(incomingBytes: UInt64) {

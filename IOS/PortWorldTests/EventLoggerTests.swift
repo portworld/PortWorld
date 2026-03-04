@@ -2,12 +2,22 @@ import XCTest
 @testable import PortWorld
 
 final class EventLoggerTests: XCTestCase {
+  private var managedLoggers: [EventLogger] = []
+  private var tempLogDirectories: [URL] = []
+
+  override func tearDown() {
+    managedLoggers.forEach { $0.flushDiskWritesForTesting() }
+    managedLoggers.removeAll()
+    tempLogDirectories.forEach(removeDirectory)
+    tempLogDirectories.removeAll()
+    super.tearDown()
+  }
 
   // MARK: - Sink emission
 
   func testLogEmitsValidJsonToSink() {
     var lines: [String] = []
-    let logger = EventLogger(sink: { lines.append($0) })
+    let logger = makeLogger(sink: { lines.append($0) })
 
     logger.log(name: "test.event", sessionID: "sess_1", fields: ["key": .string("val")])
 
@@ -27,7 +37,7 @@ final class EventLoggerTests: XCTestCase {
 
   func testLogWithQueryIdIncludesQueryId() {
     var lines: [String] = []
-    let logger = EventLogger(sink: { lines.append($0) })
+    let logger = makeLogger(sink: { lines.append($0) })
 
     logger.log(name: "query.started", sessionID: "sess_1", queryID: "q_42")
 
@@ -43,7 +53,7 @@ final class EventLoggerTests: XCTestCase {
 
   func testLogWithoutQueryIdHasNullQueryId() {
     var lines: [String] = []
-    let logger = EventLogger(sink: { lines.append($0) })
+    let logger = makeLogger(sink: { lines.append($0) })
 
     logger.log(name: "session.activated", sessionID: "sess_1")
 
@@ -61,7 +71,7 @@ final class EventLoggerTests: XCTestCase {
 
   func testLogWithExplicitTimestamp() {
     var lines: [String] = []
-    let logger = EventLogger(sink: { lines.append($0) })
+    let logger = makeLogger(sink: { lines.append($0) })
 
     logger.log(name: "timed", sessionID: "s", tsMs: 1234567890)
 
@@ -77,7 +87,7 @@ final class EventLoggerTests: XCTestCase {
 
   func testLogMultipleEventsEmitsMultipleLines() {
     var lines: [String] = []
-    let logger = EventLogger(sink: { lines.append($0) })
+    let logger = makeLogger(sink: { lines.append($0) })
 
     logger.log(name: "e1", sessionID: "s")
     logger.log(name: "e2", sessionID: "s")
@@ -89,7 +99,7 @@ final class EventLoggerTests: XCTestCase {
   // MARK: - recentEvents
 
   func testRecentEventsReturnsLoggedEvents() {
-    let logger = EventLogger(sink: { _ in })
+    let logger = makeLogger(sink: { _ in })
 
     logger.log(name: "e1", sessionID: "s")
     logger.log(name: "e2", sessionID: "s")
@@ -103,7 +113,7 @@ final class EventLoggerTests: XCTestCase {
   }
 
   func testRecentEventsRespectsLimit() {
-    let logger = EventLogger(sink: { _ in })
+    let logger = makeLogger(sink: { _ in })
 
     for i in 0..<10 {
       logger.log(name: "event_\(i)", sessionID: "s")
@@ -118,7 +128,7 @@ final class EventLoggerTests: XCTestCase {
   }
 
   func testRecentEventsWithZeroLimitReturnsEmpty() {
-    let logger = EventLogger(sink: { _ in })
+    let logger = makeLogger(sink: { _ in })
     logger.log(name: "e", sessionID: "s")
 
     XCTAssertTrue(logger.recentEvents(limit: 0).isEmpty)
@@ -127,7 +137,7 @@ final class EventLoggerTests: XCTestCase {
   // MARK: - Retention / pruning
 
   func testPrunesOldestEventsWhenCapReached() {
-    let logger = EventLogger(maxRetainedEvents: 3, sink: { _ in })
+    let logger = makeLogger(maxRetainedEvents: 3, sink: { _ in })
 
     logger.log(name: "a", sessionID: "s")
     logger.log(name: "b", sessionID: "s")
@@ -142,7 +152,7 @@ final class EventLoggerTests: XCTestCase {
   }
 
   func testRetentionAtExactCapDoesNotPrune() {
-    let logger = EventLogger(maxRetainedEvents: 3, sink: { _ in })
+    let logger = makeLogger(maxRetainedEvents: 3, sink: { _ in })
 
     logger.log(name: "a", sessionID: "s")
     logger.log(name: "b", sessionID: "s")
@@ -156,7 +166,7 @@ final class EventLoggerTests: XCTestCase {
   // MARK: - clear
 
   func testClearRemovesAllEvents() {
-    let logger = EventLogger(sink: { _ in })
+    let logger = makeLogger(sink: { _ in })
 
     logger.log(name: "e1", sessionID: "s")
     logger.log(name: "e2", sessionID: "s")
@@ -167,7 +177,7 @@ final class EventLoggerTests: XCTestCase {
   }
 
   func testClearThenLogStartsFresh() {
-    let logger = EventLogger(sink: { _ in })
+    let logger = makeLogger(sink: { _ in })
 
     logger.log(name: "old", sessionID: "s")
     logger.clear()
@@ -182,7 +192,7 @@ final class EventLoggerTests: XCTestCase {
 
   func testFieldsAreIncludedInJson() {
     var lines: [String] = []
-    let logger = EventLogger(sink: { lines.append($0) })
+    let logger = makeLogger(sink: { lines.append($0) })
 
     logger.log(
       name: "with_fields",
@@ -209,7 +219,7 @@ final class EventLoggerTests: XCTestCase {
 
   func testEmptyFieldsSerializedAsEmptyObject() {
     var lines: [String] = []
-    let logger = EventLogger(sink: { lines.append($0) })
+    let logger = makeLogger(sink: { lines.append($0) })
 
     logger.log(name: "no_fields", sessionID: "s", fields: [:])
 
@@ -228,7 +238,7 @@ final class EventLoggerTests: XCTestCase {
 
   func testLogAppEventDirectly() {
     var lines: [String] = []
-    let logger = EventLogger(sink: { lines.append($0) })
+    let logger = makeLogger(sink: { lines.append($0) })
 
     let event = AppEvent(
       name: "direct.event",
@@ -258,13 +268,8 @@ final class EventLoggerTests: XCTestCase {
   // MARK: - Disk persistence
 
   func testLogPersistsJsonlToDisk() throws {
-    let logsDirectory = makeTempLogsDirectory()
-    defer { removeDirectory(logsDirectory) }
-
-    let logger = EventLogger(
-      sink: { _ in },
-      logsDirectoryURL: logsDirectory
-    )
+    let logger = makeLogger(sink: { _ in })
+    let logsDirectory = currentManagedLogsDirectory()
 
     logger.log(name: "disk.event", sessionID: "sess_disk", tsMs: 123)
     logger.flushDiskWritesForTesting()
@@ -286,15 +291,12 @@ final class EventLoggerTests: XCTestCase {
   }
 
   func testDiskRotationKeepsThreeFiles() throws {
-    let logsDirectory = makeTempLogsDirectory()
-    defer { removeDirectory(logsDirectory) }
-
-    let logger = EventLogger(
+    let logger = makeLogger(
       sink: { _ in },
-      logsDirectoryURL: logsDirectory,
       maxLogFileBytes: 120,
       maxLogFiles: 3
     )
+    let logsDirectory = currentManagedLogsDirectory()
 
     for index in 0..<8 {
       logger.log(
@@ -320,13 +322,7 @@ final class EventLoggerTests: XCTestCase {
   }
 
   func testExportCurrentLogReturnsCurrentLogURL() throws {
-    let logsDirectory = makeTempLogsDirectory()
-    defer { removeDirectory(logsDirectory) }
-
-    let logger = EventLogger(
-      sink: { _ in },
-      logsDirectoryURL: logsDirectory
-    )
+    let logger = makeLogger(sink: { _ in })
 
     logger.log(name: "exported.event", sessionID: "sess_export")
     logger.flushDiskWritesForTesting()
@@ -338,6 +334,14 @@ final class EventLoggerTests: XCTestCase {
     let lines = try readLines(from: exportedURL)
     XCTAssertEqual(lines.count, 1)
     XCTAssertTrue(lines[0].contains("exported.event"))
+  }
+
+  private func currentManagedLogsDirectory() -> URL {
+    guard let logsDirectory = tempLogDirectories.last else {
+      XCTFail("No managed logs directory available")
+      return FileManager.default.temporaryDirectory
+    }
+    return logsDirectory
   }
 
   private func makeTempLogsDirectory() -> URL {
@@ -362,5 +366,24 @@ final class EventLoggerTests: XCTestCase {
   private func readLines(from url: URL) throws -> [String] {
     let content = try String(contentsOf: url, encoding: .utf8)
     return content.split(separator: "\n").map(String.init)
+  }
+
+  private func makeLogger(
+    maxRetainedEvents: Int = 500,
+    sink: EventLogger.Sink?,
+    maxLogFileBytes: Int = 5 * 1024 * 1024,
+    maxLogFiles: Int = 3
+  ) -> EventLogger {
+    let logsDirectory = makeTempLogsDirectory()
+    tempLogDirectories.append(logsDirectory)
+    let logger = EventLogger(
+      maxRetainedEvents: maxRetainedEvents,
+      sink: sink,
+      logsDirectoryURL: logsDirectory,
+      maxLogFileBytes: maxLogFileBytes,
+      maxLogFiles: maxLogFiles
+    )
+    managedLoggers.append(logger)
+    return logger
   }
 }
