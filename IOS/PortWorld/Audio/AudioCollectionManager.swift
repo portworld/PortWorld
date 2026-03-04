@@ -11,6 +11,11 @@ final class AudioCollectionManager: ObservableObject {
     @Published private(set) var currentSessionDirectory: URL?
     @Published private(set) var lastSpeechActivityTimestampMs: Int64?
     var onWakePCMFrame: ((WakeWordPCMFrame) -> Void)?
+    var onRealtimePCMFrame: (@Sendable (Data, Int64) -> Void)? {
+        didSet {
+            realtimePCMSinkRelay.setSink(onRealtimePCMFrame)
+        }
+    }
     var isPlaybackPendingProvider: (() -> Bool)?
 
     /// Shared audio engine for both capture and playback. Exposed so that
@@ -19,6 +24,7 @@ final class AudioCollectionManager: ObservableObject {
 
     private let audioSession = AVAudioSession.sharedInstance()
     private let processor = AudioChunkProcessor()
+    private let realtimePCMSinkRelay = RealtimePCMSinkRelay()
     private let chunkDurationMs = 500
     private let speechRMSActivityThreshold: Float
     private let speechActivityDebounceMs: Int64
@@ -130,6 +136,7 @@ final class AudioCollectionManager: ObservableObject {
             }
 
             let processor = self.processor
+            let realtimePCMSinkRelay = self.realtimePCMSinkRelay
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
                 let rms = Self.computeRMS(buffer)
                 let timestampMs = Self.nowMs()
@@ -138,6 +145,15 @@ final class AudioCollectionManager: ObservableObject {
                     if let frame = Self.makeWakePCMFrame(from: buffer, timestampMs: timestampMs) {
                         self?.onWakePCMFrame?(frame)
                     }
+                }
+
+                if realtimePCMSinkRelay.hasSink {
+                    guard let payload = Self.copyPCMPayload(buffer) else {
+                        processor.enqueueError("Failed to copy captured audio payload.")
+                        return
+                    }
+                    realtimePCMSinkRelay.emit(payload: payload, timestampMs: timestampMs)
+                    return
                 }
 
                 guard let copied = Self.copyPCMBuffer(buffer) else {
@@ -372,6 +388,28 @@ final class AudioCollectionManager: ObservableObject {
         return copied
     }
 
+    private static func copyPCMPayload(_ buffer: AVAudioPCMBuffer) -> Data? {
+        let sourceList = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
+        var totalSize = 0
+        for source in sourceList {
+            totalSize += Int(source.mDataByteSize)
+        }
+        guard totalSize > 0 else { return nil }
+
+        var payload = Data()
+        payload.reserveCapacity(totalSize)
+
+        for source in sourceList {
+            let size = Int(source.mDataByteSize)
+            guard size > 0, let sourceData = source.mData else {
+                continue
+            }
+            payload.append(contentsOf: UnsafeRawBufferPointer(start: sourceData, count: size))
+        }
+
+        return payload.isEmpty ? nil : payload
+    }
+
     private static func makeWakePCMFrame(from buffer: AVAudioPCMBuffer, timestampMs: Int64) -> WakeWordPCMFrame? {
         let frameCount = Int(buffer.frameLength)
         guard frameCount > 0 else { return nil }
@@ -591,6 +629,39 @@ private enum AudioChunkProcessorError: Error {
     case converterInitializationFailed
     case outputBufferAllocationFailed
     case missingConvertedChannelData
+}
+
+// SAFETY: `RealtimePCMSinkRelay` is manually marked `@unchecked Sendable` because
+// mutable state is protected with `lock`, and sink invocation is dispatched on the
+// private serial `callbackQueue`.
+private final class RealtimePCMSinkRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private let callbackQueue = DispatchQueue(label: "PortWorld.RealtimePCMSinkRelay")
+    private var sink: (@Sendable (Data, Int64) -> Void)?
+
+    var hasSink: Bool {
+        lock.lock()
+        let hasSink = sink != nil
+        lock.unlock()
+        return hasSink
+    }
+
+    func setSink(_ sink: (@Sendable (Data, Int64) -> Void)?) {
+        lock.lock()
+        self.sink = sink
+        lock.unlock()
+    }
+
+    func emit(payload: Data, timestampMs: Int64) {
+        lock.lock()
+        let sink = self.sink
+        lock.unlock()
+
+        guard let sink else { return }
+        callbackQueue.async {
+            sink(payload, timestampMs)
+        }
+    }
 }
 
 // SAFETY: `AudioChunkProcessor` is manually marked `@unchecked Sendable` because all

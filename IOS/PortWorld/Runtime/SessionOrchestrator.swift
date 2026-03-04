@@ -1,15 +1,126 @@
 import AVFAudio
+import Darwin
 import Foundation
 import OSLog
 import UIKit
 
+private final class RealtimePCMUplinkWorker {
+  struct Frame {
+    let payload: Data
+    let timestampMs: Int64
+  }
+
+  private let capacity: Int
+  private let sendFrame: @Sendable (Frame) async throws -> Void
+  private let onSendError: @Sendable (Error) -> Void
+  private let stateQueue = DispatchQueue(label: "com.portworld.session_orchestrator.realtime_pcm_uplink")
+  private let drainSignal: AsyncStream<Void>
+  private let drainSignalContinuation: AsyncStream<Void>.Continuation
+  private var drainTask: Task<Void, Never>?
+  private var pendingFrames: [Frame] = []
+  private var droppedFrameCountSinceLastRead = 0
+  private var hasPendingDrainSignal = false
+  private var isActive = true
+
+  init(
+    capacity: Int,
+    sendFrame: @escaping @Sendable (Frame) async throws -> Void,
+    onSendError: @escaping @Sendable (Error) -> Void
+  ) {
+    self.capacity = max(1, capacity)
+    self.sendFrame = sendFrame
+    self.onSendError = onSendError
+    let stream = AsyncStream.makeStream(of: Void.self)
+    self.drainSignal = stream.stream
+    self.drainSignalContinuation = stream.continuation
+    self.drainTask = Task { [weak self] in
+      await self?.runDrainLoop()
+    }
+  }
+
+  func enqueue(payload: Data, timestampMs: Int64) {
+    stateQueue.async { [weak self] in
+      guard let self, self.isActive else { return }
+      if self.pendingFrames.count >= self.capacity {
+        self.pendingFrames.removeFirst()
+        self.droppedFrameCountSinceLastRead += 1
+      }
+      self.pendingFrames.append(Frame(payload: payload, timestampMs: timestampMs))
+      if !self.hasPendingDrainSignal {
+        self.hasPendingDrainSignal = true
+        self.drainSignalContinuation.yield(())
+      }
+    }
+  }
+
+  func consumeDroppedFrameCount() -> Int {
+    stateQueue.sync {
+      let count = droppedFrameCountSinceLastRead
+      droppedFrameCountSinceLastRead = 0
+      return count
+    }
+  }
+
+  func stopAndReset() {
+    stateQueue.sync {
+      isActive = false
+      pendingFrames.removeAll(keepingCapacity: false)
+      hasPendingDrainSignal = false
+      droppedFrameCountSinceLastRead = 0
+    }
+    drainSignalContinuation.finish()
+    drainTask?.cancel()
+    drainTask = nil
+  }
+
+  func clearPendingFrames() {
+    stateQueue.async { [weak self] in
+      self?.pendingFrames.removeAll(keepingCapacity: false)
+      self?.hasPendingDrainSignal = false
+    }
+  }
+
+  private func runDrainLoop() async {
+    for await _ in drainSignal {
+      while let frame = popNextFrameForDrain() {
+        do {
+          try await sendFrame(frame)
+        } catch {
+          onSendError(error)
+        }
+      }
+      if !isWorkerActive() {
+        return
+      }
+    }
+  }
+
+  private func popNextFrameForDrain() -> Frame? {
+    stateQueue.sync {
+      guard isActive else {
+        pendingFrames.removeAll(keepingCapacity: false)
+        hasPendingDrainSignal = false
+        return nil
+      }
+      guard !pendingFrames.isEmpty else {
+        hasPendingDrainSignal = false
+        return nil
+      }
+      return pendingFrames.removeFirst()
+    }
+  }
+
+  private func isWorkerActive() -> Bool {
+    stateQueue.sync { isActive }
+  }
+}
+
 @MainActor
 final class SessionOrchestrator {
   struct Dependencies {
-    typealias MakeWebSocketClient = (_ config: RuntimeConfig) -> SessionWebSocketClientProtocol
+    typealias MakeRealtimeTransport = (_ config: RuntimeConfig) -> RealtimeTransport
     typealias MakeVisionFrameUploader = (_ config: RuntimeConfig) -> VisionFrameUploaderProtocol
     typealias MakeRollingVideoBuffer = (_ config: RuntimeConfig) -> RollingVideoBufferProtocol
-    typealias MakeQueryBundleBuilder = (_ config: RuntimeConfig) -> QueryBundleBuilderProtocol
     typealias MakePlaybackEngine = (
       _ sharedAudioEngine: AVAudioEngine?,
       _ stuckDetectionThresholdMs: Int64
@@ -24,12 +135,68 @@ final class SessionOrchestrator {
     /// Pass nil to create an internal engine (not recommended for HFP).
     let sharedAudioEngine: AVAudioEngine?
     let clock: () -> Int64
-    let makeWebSocketClient: MakeWebSocketClient
+    let makeRealtimeTransport: MakeRealtimeTransport
     let makeVisionFrameUploader: MakeVisionFrameUploader
     let makeRollingVideoBuffer: MakeRollingVideoBuffer
-    let makeQueryBundleBuilder: MakeQueryBundleBuilder
     let makePlaybackEngine: MakePlaybackEngine
     let eventLogger: EventLoggerProtocol
+
+    init(
+      startStream: @escaping () async -> Void,
+      stopStream: @escaping () async -> Void,
+      exportAudioClip: @escaping (AudioClipExportWindow) throws -> URL,
+      flushPendingAudioChunks: @escaping () -> Void,
+      audioBufferDurationProvider: @escaping () -> Int,
+      sharedAudioEngine: AVAudioEngine?,
+      clock: @escaping () -> Int64,
+      makeRealtimeTransport: @escaping MakeRealtimeTransport,
+      makeVisionFrameUploader: @escaping MakeVisionFrameUploader,
+      makeRollingVideoBuffer: @escaping MakeRollingVideoBuffer,
+      makePlaybackEngine: @escaping MakePlaybackEngine,
+      eventLogger: EventLoggerProtocol
+    ) {
+      self.startStream = startStream
+      self.stopStream = stopStream
+      self.exportAudioClip = exportAudioClip
+      self.flushPendingAudioChunks = flushPendingAudioChunks
+      self.audioBufferDurationProvider = audioBufferDurationProvider
+      self.sharedAudioEngine = sharedAudioEngine
+      self.clock = clock
+      self.makeRealtimeTransport = makeRealtimeTransport
+      self.makeVisionFrameUploader = makeVisionFrameUploader
+      self.makeRollingVideoBuffer = makeRollingVideoBuffer
+      self.makePlaybackEngine = makePlaybackEngine
+      self.eventLogger = eventLogger
+    }
+
+    init(
+      startStream: @escaping () async -> Void,
+      stopStream: @escaping () async -> Void,
+      exportAudioClip: @escaping (AudioClipExportWindow) throws -> URL,
+      flushPendingAudioChunks: @escaping () -> Void,
+      audioBufferDurationProvider: @escaping () -> Int,
+      sharedAudioEngine: AVAudioEngine?,
+      clock: @escaping () -> Int64,
+      makeVisionFrameUploader: @escaping MakeVisionFrameUploader,
+      makeRollingVideoBuffer: @escaping MakeRollingVideoBuffer,
+      makePlaybackEngine: @escaping MakePlaybackEngine,
+      eventLogger: EventLoggerProtocol
+    ) {
+      self.init(
+        startStream: startStream,
+        stopStream: stopStream,
+        exportAudioClip: exportAudioClip,
+        flushPendingAudioChunks: flushPendingAudioChunks,
+        audioBufferDurationProvider: audioBufferDurationProvider,
+        sharedAudioEngine: sharedAudioEngine,
+        clock: clock,
+        makeRealtimeTransport: SessionOrchestrator.Dependencies.live.makeRealtimeTransport,
+        makeVisionFrameUploader: makeVisionFrameUploader,
+        makeRollingVideoBuffer: makeRollingVideoBuffer,
+        makePlaybackEngine: makePlaybackEngine,
+        eventLogger: eventLogger
+      )
+    }
 
     static var live: Dependencies {
       Dependencies(
@@ -40,15 +207,8 @@ final class SessionOrchestrator {
         audioBufferDurationProvider: { 0 },
         sharedAudioEngine: nil,
         clock: { Clocks.nowMs() },
-        makeWebSocketClient: { config in
-          SessionWebSocketClient(
-            url: config.webSocketURL,
-            requestHeaders: config.requestHeaders,
-            onStateChange: nil,
-            onMessage: nil,
-            onError: nil,
-            eventLogger: nil
-          )
+        makeRealtimeTransport: { config in
+          GatewayTransport(runtimeConfig: config)
         },
         makeVisionFrameUploader: { config in
           VisionFrameUploader(
@@ -60,9 +220,6 @@ final class SessionOrchestrator {
         },
         makeRollingVideoBuffer: { config in
           RollingVideoBuffer(maxDurationMs: Int64(max(config.preWakeVideoMs * 6, 30_000)))
-        },
-        makeQueryBundleBuilder: { config in
-          QueryBundleBuilder(endpointURL: config.queryURL, defaultHeaders: config.requestHeaders)
         },
         makePlaybackEngine: { sharedAudioEngine, stuckDetectionThresholdMs in
           AssistantPlaybackEngine(
@@ -102,12 +259,6 @@ final class SessionOrchestrator {
     var lastError: String = ""
   }
 
-  private struct ActiveQueryContext {
-    let queryID: String
-    let wakeTsMs: Int64
-    var startTsMs: Int64
-  }
-
   private struct BufferedOutboundMessage {
     let type: WSOutboundType
     let sessionID: String
@@ -121,6 +272,10 @@ final class SessionOrchestrator {
   private let dependencies: Dependencies
   private let eventLogger: EventLoggerProtocol
   private let healthIntervalMs: UInt64 = 10_000
+  private static let realtimePCMUplinkQueueLimit = 32
+  private let appVersion: String?
+  private let deviceModel: String?
+  private let osVersion: String?
 
   private let manualWakeEngine: ManualWakeWordEngine
   private let primaryWakeEngine: WakeWordEngineProtocol
@@ -129,6 +284,11 @@ final class SessionOrchestrator {
     engine.onWakeDetected = { [weak self] event in
       Task { @MainActor in
         self?.handleWakeDetected(event)
+      }
+    }
+    engine.onSleepDetected = { [weak self] event in
+      Task { @MainActor in
+        await self?.handleSleepDetected(event)
       }
     }
     engine.onError = { [weak self] error in
@@ -146,44 +306,35 @@ final class SessionOrchestrator {
     }
   }
 
-  private lazy var queryEndpointDetector: QueryEndpointDetector = {
-    let detector = QueryEndpointDetector(silenceTimeoutMs: Int64(config.silenceTimeoutMs))
-    detector.onQueryStarted = { [weak self] event in
-      Task { @MainActor in
-        self?.handleQueryStarted(event)
-      }
-    }
-    detector.onQueryEnded = { [weak self] event in
-      Task { @MainActor in
-        await self?.handleQueryEnded(event)
-      }
-    }
-    return detector
-  }()
-
   private var visionFrameUploader: VisionFrameUploaderProtocol?
   private var rollingVideoBuffer: RollingVideoBufferProtocol?
-  private var queryBundleBuilder: QueryBundleBuilderProtocol?
   private var playbackEngine: AssistantPlaybackEngineProtocol?
-  private var webSocketClient: SessionWebSocketClientProtocol?
+  private var realtimeTransport: RealtimeTransport?
 
   private var snapshot = StatusSnapshot()
   private var activeSessionID: String?
-  private var activeQueryContext: ActiveQueryContext?
   private var isActivated = false
   private var runtimeState: RuntimeState = .foregroundActive
   private var photosFailed = 0
-  private var queryBundlesUploaded = 0
-  private var queryBundlesFailed = 0
   private var wsReconnectAttempts = 0
+  private var isNetworkAvailable = true
+  private var reconnectOnNetworkRestore = false
+  private var pendingNetworkAvailability: Bool?
+  private var networkTransitionTask: Task<Void, Never>?
   /// Counts full session restarts (deactivate+activate cycles), persists across activations.
   /// Distinguishes from wsReconnectAttempts which tracks transport-level reconnects within a session.
   private var sessionRestartCount = 0
   private var sessionActivatedAtMs: Int64 = 0
+  private var lastHealthEmissionTsMs: Int64?
+  private var lastHealthPingSentAtMs: Int64?
+  private var wsRoundTripLatencyMs = 0
   private var lastKnownPlaybackRoute = "unknown"
   private var healthTask: Task<Void, Never>?
-  private var currentUploadTask: Task<QueryBundleUploadResult, Error>?
-  private var webSocketConnectionState: SessionWebSocketConnectionState = .idle
+  private var transportEventsTask: Task<Void, Never>?
+  private var transportState: TransportState = .disconnected
+  private var wantsRealtimeStreaming = false
+  private var isTransportDisconnecting = false
+  private var realtimePCMUplinkWorker: RealtimePCMUplinkWorker?
   private var outboundMessageBuffer: [BufferedOutboundMessage] = []
   private let outboundMessageBufferLimit = 20
   private let outboundMessageTTLms: Int64 = 60_000
@@ -200,6 +351,7 @@ final class SessionOrchestrator {
     if config.wakeWordMode == .onDevicePreferred {
       self.primaryWakeEngine = SFSpeechWakeWordEngine(
         wakePhrase: config.wakePhrase,
+        sleepPhrase: config.sleepPhrase,
         localeIdentifier: config.wakeWordLocaleIdentifier,
         requiresOnDeviceRecognition: config.wakeWordRequiresOnDeviceRecognition,
         detectionCooldownMs: config.wakeWordDetectionCooldownMs
@@ -209,6 +361,10 @@ final class SessionOrchestrator {
       self.primaryWakeEngine = manual
       self.snapshot.manualWakeFallbackEnabled = true
     }
+
+    self.appVersion = Self.resolveAppVersion()
+    self.deviceModel = Self.resolveDeviceModel()
+    self.osVersion = Self.resolveOSVersion()
 
     configureWakeEngine(manualWakeEngine)
     if primaryWakeEngine !== manualWakeEngine {
@@ -226,26 +382,8 @@ final class SessionOrchestrator {
   }
 
   private func configureInjectedServices() async {
-    let webSocketClient = dependencies.makeWebSocketClient(config)
-    await webSocketClient.bindHandlers(
-      onStateChange: { [weak self] state in
-        Task { @MainActor in
-          self?.handleWebSocketState(state)
-        }
-      },
-      onMessage: { [weak self] message in
-        Task { @MainActor in
-          await self?.handleInboundWebSocketMessage(message)
-        }
-      },
-      onError: { [weak self] error in
-        Task { @MainActor in
-          self?.setError(error.localizedDescription)
-        }
-      },
-      eventLogger: eventLogger
-    )
-    self.webSocketClient = webSocketClient
+    self.realtimeTransport = dependencies.makeRealtimeTransport(config)
+    self.realtimePCMUplinkWorker = makeRealtimePCMUplinkWorker()
 
     let visionFrameUploader = dependencies.makeVisionFrameUploader(config)
     await visionFrameUploader.bindHandlers(
@@ -258,12 +396,27 @@ final class SessionOrchestrator {
     )
     self.visionFrameUploader = visionFrameUploader
     self.rollingVideoBuffer = dependencies.makeRollingVideoBuffer(config)
-    self.queryBundleBuilder = dependencies.makeQueryBundleBuilder(config)
     self.playbackEngine = dependencies.makePlaybackEngine(
       dependencies.sharedAudioEngine,
       config.assistantStuckDetectionThresholdMs
     )
     configurePlaybackEngine()
+    startTransportEventsLoop()
+  }
+
+  private func makeRealtimePCMUplinkWorker() -> RealtimePCMUplinkWorker? {
+    guard let realtimeTransport else { return nil }
+    return RealtimePCMUplinkWorker(
+      capacity: Self.realtimePCMUplinkQueueLimit,
+      sendFrame: { frame in
+        try await realtimeTransport.sendAudio(frame.payload, timestampMs: frame.timestampMs)
+      },
+      onSendError: { [weak self] error in
+        Task { @MainActor [weak self] in
+          self?.setError("Failed to send realtime audio: \(error.localizedDescription)")
+        }
+      }
+    )
   }
 
   func preflightWakeAuthorization() async {
@@ -283,7 +436,7 @@ final class SessionOrchestrator {
     let sessionID = "sess_\(UUID().uuidString)"
     activeSessionID = sessionID
 
-    snapshot.sessionState = .connecting
+    snapshot.sessionState = .idle
     snapshot.sessionID = sessionID
     snapshot.wakeState = .listening
     snapshot.queryState = .idle
@@ -291,10 +444,15 @@ final class SessionOrchestrator {
     snapshot.speechAuthorization = primaryWakeEngine.currentAuthorizationStatus().rawValue
     publishSnapshot()
     runtimeState = .foregroundActive
+    wantsRealtimeStreaming = false
+    isTransportDisconnecting = false
+    transportState = .disconnected
     photosFailed = 0
-    queryBundlesUploaded = 0
-    queryBundlesFailed = 0
     wsReconnectAttempts = 0
+    reconnectOnNetworkRestore = false
+    lastHealthEmissionTsMs = nil
+    lastHealthPingSentAtMs = nil
+    wsRoundTripLatencyMs = 0
     sessionActivatedAtMs = dependencies.clock()
 
     await dependencies.startStream()
@@ -307,9 +465,6 @@ final class SessionOrchestrator {
       primaryWakeEngine.startListening()
     }
 
-    if let webSocketClient {
-      await webSocketClient.connect()
-    }
     startHealthLoop()
 
     await logEvent(name: "session.activate")
@@ -320,9 +475,20 @@ final class SessionOrchestrator {
   func deactivate() async {
     guard isActivated else { return }
 
-    currentUploadTask?.cancel()
-    currentUploadTask = nil
-    queryEndpointDetector.reset()
+    await sendOutbound(type: .sessionDeactivate, payload: EmptyPayload())
+    wantsRealtimeStreaming = false
+    isTransportDisconnecting = true
+    snapshot.sessionState = .disconnecting
+    snapshot.playbackState = "disconnecting"
+    publishSnapshot()
+    transportEventsTask?.cancel()
+    transportEventsTask = nil
+    realtimePCMUplinkWorker?.stopAndReset()
+    realtimePCMUplinkWorker = nil
+    if let realtimeTransport {
+      await realtimeTransport.disconnect()
+    }
+    transportState = .disconnected
     manualWakeEngine.stopListening()
     if primaryWakeEngine !== manualWakeEngine {
       primaryWakeEngine.stopListening()
@@ -335,22 +501,19 @@ final class SessionOrchestrator {
     }
     playbackEngine?.shutdown()
     stopHealthLoop()
-
-    await sendOutbound(type: .sessionDeactivate, payload: EmptyPayload())
-    if let webSocketClient {
-      await webSocketClient.disconnect(closeCode: .normalClosure)
-    }
     await dependencies.stopStream()
 
-    activeQueryContext = nil
     activeSessionID = nil
     outboundMessageBuffer.removeAll(keepingCapacity: false)
     isActivated = false
     sessionRestartCount += 1
-    webSocketClient = nil
+    reconnectOnNetworkRestore = false
+    lastHealthEmissionTsMs = nil
+    lastHealthPingSentAtMs = nil
+    wsRoundTripLatencyMs = 0
+    realtimeTransport = nil
     visionFrameUploader = nil
     rollingVideoBuffer = nil
-    queryBundleBuilder = nil
     playbackEngine = nil
 
     snapshot.sessionState = .ended
@@ -383,12 +546,47 @@ final class SessionOrchestrator {
     playbackEngine?.restoreFromBackground()
     Task {
       await logEvent(name: "runtime.resumed")
-      if isActivated, let webSocketClient {
-        await webSocketClient.ensureConnected()
+      if isActivated, wantsRealtimeStreaming, transportState == .disconnected {
+        await self.connectRealtimeTransport(reason: "foreground_resume")
       }
       runtimeState = .foregroundActive
       await emitHealth(reason: "foreground")
     }
+  }
+
+  func setNetworkAvailable(_ isAvailable: Bool) {
+    let hasPendingTransition = pendingNetworkAvailability != nil
+    guard isNetworkAvailable != isAvailable || hasPendingTransition else { return }
+    pendingNetworkAvailability = isAvailable
+    guard networkTransitionTask == nil else { return }
+
+    networkTransitionTask = Task { [weak self] in
+      await self?.processPendingNetworkTransitions()
+    }
+  }
+
+  private func processPendingNetworkTransitions() async {
+    while let nextAvailability = pendingNetworkAvailability {
+      pendingNetworkAvailability = nil
+      await applyNetworkAvailabilityTransition(nextAvailability)
+    }
+    networkTransitionTask = nil
+  }
+
+  private func applyNetworkAvailabilityTransition(_ isAvailable: Bool) async {
+    guard isNetworkAvailable != isAvailable else { return }
+    isNetworkAvailable = isAvailable
+
+    if isAvailable {
+      guard reconnectOnNetworkRestore, isActivated else { return }
+      reconnectOnNetworkRestore = false
+      await connectRealtimeTransport(reason: "network_restored")
+      return
+    }
+
+    guard isActivated, wantsRealtimeStreaming else { return }
+    reconnectOnNetworkRestore = true
+    await disconnectRealtimeTransport(reason: "network_unavailable")
   }
 
   func pushVideoFrame(_ image: UIImage, timestampMs: Int64) {
@@ -420,8 +618,8 @@ final class SessionOrchestrator {
   }
 
   func recordSpeechActivity(at timestampMs: Int64) {
-    guard activeQueryContext != nil else { return }
-    queryEndpointDetector.recordSpeechActivity(at: timestampMs)
+    guard isActivated, wantsRealtimeStreaming else { return }
+    _ = timestampMs
   }
 
   func triggerWakeForTesting() {
@@ -434,7 +632,7 @@ final class SessionOrchestrator {
 
   private func handleWakeDetected(_ event: WakeWordDetectionEvent) {
     guard isActivated else { return }
-    guard activeQueryContext == nil else { return }
+    guard !wantsRealtimeStreaming else { return }
 
     // Cancel any in-flight playback from previous response to avoid queue buildup
     playbackEngine?.cancelResponse()
@@ -442,144 +640,270 @@ final class SessionOrchestrator {
     // Immediate audio feedback: single beep so the user knows wake word was heard
     playWakeChime()
 
-    let queryID = "query_\(UUID().uuidString)"
-    activeQueryContext = ActiveQueryContext(
-      queryID: queryID,
-      wakeTsMs: event.timestampMs,
-      startTsMs: event.timestampMs
-    )
-
     snapshot.wakeState = .triggered
     snapshot.wakeCount += 1
-    snapshot.queryID = queryID
-    publishSnapshot()
-
-    let payload = WakewordDetectedPayload(
-      wakePhrase: event.wakePhrase,
-      engine: event.engine,
-      confidence: event.confidence.map(Double.init)
-    )
-
-    Task {
-      await logEvent(name: "wakeword.detected", queryID: queryID)
-      await sendOutbound(type: .wakewordDetected, payload: payload)
-    }
-
-    queryEndpointDetector.beginQuery(queryId: queryID, startedAtMs: event.timestampMs)
-  }
-
-  private func handleQueryStarted(_ event: QueryEndpointStartedEvent) {
-    guard var context = activeQueryContext, context.queryID == event.queryId else { return }
-
-    context.startTsMs = event.startedAtMs
-    activeQueryContext = context
+    snapshot.queryID = "-"
     snapshot.queryState = .recording
-    snapshot.wakeState = .listening
+    snapshot.playbackState = "streaming_connecting"
     publishSnapshot()
 
     Task {
-      await logEvent(name: "query.started", queryID: context.queryID)
-      await sendOutbound(type: .queryStarted, payload: QueryStartedPayload(queryID: context.queryID))
+      await logEvent(name: "wakeword.detected")
+      await sendOutbound(
+        type: .wakewordDetected,
+        payload: WakewordDetectedPayload(
+          wakePhrase: event.wakePhrase,
+          engine: event.engine,
+          confidence: event.confidence.map(Double.init)
+        )
+      )
+      await connectRealtimeTransport(reason: "wake")
     }
   }
 
-  private func handleQueryEnded(_ event: QueryEndpointEndedEvent) async {
-    guard let context = activeQueryContext, context.queryID == event.queryId else { return }
-    guard let rollingVideoBuffer, let queryBundleBuilder else { return }
+  private func handleSleepDetected(_ event: WakeWordDetectionEvent) async {
+    guard isActivated else { return }
+    guard wantsRealtimeStreaming else { return }
 
-    snapshot.queryState = .processingBundle
-    snapshot.queryCount += 1
-    snapshot.playbackState = "thinking"
+    snapshot.wakeState = .triggered
+    snapshot.playbackState = "disconnecting"
+    publishSnapshot()
+    await logEvent(name: "sleepword.detected", fields: ["phrase": .string(event.wakePhrase)])
+    await disconnectRealtimeTransport(reason: "sleep")
+  }
+
+  private func startTransportEventsLoop() {
+    transportEventsTask?.cancel()
+    guard let realtimeTransport else { return }
+
+    transportEventsTask = Task { [weak self, realtimeTransport] in
+      for await event in realtimeTransport.events {
+        guard let self else { return }
+        await self.handleTransportEvent(event)
+      }
+    }
+  }
+
+  private func connectRealtimeTransport(reason: String) async {
+    guard let activeSessionID else { return }
+    guard let realtimeTransport else { return }
+    if wantsRealtimeStreaming && (transportState == .connected || transportState == .connecting || transportState == .reconnecting) {
+      return
+    }
+    guard isNetworkAvailable else {
+      reconnectOnNetworkRestore = true
+      snapshot.sessionState = .reconnecting
+      snapshot.playbackState = "waiting_for_network"
+      publishSnapshot()
+      return
+    }
+
+    wantsRealtimeStreaming = true
+    isTransportDisconnecting = false
+    reconnectOnNetworkRestore = false
+    transportState = .connecting
+    snapshot.sessionState = .connecting
+    snapshot.queryState = .recording
+    snapshot.wakeState = .triggered
+    snapshot.playbackState = "streaming_connecting"
     publishSnapshot()
 
-    // Layer 0: Play chime immediately after capture stops, through the
-    // glasses audio route.  Cleared automatically when start_response arrives.
-    playThinkingChime()
-
-    await logEvent(name: "query.ended", queryID: context.queryID)
-    await sendOutbound(
-      type: .queryEnded,
-      payload: QueryEndedPayload(
-        queryID: context.queryID,
-        reason: event.reason.rawValue,
-        silenceTimeoutMs: config.silenceTimeoutMs,
-        durationMs: Int(event.durationMs)
-      )
+    let transportConfig = TransportConfig(
+      endpoint: config.webSocketURL,
+      sessionId: activeSessionID,
+      audioFormat: AudioStreamFormat(sampleRate: 8_000, channels: 1, encoding: "pcm_s16le"),
+      headers: config.requestHeaders
     )
 
     do {
-      // Flush any buffered audio to ensure partial chunks are written before export
-      dependencies.flushPendingAudioChunks()
-      
-      // Extend window backwards by 2 seconds to account for potential timing drift
-      // between wake detection timestamp and audio chunk timestamps
-      let adjustedStartTs = max(0, context.startTsMs - 2000)
-      let clipWindow = AudioClipExportWindow(startTimestampMs: adjustedStartTs, endTimestampMs: event.endedAtMs)
-      debugLog("Export clip window: [\(adjustedStartTs)-\(event.endedAtMs)] (original start: \(context.startTsMs))")
-      let audioURL = try dependencies.exportAudioClip(clipWindow)
-
-      let videoStartMs = max(0, context.wakeTsMs - Int64(config.preWakeVideoMs))
-      let videoResult = try await rollingVideoBuffer.exportInterval(
-        startTimestampMs: videoStartMs,
-        endTimestampMs: event.endedAtMs
-      )
-
-      let metadata = QueryMetadata(
-        sessionID: activeSessionID ?? "unknown",
-        queryID: context.queryID,
-        wakeTsMs: context.wakeTsMs,
-        queryStartTsMs: context.startTsMs,
-        queryEndTsMs: event.endedAtMs,
-        videoStartTsMs: videoStartMs,
-        videoEndTsMs: event.endedAtMs
-      )
-
-      snapshot.queryState = .uploading
-      publishSnapshot()
-
-      let uploadTask = Task {
-        try await queryBundleBuilder.uploadQueryBundle(
-          metadata: metadata,
-          audioFileURL: audioURL,
-          videoFileURL: videoResult.outputURL
-        )
-      }
-      currentUploadTask = uploadTask
-      let uploadResult = try await uploadTask.value
-      currentUploadTask = nil
-      queryBundlesUploaded += 1
-
-      let didEnqueueUploadedMessage = await sendOutbound(
-        type: .queryBundleUploaded,
-        payload: QueryBundleUploadedPayload(
-          queryID: context.queryID,
-          uploadStatus: uploadResult.success ? "ok" : "failed",
-          audioBytes: uploadResult.audioBytes,
-          videoBytes: uploadResult.videoBytes
-        )
-      )
-
-      snapshot.queryState = .idle
-      snapshot.queryID = "-"
-      activeQueryContext = nil
-      if !didEnqueueUploadedMessage {
-        debugLog("Failed to notify backend of uploaded bundle for \(context.queryID); context cleared anyway")
-      }
-      publishSnapshot()
-      await emitHealth(reason: "query_uploaded")
-    } catch is CancellationError {
-      currentUploadTask = nil
-      debugLog("Query bundle upload cancelled for query \(context.queryID)")
+      try await realtimeTransport.connect(config: transportConfig)
+      await logEvent(name: "transport.connect", fields: ["reason": .string(reason)])
     } catch {
-      currentUploadTask = nil
-      queryBundlesFailed += 1
-      setError(error.localizedDescription)
+      wantsRealtimeStreaming = false
+      snapshot.sessionState = .failed
       snapshot.queryState = .failed
+      snapshot.playbackState = "idle"
       publishSnapshot()
-      activeQueryContext = nil
-      snapshot.queryID = "-"
-      await emitHealth(reason: "query_failed")
+      setError("Realtime transport connect failed: \(error.localizedDescription)")
     }
+  }
+
+  private func disconnectRealtimeTransport(reason: String) async {
+    guard let realtimeTransport else { return }
+    guard wantsRealtimeStreaming || transportState != .disconnected else { return }
+
+    wantsRealtimeStreaming = false
+    isTransportDisconnecting = true
+    realtimePCMUplinkWorker?.clearPendingFrames()
+    snapshot.playbackState = "disconnecting"
+    if
+      snapshot.sessionState == .active ||
+      snapshot.sessionState == .streaming ||
+      snapshot.sessionState == .reconnecting ||
+      snapshot.sessionState == .connecting
+    {
+      snapshot.sessionState = .disconnecting
+    }
+    publishSnapshot()
+
+    await realtimeTransport.disconnect()
+    transportState = .disconnected
+    isTransportDisconnecting = false
+    snapshot.sessionState = .idle
+    snapshot.queryState = .idle
+    snapshot.wakeState = .listening
+    snapshot.playbackState = "idle"
+    publishSnapshot()
+    await logEvent(name: "transport.disconnect", fields: ["reason": .string(reason)])
+  }
+
+  private func handleTransportEvent(_ event: TransportEvent) async {
+    guard isActivated else { return }
+    switch event {
+    case .audioReceived(let data, _):
+      guard let playbackEngine else { return }
+      do {
+        try playbackEngine.appendPCMData(
+          data,
+          format: AssistantAudioFormat(codec: "pcm_s16le", sampleRate: 16_000, channels: 1)
+        )
+        snapshot.playbackChunkCount += 1
+        snapshot.pendingPlaybackBufferCount = playbackEngine.pendingBufferCount
+        snapshot.pendingPlaybackDurationMs = Int(playbackEngine.pendingBufferDurationMs)
+        snapshot.playbackBackpressured = playbackEngine.isBackpressured
+        snapshot.playbackState = "playing"
+        publishSnapshot()
+      } catch {
+        setError(error.localizedDescription)
+      }
+    case .controlReceived(let control):
+      await logEvent(
+        name: "transport.control.received",
+        fields: ["type": .string(control.type)]
+      )
+      await handleTransportControl(control)
+    case .stateChanged(let state):
+      transportState = state
+      await logEvent(
+        name: "transport.state.changed",
+        fields: ["state": .string(transportStateLabel(state))]
+      )
+      switch state {
+      case .disconnected:
+        if isTransportDisconnecting || !wantsRealtimeStreaming {
+          snapshot.sessionState = .idle
+          snapshot.queryState = .idle
+          snapshot.wakeState = .listening
+          snapshot.playbackState = "idle"
+        } else {
+          snapshot.sessionState = .reconnecting
+          wsReconnectAttempts += 1
+          snapshot.playbackState = "streaming_reconnecting"
+        }
+      case .connecting:
+        snapshot.sessionState = .connecting
+        snapshot.queryState = .recording
+        snapshot.playbackState = "streaming_connecting"
+      case .connected:
+        snapshot.sessionState = .streaming
+        snapshot.queryState = .recording
+        snapshot.wakeState = .triggered
+        snapshot.playbackState = "streaming"
+        await replayBufferedOutboundMessages()
+      case .reconnecting:
+        snapshot.sessionState = .reconnecting
+        wsReconnectAttempts += 1
+        snapshot.playbackState = "streaming_reconnecting"
+      }
+      publishSnapshot()
+    case .error(let error):
+      await logEvent(
+        name: "transport.error",
+        fields: ["kind": .string(transportErrorLabel(error))]
+      )
+      setError("Transport error: \(String(describing: error))")
+      if !isTransportDisconnecting {
+        snapshot.sessionState = .reconnecting
+        snapshot.playbackState = "streaming_reconnecting"
+        publishSnapshot()
+      }
+    }
+  }
+
+  private func handleTransportControl(_ control: TransportControlMessage) async {
+    let type = control.type
+    switch type {
+    case "assistant.playback.control":
+      guard let playbackEngine else { return }
+      do {
+        let payload = try decodeTransportPayload(control.payload, as: PlaybackControlPayload.self)
+        playbackEngine.handlePlaybackControl(payload)
+        snapshot.playbackState = payload.command.rawValue
+        snapshot.pendingPlaybackBufferCount = playbackEngine.pendingBufferCount
+        snapshot.pendingPlaybackDurationMs = Int(playbackEngine.pendingBufferDurationMs)
+        snapshot.playbackBackpressured = playbackEngine.isBackpressured
+        publishSnapshot()
+      } catch {
+        setError("Failed to decode playback control payload: \(error.localizedDescription)")
+      }
+    case "assistant.thinking":
+      snapshot.playbackState = "thinking"
+      publishSnapshot()
+      triggerThinkingHaptic()
+    case "session.state":
+      if let state = extractString(control.payload["state"]) {
+        snapshot.playbackState = "streaming.\(state)"
+      }
+      publishSnapshot()
+    case "error":
+      if let message = extractString(control.payload["message"]) {
+        setError(message)
+      } else {
+        setError("Transport control error")
+      }
+    case "health.pong":
+      if let pingSentAtMs = lastHealthPingSentAtMs {
+        let latencyMs = max(0, dependencies.clock() - pingSentAtMs)
+        wsRoundTripLatencyMs = Int(min(latencyMs, Int64(Int.max)))
+      }
+    default:
+      if let detail = extractString(control.payload["detail"]) {
+        snapshot.playbackState = "\(type):\(detail)"
+      } else {
+        snapshot.playbackState = type
+      }
+      publishSnapshot()
+    }
+  }
+
+  private func extractString(_ value: TransportJSONValue?) -> String? {
+    guard let value else { return nil }
+    switch value {
+    case .string(let string):
+      return string
+    case .number(let number):
+      return String(number)
+    case .bool(let bool):
+      return String(bool)
+    default:
+      return nil
+    }
+  }
+
+  private func decodeTransportPayload<Payload: Decodable>(
+    _ payload: [String: TransportJSONValue],
+    as type: Payload.Type
+  ) throws -> Payload {
+    let data = try JSONEncoder().encode(payload)
+    return try JSONDecoder().decode(type, from: data)
+  }
+
+  func processRealtimePCMFrame(_ payload: Data, timestampMs: Int64) {
+    guard isActivated else { return }
+    guard wantsRealtimeStreaming else { return }
+    guard transportState == .connected else { return }
+    guard let realtimePCMUplinkWorker else { return }
+    realtimePCMUplinkWorker.enqueue(payload: payload, timestampMs: timestampMs)
   }
 
   private func handleVisionUploadResult(_ result: VisionFrameUploadResult) {
@@ -597,77 +921,6 @@ final class SessionOrchestrator {
     publishSnapshot()
   }
 
-  private func handleWebSocketState(_ state: SessionWebSocketConnectionState) {
-    webSocketConnectionState = state
-    switch state {
-    case .idle:
-      snapshot.sessionState = .idle
-    case .connecting:
-      snapshot.sessionState = .connecting
-    case .connected:
-      snapshot.sessionState = .active
-    case .reconnecting(let attempt, _):
-      snapshot.sessionState = .reconnecting
-      wsReconnectAttempts = max(wsReconnectAttempts, attempt)
-    case .disconnected:
-      if isActivated {
-        snapshot.sessionState = .reconnecting
-      } else {
-        snapshot.sessionState = .ended
-      }
-    }
-    publishSnapshot()
-    Task {
-      if case .connected = state {
-        await replayBufferedOutboundMessages()
-      }
-      await emitHealth(reason: "ws_state")
-    }
-  }
-
-  private func handleInboundWebSocketMessage(_ message: WSInboundMessage) async {
-    guard let playbackEngine else { return }
-    switch message {
-    case .assistantAudioChunk(let envelope):
-      debugLog("Received audio chunk: \(envelope.payload.chunkID), bytes: \(envelope.payload.bytesB64.count), sampleRate: \(envelope.payload.sampleRate), isLast: \(envelope.payload.isLast)")
-      do {
-        try playbackEngine.appendChunk(envelope.payload)
-        snapshot.playbackChunkCount += 1
-        snapshot.pendingPlaybackBufferCount = playbackEngine.pendingBufferCount
-        snapshot.pendingPlaybackDurationMs = Int(playbackEngine.pendingBufferDurationMs)
-        snapshot.playbackBackpressured = playbackEngine.isBackpressured
-        snapshot.playbackState = envelope.payload.isLast ? "idle" : "playing"
-        publishSnapshot()
-        debugLog("Audio chunk processed successfully, playbackChunkCount: \(snapshot.playbackChunkCount), pendingBuffers: \(snapshot.pendingPlaybackBufferCount), pendingDurationMs: \(snapshot.pendingPlaybackDurationMs), backpressured: \(snapshot.playbackBackpressured)")
-      } catch {
-        debugLog("Audio chunk error: \(error.localizedDescription)")
-        setError(error.localizedDescription)
-      }
-
-    case .assistantPlaybackControl(let envelope):
-      debugLog("Received playback control: \(envelope.payload.command.rawValue)")
-      playbackEngine.handlePlaybackControl(envelope.payload)
-      snapshot.playbackState = envelope.payload.command.rawValue
-      publishSnapshot()
-
-    case .assistantThinking(let envelope):
-      debugLog("Thinking received: query=\(envelope.payload.queryID ?? "?")")
-      snapshot.playbackState = "thinking"
-      publishSnapshot()
-      triggerThinkingHaptic()
-
-    case .error(let envelope):
-      setError(envelope.payload.message)
-
-    case .sessionState(let envelope):
-      snapshot.sessionState = envelope.payload.state
-      publishSnapshot()
-
-    case .healthPong, .unknown:
-      break
-    }
-  }
-
   private func setError(_ message: String) {
     snapshot.lastError = message
     publishSnapshot()
@@ -683,49 +936,6 @@ final class SessionOrchestrator {
   private func triggerThinkingHaptic() {
     let generator = UIImpactFeedbackGenerator(style: .light)
     generator.impactOccurred()
-  }
-
-  // MARK: - Thinking Chime
-
-  /// Pre-computed single beep for end-of-recording (880 Hz, 120 ms).
-  /// Higher pitch than wake chime (660 Hz) so the two are distinct.
-  private static let thinkingChimePCM: Data = {
-    let sampleRate = 16000.0
-    let frequency  = 880.0   // A5
-    let duration   = 0.12    // 120 ms
-    let amplitude  = 0.22
-    let count = Int(sampleRate * duration)
-    let fade  = max(1, Int(sampleRate * 0.008))
-
-    var pcm = Data()
-    for i in 0..<count {
-      let t = Double(i) / sampleRate
-      var env: Double = 1.0
-      if i < fade {
-        env = Double(i) / Double(fade)
-      } else if i > count - fade {
-        env = Double(count - i) / Double(fade)
-      }
-      let value = sin(2.0 * .pi * frequency * t) * amplitude * env
-      var sample = Int16(clamping: Int(value * Double(Int16.max)))
-      withUnsafeBytes(of: &sample) { pcm.append(contentsOf: $0) }
-    }
-    return pcm
-  }()
-
-  /// Play the thinking chime through the playback engine (routes to glasses).
-  /// This schedules a short chime on the existing playback route; it will play
-  /// to completion unless stopped or interrupted by other playback controls.
-  private func playThinkingChime() {
-    let format = AssistantAudioFormat(codec: "pcm_s16le", sampleRate: 16_000, channels: 1)
-    do {
-      // No startResponse() here — the wake chime has long finished by the time
-      // the query ends, and startResponse()'s route update can discard the buffer.
-      try playbackEngine?.appendPCMData(Self.thinkingChimePCM, format: format)
-      debugLog("Thinking chime scheduled")
-    } catch {
-      debugLog("Thinking chime failed: \(error.localizedDescription)")
-    }
   }
 
   /// Pre-computed single beep for wake word recognition (660 Hz, 120 ms).
@@ -811,14 +1021,37 @@ final class SessionOrchestrator {
 
   private func emitHealth(reason: String) async {
     guard isActivated, activeSessionID != nil else { return }
-    guard let webSocketClient, let rollingVideoBuffer, let playbackEngine else { return }
 
-    await sendOutbound(type: .healthPing, payload: EmptyPayload())
+    let pingSentAtMs = dependencies.clock()
+    if await sendOutbound(type: .healthPing, payload: EmptyPayload()) {
+      lastHealthPingSentAtMs = pingSentAtMs
+    }
 
     let photoRate = effectivePhotoUploadRate()
-    let reconnectAttempts = await webSocketClient.reconnectAttemptCount()
-    let pendingDurationMs = Int(playbackEngine.pendingBufferDurationMs)
-    let backpressured = playbackEngine.isBackpressured
+    let reconnectAttempts = wsReconnectAttempts
+    // Legacy batch metrics are retained for schema compatibility in strict
+    // Phase 6 streaming mode; batch uploads are removed so both stay zero.
+    let queryBundlesUploaded = 0
+    let queryBundlesFailed = 0
+    let pendingDurationMs = Int(playbackEngine?.pendingBufferDurationMs ?? 0)
+    let backpressured = playbackEngine?.isBackpressured ?? false
+    let videoBufferDurationMs = if let rollingVideoBuffer {
+      Int(await rollingVideoBuffer.bufferedDurationMs)
+    } else {
+      0
+    }
+    let visionFrameDropCount = if let visionFrameUploader {
+      await visionFrameUploader.consumeFrameDropCount()
+    } else {
+      0
+    }
+    let realtimeAudioFrameDropCount = realtimePCMUplinkWorker?.consumeDroppedFrameCount() ?? 0
+    let frameDropCount = visionFrameDropCount + realtimeAudioFrameDropCount
+    let nowMs = dependencies.clock()
+    let elapsedMs = max(1, (lastHealthEmissionTsMs.map { nowMs - $0 } ?? Int64(healthIntervalMs)))
+    lastHealthEmissionTsMs = nowMs
+    let frameDropRate = (Double(frameDropCount) * 1000.0) / Double(elapsedMs)
+
     let statsPayload = HealthStatsPayload(
       wakeState: snapshot.wakeState,
       queryState: snapshot.queryState,
@@ -828,35 +1061,51 @@ final class SessionOrchestrator {
       photoUploadRateEffective: photoRate,
       photosUploaded: snapshot.photoUploadCount,
       photosFailed: photosFailed,
-      videoBufferDurationMs: Int(await rollingVideoBuffer.bufferedDurationMs),
+      videoBufferDurationMs: videoBufferDurationMs,
       audioBufferDurationMs: dependencies.audioBufferDurationProvider(),
       wsReconnectAttempts: max(wsReconnectAttempts, reconnectAttempts),
+      wsRoundTripLatencyMs: wsRoundTripLatencyMs,
+      frameDropCount: frameDropCount,
+      frameDropRate: frameDropRate,
       sessionRestartCount: sessionRestartCount,
       pendingPlaybackDurationMs: pendingDurationMs,
       playbackBackpressured: backpressured,
-      playbackRoute: lastKnownPlaybackRoute
+      playbackRoute: lastKnownPlaybackRoute,
+      appVersion: appVersion,
+      deviceModel: deviceModel,
+      osVersion: osVersion
     )
     await sendOutbound(type: .healthStats, payload: statsPayload)
-    await logEvent(
-      name: "health.stats",
-      fields: [
-        "reason": .string(reason),
-        "runtime_state": .string(runtimeState.rawValue),
-        "photo_upload_rate_effective": .number(photoRate),
-        "photos_uploaded": .number(Double(snapshot.photoUploadCount)),
-        "photos_failed": .number(Double(photosFailed)),
-        "queries_completed": .number(Double(snapshot.queryCount)),
-        "query_bundles_uploaded": .number(Double(queryBundlesUploaded)),
-        "query_bundles_failed": .number(Double(queryBundlesFailed)),
-        "video_buffer_duration_ms": .number(Double(await rollingVideoBuffer.bufferedDurationMs)),
-        "audio_buffer_duration_ms": .number(Double(dependencies.audioBufferDurationProvider())),
-        "ws_reconnect_attempts": .number(Double(max(wsReconnectAttempts, reconnectAttempts))),
-        "session_restart_count": .number(Double(sessionRestartCount)),
-        "pending_playback_duration_ms": .number(Double(pendingDurationMs)),
-        "playback_backpressured": .bool(backpressured),
-        "playback_route": .string(lastKnownPlaybackRoute)
-      ]
-    )
+    var healthFields: [String: JSONValue] = [
+      "reason": .string(reason),
+      "runtime_state": .string(runtimeState.rawValue),
+      "photo_upload_rate_effective": .number(photoRate),
+      "photos_uploaded": .number(Double(snapshot.photoUploadCount)),
+      "photos_failed": .number(Double(photosFailed)),
+      "queries_completed": .number(Double(snapshot.queryCount)),
+      "query_bundles_uploaded": .number(Double(queryBundlesUploaded)),
+      "query_bundles_failed": .number(Double(queryBundlesFailed)),
+      "video_buffer_duration_ms": .number(Double(videoBufferDurationMs)),
+      "audio_buffer_duration_ms": .number(Double(dependencies.audioBufferDurationProvider())),
+      "ws_reconnect_attempts": .number(Double(max(wsReconnectAttempts, reconnectAttempts))),
+      "ws_round_trip_latency_ms": .number(Double(wsRoundTripLatencyMs)),
+      "frame_drop_count": .number(Double(frameDropCount)),
+      "frame_drop_rate": .number(frameDropRate),
+      "session_restart_count": .number(Double(sessionRestartCount)),
+      "pending_playback_duration_ms": .number(Double(pendingDurationMs)),
+      "playback_backpressured": .bool(backpressured),
+      "playback_route": .string(lastKnownPlaybackRoute)
+    ]
+    if let appVersion {
+      healthFields["app_version"] = .string(appVersion)
+    }
+    if let deviceModel {
+      healthFields["device_model"] = .string(deviceModel)
+    }
+    if let osVersion {
+      healthFields["os_version"] = .string(osVersion)
+    }
+    await logEvent(name: "health.stats", fields: healthFields)
   }
 
   private func effectivePhotoUploadRate() -> Double {
@@ -869,10 +1118,40 @@ final class SessionOrchestrator {
     return Int64(max(100, (1000.0 / clamped).rounded()))
   }
 
+  private func transportStateLabel(_ state: TransportState) -> String {
+    switch state {
+    case .disconnected:
+      return "disconnected"
+    case .connecting:
+      return "connecting"
+    case .connected:
+      return "connected"
+    case .reconnecting:
+      return "reconnecting"
+    }
+  }
+
+  private func transportErrorLabel(_ error: TransportError) -> String {
+    switch error {
+    case .connectionFailed:
+      return "connection_failed"
+    case .authError:
+      return "auth_error"
+    case .timeout:
+      return "timeout"
+    case .protocolError:
+      return "protocol_error"
+    case .disconnected:
+      return "disconnected"
+    case .unknown:
+      return "unknown"
+    }
+  }
+
   @discardableResult
   private func sendOutbound<Payload: Codable>(type: WSOutboundType, payload: Payload) async -> Bool {
     guard let sessionID = activeSessionID else { return false }
-    guard let webSocketClient else { return false }
+    guard let realtimeTransport else { return false }
 
     let payloadJSON: JSONValue
     do {
@@ -882,17 +1161,24 @@ final class SessionOrchestrator {
       return false
     }
 
+    guard let transportPayload = transportPayload(from: payloadJSON) else {
+      setError("Outbound payload for \(type.rawValue) must encode to an object")
+      return false
+    }
+
+    let controlMessage = TransportControlMessage(type: type.rawValue, payload: transportPayload)
+
     do {
-      try await webSocketClient.send(type: type, sessionID: sessionID, payload: payloadJSON)
+      try await realtimeTransport.sendControl(controlMessage)
       return true
-    } catch let wsError as SessionWebSocketClientError {
+    } catch let transportError as TransportError {
       // Expected while socket is transitioning/disconnected; avoid spamming
       // app-level error state with redundant transport noise.
-      if case .notConnected = wsError {
+      if case .disconnected = transportError {
         enqueueOutboundMessage(type: type, sessionID: sessionID, payload: payloadJSON)
         return true
       }
-      setError(wsError.localizedDescription)
+      setError("Transport send failed: \(String(describing: transportError))")
       return false
     } catch {
       setError(error.localizedDescription)
@@ -903,6 +1189,28 @@ final class SessionOrchestrator {
   private func encodePayloadAsJSONValue<Payload: Codable>(_ payload: Payload) throws -> JSONValue {
     let data = try JSONEncoder().encode(payload)
     return try JSONDecoder().decode(JSONValue.self, from: data)
+  }
+
+  private func transportPayload(from payload: JSONValue) -> [String: TransportJSONValue]? {
+    guard case .object(let object) = payload else { return nil }
+    return object.mapValues(convertToTransportJSON)
+  }
+
+  private func convertToTransportJSON(_ value: JSONValue) -> TransportJSONValue {
+    switch value {
+    case .string(let string):
+      return .string(string)
+    case .number(let number):
+      return .number(number)
+    case .bool(let bool):
+      return .bool(bool)
+    case .object(let object):
+      return .object(object.mapValues(convertToTransportJSON))
+    case .array(let array):
+      return .array(array.map(convertToTransportJSON))
+    case .null:
+      return .null
+    }
   }
 
   private func enqueueOutboundMessage(type: WSOutboundType, sessionID: String, payload: JSONValue) {
@@ -929,25 +1237,28 @@ final class SessionOrchestrator {
 
   private func replayBufferedOutboundMessages() async {
     guard !outboundMessageBuffer.isEmpty else { return }
-    guard case .connected = webSocketConnectionState else { return }
-    guard let webSocketClient else { return }
+    guard case .connected = transportState else { return }
+    guard let realtimeTransport else { return }
 
     pruneOutboundMessageBuffer()
     while !outboundMessageBuffer.isEmpty {
       let nextMessage = outboundMessageBuffer[0]
-      do {
-        try await webSocketClient.send(
-          type: nextMessage.type,
-          sessionID: nextMessage.sessionID,
-          payload: nextMessage.payload
-        )
+      guard let transportPayload = transportPayload(from: nextMessage.payload) else {
         outboundMessageBuffer.removeFirst()
-      } catch let wsError as SessionWebSocketClientError {
-        if case .notConnected = wsError {
+        setError("Buffered outbound payload for \(nextMessage.type.rawValue) must encode to an object")
+        continue
+      }
+
+      let controlMessage = TransportControlMessage(type: nextMessage.type.rawValue, payload: transportPayload)
+      do {
+        try await realtimeTransport.sendControl(controlMessage)
+        outboundMessageBuffer.removeFirst()
+      } catch let transportError as TransportError {
+        if case .disconnected = transportError {
           return
         }
         outboundMessageBuffer.removeFirst()
-        setError(wsError.localizedDescription)
+        setError("Transport send failed: \(String(describing: transportError))")
       } catch {
         outboundMessageBuffer.removeFirst()
         setError(error.localizedDescription)
@@ -968,5 +1279,29 @@ final class SessionOrchestrator {
 #if DEBUG
     logger.debug("[SessionOrchestrator] \(message, privacy: .public)")
 #endif
+  }
+
+  private static func resolveAppVersion() -> String? {
+    let info = Bundle.main.infoDictionary
+    let shortVersion = (info?["CFBundleShortVersionString"] as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let shortVersion, !shortVersion.isEmpty else { return nil }
+    return shortVersion
+  }
+
+  private static func resolveDeviceModel() -> String? {
+    var systemInfo = utsname()
+    uname(&systemInfo)
+    let machineMirror = Mirror(reflecting: systemInfo.machine)
+    let identifier = machineMirror.children.reduce(into: "") { partialResult, element in
+      guard let value = element.value as? Int8, value != 0 else { return }
+      partialResult.append(Character(UnicodeScalar(UInt8(value))))
+    }
+    return identifier.isEmpty ? nil : identifier
+  }
+
+  private static func resolveOSVersion() -> String? {
+    let version = UIDevice.current.systemVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+    return version.isEmpty ? nil : version
   }
 }

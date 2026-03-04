@@ -8,6 +8,7 @@ final class RuntimeCoordinator {
   private let deviceSessionCoordinator: DeviceSessionCoordinator
   private let audioCollectionManager: AudioCollectionManager
   private let runtimeOrchestrator: SessionOrchestrator
+  private let reachability = NWReachability()
   private var audioStateCancellables = Set<AnyCancellable>()
 
   init(
@@ -68,10 +69,8 @@ final class RuntimeCoordinator {
       },
       sharedAudioEngine: audioManager.sharedAudioEngine,
       clock: { Clocks.nowMs() },
-      makeWebSocketClient: SessionOrchestrator.Dependencies.live.makeWebSocketClient,
       makeVisionFrameUploader: SessionOrchestrator.Dependencies.live.makeVisionFrameUploader,
       makeRollingVideoBuffer: SessionOrchestrator.Dependencies.live.makeRollingVideoBuffer,
-      makeQueryBundleBuilder: SessionOrchestrator.Dependencies.live.makeQueryBundleBuilder,
       makePlaybackEngine: SessionOrchestrator.Dependencies.live.makePlaybackEngine,
       eventLogger: SessionOrchestrator.Dependencies.live.eventLogger
     )
@@ -80,6 +79,7 @@ final class RuntimeCoordinator {
     self.audioCollectionManager.isPlaybackPendingProvider = { [weak self] in
       self?.runtimeOrchestrator.hasPendingPlayback() ?? false
     }
+    bindReachability()
     bindDeviceSession()
     bindRuntimeState()
     bindAudioState()
@@ -125,6 +125,24 @@ final class RuntimeCoordinator {
     @unknown default:
       break
     }
+  }
+
+  private func bindReachability() {
+    reachability.onConnectivityStateChanged = { [weak self] connectivityState in
+      guard let self else { return }
+      self.store.internetReachabilityState = self.storeReachabilityState(from: connectivityState)
+
+      switch connectivityState {
+      case .unknown:
+        break
+      case .connected:
+        self.runtimeOrchestrator.setNetworkAvailable(true)
+      case .disconnected:
+        self.runtimeOrchestrator.setNetworkAvailable(false)
+      }
+    }
+    store.internetReachabilityState = .unknown
+    reachability.startMonitoring()
   }
 
   var onWakeAuthorizationPreflight: (() async -> Void)?
@@ -193,8 +211,10 @@ final class RuntimeCoordinator {
           store.assistantRuntimeState = .inactive
         case .connecting, .reconnecting:
           store.assistantRuntimeState = .activating
-        case .active:
+        case .active, .streaming:
           store.assistantRuntimeState = .active
+        case .disconnecting:
+          store.assistantRuntimeState = .deactivating
         case .failed:
           store.assistantRuntimeState = .failed
         }
@@ -203,6 +223,12 @@ final class RuntimeCoordinator {
 
     audioCollectionManager.onWakePCMFrame = { [weak self] frame in
       self?.runtimeOrchestrator.processWakePCMFrame(frame)
+    }
+
+    audioCollectionManager.onRealtimePCMFrame = { [weak self] payload, timestampMs in
+      Task { @MainActor [weak self] in
+        self?.runtimeOrchestrator.processRealtimePCMFrame(payload, timestampMs: timestampMs)
+      }
     }
   }
 
@@ -299,5 +325,18 @@ final class RuntimeCoordinator {
 
   private static func audioLeaseErrorMessage(prefix: String, error: Error) -> String {
     "\(prefix): \(error.localizedDescription)"
+  }
+
+  private func storeReachabilityState(
+    from connectivityState: NWReachability.ConnectivityState
+  ) -> InternetReachabilityState {
+    switch connectivityState {
+    case .unknown:
+      return .unknown
+    case .connected:
+      return .connected
+    case .disconnected:
+      return .disconnected
+    }
   }
 }

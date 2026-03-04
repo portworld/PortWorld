@@ -4,7 +4,9 @@ public enum SessionState: String, Codable {
   case idle
   case connecting
   case active
+  case streaming
   case reconnecting
+  case disconnecting
   case ended
   case failed
 }
@@ -84,6 +86,11 @@ public enum RuntimeState: String, Codable {
 }
 
 public struct QueryMetadata: Codable {
+  public enum TriggerSource: String, Codable {
+    case manual
+    case voice
+  }
+
   public let sessionID: String
   public let queryID: String
   public let wakeTsMs: Int64
@@ -91,6 +98,10 @@ public struct QueryMetadata: Codable {
   public let queryEndTsMs: Int64
   public let videoStartTsMs: Int64
   public let videoEndTsMs: Int64
+  public let appVersion: String?
+  public let deviceModel: String?
+  public let osVersion: String?
+  public let triggerSource: TriggerSource?
 
   public init(
     sessionID: String,
@@ -99,7 +110,11 @@ public struct QueryMetadata: Codable {
     queryStartTsMs: Int64,
     queryEndTsMs: Int64,
     videoStartTsMs: Int64,
-    videoEndTsMs: Int64
+    videoEndTsMs: Int64,
+    appVersion: String? = nil,
+    deviceModel: String? = nil,
+    osVersion: String? = nil,
+    triggerSource: TriggerSource? = nil
   ) {
     self.sessionID = sessionID
     self.queryID = queryID
@@ -108,6 +123,10 @@ public struct QueryMetadata: Codable {
     self.queryEndTsMs = queryEndTsMs
     self.videoStartTsMs = videoStartTsMs
     self.videoEndTsMs = videoEndTsMs
+    self.appVersion = appVersion
+    self.deviceModel = deviceModel
+    self.osVersion = osVersion
+    self.triggerSource = triggerSource
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -118,6 +137,10 @@ public struct QueryMetadata: Codable {
     case queryEndTsMs = "query_end_ts_ms"
     case videoStartTsMs = "video_start_ts_ms"
     case videoEndTsMs = "video_end_ts_ms"
+    case appVersion = "app_version"
+    case deviceModel = "device_model"
+    case osVersion = "os_version"
+    case triggerSource = "trigger_source"
   }
 }
 
@@ -241,6 +264,9 @@ public struct HealthStatsPayload: Codable {
   public let videoBufferDurationMs: Int
   public let audioBufferDurationMs: Int
   public let wsReconnectAttempts: Int
+  public let wsRoundTripLatencyMs: Int
+  public let frameDropCount: Int
+  public let frameDropRate: Double
   /// Number of full session restarts (deactivate+activate cycles).
   /// Unlike wsReconnectAttempts, this persists across session activations.
   public let sessionRestartCount: Int
@@ -249,6 +275,9 @@ public struct HealthStatsPayload: Codable {
   /// Whether playback queue is under backpressure.
   public let playbackBackpressured: Bool
   public let playbackRoute: String
+  public let appVersion: String?
+  public let deviceModel: String?
+  public let osVersion: String?
 
   public init(
     wakeState: WakeState,
@@ -262,10 +291,16 @@ public struct HealthStatsPayload: Codable {
     videoBufferDurationMs: Int,
     audioBufferDurationMs: Int,
     wsReconnectAttempts: Int,
+    wsRoundTripLatencyMs: Int = 0,
+    frameDropCount: Int = 0,
+    frameDropRate: Double = 0,
     sessionRestartCount: Int,
     pendingPlaybackDurationMs: Int,
     playbackBackpressured: Bool,
-    playbackRoute: String
+    playbackRoute: String,
+    appVersion: String? = nil,
+    deviceModel: String? = nil,
+    osVersion: String? = nil
   ) {
     self.wakeState = wakeState
     self.queryState = queryState
@@ -278,10 +313,16 @@ public struct HealthStatsPayload: Codable {
     self.videoBufferDurationMs = videoBufferDurationMs
     self.audioBufferDurationMs = audioBufferDurationMs
     self.wsReconnectAttempts = wsReconnectAttempts
+    self.wsRoundTripLatencyMs = wsRoundTripLatencyMs
+    self.frameDropCount = frameDropCount
+    self.frameDropRate = frameDropRate
     self.sessionRestartCount = sessionRestartCount
     self.pendingPlaybackDurationMs = pendingPlaybackDurationMs
     self.playbackBackpressured = playbackBackpressured
     self.playbackRoute = playbackRoute
+    self.appVersion = appVersion
+    self.deviceModel = deviceModel
+    self.osVersion = osVersion
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -296,10 +337,16 @@ public struct HealthStatsPayload: Codable {
     case videoBufferDurationMs = "video_buffer_duration_ms"
     case audioBufferDurationMs = "audio_buffer_duration_ms"
     case wsReconnectAttempts = "ws_reconnect_attempts"
+    case wsRoundTripLatencyMs = "ws_round_trip_latency_ms"
+    case frameDropCount = "frame_drop_count"
+    case frameDropRate = "frame_drop_rate"
     case sessionRestartCount = "session_restart_count"
     case pendingPlaybackDurationMs = "pending_playback_duration_ms"
     case playbackBackpressured = "playback_backpressured"
     case playbackRoute = "playback_route"
+    case appVersion = "app_version"
+    case deviceModel = "device_model"
+    case osVersion = "os_version"
   }
 }
 

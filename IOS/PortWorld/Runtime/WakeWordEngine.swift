@@ -48,6 +48,7 @@ struct WakeWordPCMFrame {
 @MainActor
 protocol WakeWordEngine: AnyObject {
   var onWakeDetected: ((WakeWordDetectionEvent) -> Void)? { get set }
+  var onSleepDetected: ((WakeWordDetectionEvent) -> Void)? { get set }
   var onError: ((Error) -> Void)? { get set }
   var onStatusChanged: ((WakeWordStatusSnapshot) -> Void)? { get set }
   var isListening: Bool { get }
@@ -98,6 +99,7 @@ enum WakeWordEngineError: LocalizedError {
 @MainActor
 final class ManualWakeWordEngine: WakeWordEngine {
   var onWakeDetected: ((WakeWordDetectionEvent) -> Void)?
+  var onSleepDetected: ((WakeWordDetectionEvent) -> Void)?
   var onError: ((Error) -> Void)?
   var onStatusChanged: ((WakeWordStatusSnapshot) -> Void)?
 
@@ -166,6 +168,7 @@ final class ManualWakeWordEngine: WakeWordEngine {
 @MainActor
 final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
   var onWakeDetected: ((WakeWordDetectionEvent) -> Void)?
+  var onSleepDetected: ((WakeWordDetectionEvent) -> Void)?
   var onError: ((Error) -> Void)?
   var onStatusChanged: ((WakeWordStatusSnapshot) -> Void)?
 
@@ -173,7 +176,9 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
   let engineKind: WakeWordEngineKind = .sfspeechKeyword
 
   private let wakePhrase: String
+  private let sleepPhrase: String?
   private let normalizedWakePhrase: String
+  private let normalizedSleepPhrase: String?
   private let localeIdentifier: String
   private let requiresOnDeviceRecognition: Bool
   private let detectionCooldownMs: Int64
@@ -188,12 +193,17 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
 
   init(
     wakePhrase: String,
+    sleepPhrase: String? = nil,
     localeIdentifier: String,
     requiresOnDeviceRecognition: Bool,
     detectionCooldownMs: Int64 = 1_500
   ) {
     self.wakePhrase = wakePhrase
+    self.sleepPhrase = sleepPhrase
     self.normalizedWakePhrase = Self.normalizePhrase(wakePhrase)
+    self.normalizedSleepPhrase = sleepPhrase
+      .map(Self.normalizePhrase)
+      .flatMap { $0.isEmpty ? nil : $0 }
     self.localeIdentifier = localeIdentifier
     self.requiresOnDeviceRecognition = requiresOnDeviceRecognition
     self.detectionCooldownMs = max(250, detectionCooldownMs)
@@ -312,18 +322,33 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
     if let result {
       consecutiveRecognitionErrorCount = 0
       let transcript = Self.normalizePhrase(result.bestTranscription.formattedString)
-      if !transcript.isEmpty, transcript.contains(normalizedWakePhrase) {
+      if !transcript.isEmpty {
         let now = Clocks.nowMs()
         if now - lastDetectionTimestampMs >= detectionCooldownMs {
-          lastDetectionTimestampMs = now
-          onWakeDetected?(
-            WakeWordDetectionEvent(
-              wakePhrase: wakePhrase,
-              timestampMs: now,
-              engine: engineKind.rawValue,
-              confidence: nil
+          let detectedSleep = normalizedSleepPhrase.map { transcript.contains($0) } ?? false
+          let detectedWake = transcript.contains(normalizedWakePhrase)
+
+          if detectedSleep, let sleepPhrase {
+            lastDetectionTimestampMs = now
+            onSleepDetected?(
+              WakeWordDetectionEvent(
+                wakePhrase: sleepPhrase,
+                timestampMs: now,
+                engine: engineKind.rawValue,
+                confidence: nil
+              )
             )
-          )
+          } else if detectedWake {
+            lastDetectionTimestampMs = now
+            onWakeDetected?(
+              WakeWordDetectionEvent(
+                wakePhrase: wakePhrase,
+                timestampMs: now,
+                engine: engineKind.rawValue,
+                confidence: nil
+              )
+            )
+          }
         }
       }
 

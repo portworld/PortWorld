@@ -455,4 +455,74 @@ final class WSMessageCodecTests: XCTestCase {
     XCTAssertNil(json["frameB64"])
     XCTAssertNil(json["captureTsMs"])
   }
+
+  func testQueryMetadataUsesSnakeCaseDeviceAndVersionKeys() throws {
+    let payload = QueryMetadata(
+      sessionID: "sess_meta",
+      queryID: "query_meta",
+      wakeTsMs: 1,
+      queryStartTsMs: 2,
+      queryEndTsMs: 3,
+      videoStartTsMs: 4,
+      videoEndTsMs: 5,
+      appVersion: "1.2.3",
+      deviceModel: "iPhone17,1",
+      osVersion: "17.4",
+      triggerSource: .voice
+    )
+
+    let data = try encoder.encode(payload)
+    let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+    XCTAssertEqual(json["app_version"] as? String, "1.2.3")
+    XCTAssertEqual(json["device_model"] as? String, "iPhone17,1")
+    XCTAssertEqual(json["os_version"] as? String, "17.4")
+    XCTAssertEqual(json["trigger_source"] as? String, "voice")
+    XCTAssertNil(json["appVersion"])
+    XCTAssertNil(json["deviceModel"])
+    XCTAssertNil(json["osVersion"])
+    XCTAssertNil(json["triggerSource"])
+  }
+
+  func testHealthStatsPayloadUsesSnakeCaseFrameDropAndDeviceVersionKeys() throws {
+    let payload = HealthStatsPayload(
+      wakeState: .listening,
+      queryState: .idle,
+      queriesCompleted: 1,
+      queryBundlesUploaded: 2,
+      queryBundlesFailed: 0,
+      photoUploadRateEffective: 0.5,
+      photosUploaded: 3,
+      photosFailed: 1,
+      videoBufferDurationMs: 1000,
+      audioBufferDurationMs: 800,
+      wsReconnectAttempts: 2,
+      wsRoundTripLatencyMs: 123,
+      frameDropCount: 7,
+      frameDropRate: 0.14,
+      sessionRestartCount: 1,
+      pendingPlaybackDurationMs: 250,
+      playbackBackpressured: false,
+      playbackRoute: "speaker",
+      appVersion: "1.2.3",
+      deviceModel: "iPhone17,1",
+      osVersion: "17.4"
+    )
+
+    let data = try encoder.encode(payload)
+    let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+    XCTAssertEqual(json["frame_drop_count"] as? Int, 7)
+    XCTAssertEqual(json["frame_drop_rate"] as? Double, 0.14)
+    XCTAssertEqual(json["ws_round_trip_latency_ms"] as? Int, 123)
+    XCTAssertEqual(json["app_version"] as? String, "1.2.3")
+    XCTAssertEqual(json["device_model"] as? String, "iPhone17,1")
+    XCTAssertEqual(json["os_version"] as? String, "17.4")
+    XCTAssertNil(json["frameDropCount"])
+    XCTAssertNil(json["frameDropRate"])
+    XCTAssertNil(json["wsRoundTripLatencyMs"])
+    XCTAssertNil(json["appVersion"])
+    XCTAssertNil(json["deviceModel"])
+    XCTAssertNil(json["osVersion"])
+  }
 }
