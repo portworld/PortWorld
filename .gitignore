@@ -117,6 +117,9 @@ playground.xcworkspace
 # Archives
 *.xcarchive
 
+# Tests
+tmp/
+__Snapshots__/
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Swift Package Manager
