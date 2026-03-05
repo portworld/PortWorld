@@ -6,8 +6,31 @@ import XCTest
 
 @MainActor
 final class SnapshotTests: XCTestCase {
+  private let runtimeSnapshotsDirectory = FileManager.default.temporaryDirectory
+    .appendingPathComponent("PortWorldTests.__Snapshots__.SnapshotTests", isDirectory: true)
+
   private var shouldRecordSnapshots: Bool {
-    ProcessInfo.processInfo.environment["RECORD_SNAPSHOTS"] == "1"
+    guard ProcessInfo.processInfo.environment["RECORD_SNAPSHOTS"] == "1" else {
+      return false
+    }
+    return isSnapshotDirectoryWritable
+  }
+
+  private var snapshotDirectoryPath: String {
+    runtimeSnapshotsDirectory.path
+  }
+
+  private var isSnapshotDirectoryWritable: Bool {
+    let fileManager = FileManager.default
+    if fileManager.fileExists(atPath: snapshotDirectoryPath) {
+      return fileManager.isWritableFile(atPath: snapshotDirectoryPath)
+    }
+    return fileManager.isWritableFile(atPath: runtimeSnapshotsDirectory.deletingLastPathComponent().path)
+  }
+
+  override func setUpWithError() throws {
+    try super.setUpWithError()
+    try prepareRuntimeSnapshotDirectory()
   }
 
   func testCircleButton_iconOnly_lightAndDark() {
@@ -94,7 +117,7 @@ final class SnapshotTests: XCTestCase {
     let host = UIHostingController(rootView: wrapped)
     host.view.frame = CGRect(origin: .zero, size: size)
 
-    assertSnapshot(
+    assertSnapshotAtKnownDirectory(
       of: host.view,
       as: .image(size: size, traits: .init(userInterfaceStyle: .light)),
       named: "\(name).light",
@@ -104,7 +127,7 @@ final class SnapshotTests: XCTestCase {
       line: line
     )
 
-    assertSnapshot(
+    assertSnapshotAtKnownDirectory(
       of: host.view,
       as: .image(size: size, traits: .init(userInterfaceStyle: .dark)),
       named: "\(name).dark",
@@ -113,6 +136,83 @@ final class SnapshotTests: XCTestCase {
       testName: testName,
       line: line
     )
+  }
+
+  private func assertSnapshotAtKnownDirectory<Value, Format>(
+    of value: @autoclosure () throws -> Value,
+    as snapshotting: Snapshotting<Value, Format>,
+    named name: String,
+    record: Bool,
+    file: StaticString,
+    testName: String,
+    line: UInt
+  ) {
+    guard assertSnapshotDirectoryAccessible(file: file, line: line) else { return }
+
+    do {
+      let failure = verifySnapshot(
+        of: try value(),
+        as: snapshotting,
+        named: name,
+        record: record,
+        snapshotDirectory: snapshotDirectoryPath,
+        file: file,
+        testName: testName,
+        line: line
+      )
+      if let failure {
+        XCTFail(failure, file: file, line: line)
+      }
+    } catch {
+      XCTFail("Failed to evaluate snapshot value: \(error.localizedDescription)", file: file, line: line)
+    }
+  }
+
+  private func assertSnapshotDirectoryAccessible(file: StaticString, line: UInt) -> Bool {
+    let fileManager = FileManager.default
+    let directoryURL = URL(fileURLWithPath: snapshotDirectoryPath, isDirectory: true)
+    do {
+      try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+      let probeURL = directoryURL.appendingPathComponent(".write_probe_\(UUID().uuidString)")
+      try Data("ok".utf8).write(to: probeURL, options: .atomic)
+      try fileManager.removeItem(at: probeURL)
+      return true
+    } catch {
+      XCTFail(
+        "Snapshot directory is not writable at path \(directoryURL.path): \(error.localizedDescription)",
+        file: file,
+        line: line
+      )
+      return false
+    }
+  }
+
+  private func prepareRuntimeSnapshotDirectory() throws {
+    let fileManager = FileManager.default
+    try fileManager.createDirectory(
+      at: runtimeSnapshotsDirectory,
+      withIntermediateDirectories: true
+    )
+
+    guard let resourceDirectory = Bundle(for: Self.self).resourceURL else { return }
+    let resourceFiles = try fileManager.contentsOfDirectory(
+      at: resourceDirectory,
+      includingPropertiesForKeys: nil
+    )
+
+    for sourceURL in resourceFiles {
+      let fileName = sourceURL.lastPathComponent
+      let shouldCopy =
+        fileName == "BASELINE_PENDING.md"
+        || (fileName.hasPrefix("test") && fileName.hasSuffix(".png"))
+      guard shouldCopy else { continue }
+
+      let destinationURL = runtimeSnapshotsDirectory.appendingPathComponent(fileName, isDirectory: false)
+      if fileManager.fileExists(atPath: destinationURL.path) {
+        continue
+      }
+      try fileManager.copyItem(at: sourceURL, to: destinationURL)
+    }
   }
 
   private func makeSamplePhoto() -> UIImage {
