@@ -18,7 +18,7 @@ struct MainAppView: View {
 
   var body: some View {
     Group {
-      if viewModel.registrationState == .registered {
+      if viewModel.canEnterSession {
         StreamSessionView(wearables: wearables, wearablesVM: viewModel)
       } else {
         // User not registered - show registration/onboarding flow

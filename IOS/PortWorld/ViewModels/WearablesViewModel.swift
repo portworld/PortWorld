@@ -16,17 +16,33 @@ class WearablesViewModel: ObservableObject {
   @Published var showGettingStartedSheet: Bool = false
   @Published var showError: Bool = false
   @Published var errorMessage: String = ""
+  @Published var isMockModeEnabled: Bool
+  @Published var isMockDeviceReady: Bool
+  @Published var isPreparingMockDevice: Bool
+
+  var canEnterSession: Bool {
+    registrationState == .registered || isMockDeviceReady
+  }
 
   private var registrationTask: Task<Void, Never>?
   private var deviceStreamTask: Task<Void, Never>?
   private var setupDeviceStreamTask: Task<Void, Never>?
   private let wearables: WearablesInterface
+  private let mockDeviceController: MockDeviceController
   private var compatibilityListenerTokens: [DeviceIdentifier: AnyListenerToken] = [:]
 
-  init(wearables: WearablesInterface) {
+  #if DEBUG
+    private let mockModePreferenceKey = "portworld.debug.mockModeEnabled"
+  #endif
+
+  init(wearables: WearablesInterface, mockDeviceController: MockDeviceController? = nil) {
     self.wearables = wearables
+    self.mockDeviceController = mockDeviceController ?? MockDeviceController()
     self.devices = wearables.devices
     self.registrationState = wearables.registrationState
+    self.isMockModeEnabled = false
+    self.isMockDeviceReady = self.mockDeviceController.isEnabled
+    self.isPreparingMockDevice = false
 
     setupDeviceStreamTask = Task {
       await setupDeviceStream()
@@ -42,6 +58,14 @@ class WearablesViewModel: ObservableObject {
         }
       }
     }
+
+    #if DEBUG
+      if UserDefaults.standard.bool(forKey: mockModePreferenceKey) {
+        Task { @MainActor [weak self] in
+          await self?.enableMockMode()
+        }
+      }
+    #endif
   }
 
   deinit {
@@ -117,6 +141,45 @@ class WearablesViewModel: ObservableObject {
   func showError(_ error: String) {
     errorMessage = error
     showError = true
+  }
+
+  func enableMockMode() async {
+    guard !isPreparingMockDevice else { return }
+    isPreparingMockDevice = true
+    defer { isPreparingMockDevice = false }
+
+    do {
+      try await mockDeviceController.enableMockDevice()
+      isMockModeEnabled = true
+      isMockDeviceReady = mockDeviceController.isEnabled
+      #if DEBUG
+        UserDefaults.standard.set(true, forKey: mockModePreferenceKey)
+      #endif
+    } catch {
+      isMockModeEnabled = false
+      isMockDeviceReady = false
+      #if DEBUG
+        UserDefaults.standard.set(false, forKey: mockModePreferenceKey)
+      #endif
+      showError("Unable to enable mock device: \(error.localizedDescription)")
+    }
+  }
+
+  func disableMockMode() {
+    mockDeviceController.disableMockDevice()
+    isMockModeEnabled = false
+    isMockDeviceReady = mockDeviceController.isEnabled
+    #if DEBUG
+      UserDefaults.standard.set(false, forKey: mockModePreferenceKey)
+    #endif
+  }
+
+  func toggleMockMode() async {
+    if isMockModeEnabled {
+      disableMockMode()
+    } else {
+      await enableMockMode()
+    }
   }
 
   func dismissError() {

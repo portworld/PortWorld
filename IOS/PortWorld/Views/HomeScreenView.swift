@@ -158,6 +158,32 @@ struct HomeScreenView: View {
           .multilineTextAlignment(.leading)
           .frame(maxWidth: .infinity, alignment: .leading)
 
+        #if DEBUG
+          Button {
+            Task {
+              await viewModel.toggleMockMode()
+            }
+          } label: {
+            HStack(spacing: 10) {
+              Image(systemName: viewModel.isPreparingMockDevice ? "hourglass" : "iphone")
+              Text(mockButtonTitle)
+            }
+            .font(.system(.headline, design: .rounded).weight(.semibold))
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+          }
+          .buttonStyle(.plain)
+          .background(Color.white.opacity(0.18))
+          .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+          .disabled(viewModel.isPreparingMockDevice)
+
+          Text("DEBUG: Pair a simulated glasses device to continue without physical hardware.")
+            .font(.system(.caption2, design: .rounded).weight(.medium))
+            .foregroundColor(.white.opacity(0.72))
+            .frame(maxWidth: .infinity, alignment: .leading)
+        #endif
+
         Button {
           viewModel.connectGlasses()
         } label: {
@@ -187,6 +213,14 @@ struct HomeScreenView: View {
 }
 
 private extension HomeScreenView {
+  #if DEBUG
+    var mockButtonTitle: String {
+      if viewModel.isPreparingMockDevice { return "Preparing Mock Device…" }
+      if viewModel.isMockModeEnabled { return "Disable Mock Device" }
+      return "Use iPhone Mock Device"
+    }
+  #endif
+
   var statusBadgeState: HomeStateBadge.State {
     if isRegistered { return .success }
     if isRegistering { return .active }

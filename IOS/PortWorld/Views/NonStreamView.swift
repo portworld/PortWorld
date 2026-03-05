@@ -66,6 +66,17 @@ struct NonStreamView: View {
         }
         .disabled(wearablesVM.registrationState != .registered)
 
+        #if DEBUG
+          Divider()
+
+          Button(debugMockMenuTitle) {
+            Task {
+              await wearablesVM.toggleMockMode()
+            }
+          }
+          .disabled(wearablesVM.isPreparingMockDevice)
+        #endif
+
         Divider()
 
         Button("Reset temporary credentials", role: .destructive) {
@@ -84,6 +95,14 @@ struct NonStreamView: View {
       }
     }
   }
+
+  #if DEBUG
+    private var debugMockMenuTitle: String {
+      if wearablesVM.isPreparingMockDevice { return "Preparing Mock Device…" }
+      if wearablesVM.isMockModeEnabled { return "Disable Mock Device" }
+      return "Use iPhone Mock Device"
+    }
+  #endif
 
   private var heroCard: some View {
     VStack(alignment: .leading, spacing: 14) {
