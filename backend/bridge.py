@@ -18,6 +18,7 @@ from backend.openai_realtime_client import (
 )
 
 logger = logging.getLogger(__name__)
+SESSION_READY_EVENT_TYPES = {"session.created", "session.updated"}
 
 EnvelopeSender = Callable[[str, dict[str, Any]], Awaitable[None]]
 BinarySender = Callable[[int, int, bytes], Awaitable[None]]
@@ -58,14 +59,21 @@ class IOSRealtimeBridge:
         self._dump_input_audio_dir = dump_input_audio_dir
         self._input_audio_dump_writer: wave.Wave_write | None = None
         self._closed = False
+        self._session_ready_confirmed = False
+        self._session_ready_event = asyncio.Event()
+        self._session_ready_error: tuple[str, str] | None = None
 
     async def connect_and_start(self) -> None:
+        self._session_ready_confirmed = False
+        self._session_ready_error = None
+        self._session_ready_event.clear()
         await self._upstream_client.connect()
-        await self._upstream_client.initialize_session()
         self._upstream_task = asyncio.create_task(
             self._run_upstream_loop(),
             name=f"upstream_loop:{self._session_id}",
         )
+        await self._upstream_client.initialize_session()
+        await self._wait_for_upstream_session_ready()
 
     async def append_client_audio(self, payload_bytes: bytes) -> None:
         if not payload_bytes:
@@ -110,6 +118,10 @@ class IOSRealtimeBridge:
             raise
         except RealtimeClientError as exc:
             logger.warning("Upstream loop closed for %s: %s", self._session_id, exc)
+            self._mark_session_init_failed(
+                code="UPSTREAM_CONNECTION_ERROR",
+                message="Upstream realtime connection failed",
+            )
             await self._send_upstream_error(
                 code="UPSTREAM_CONNECTION_ERROR",
                 message="Upstream realtime connection failed",
@@ -118,6 +130,10 @@ class IOSRealtimeBridge:
         except Exception as exc:  # pragma: no cover - defensive fallback
             logger.exception(
                 "Unexpected upstream loop failure for %s", self._session_id
+            )
+            self._mark_session_init_failed(
+                code="UPSTREAM_UNEXPECTED_ERROR",
+                message=str(exc),
             )
             await self._send_upstream_error(
                 code="UPSTREAM_UNEXPECTED_ERROR",
@@ -156,12 +172,9 @@ class IOSRealtimeBridge:
             self._current_turn_response_started = True
             return
 
-        if event_type == "session.created":
-            logger.info("Upstream session.created session=%s", self._session_id)
-            return
-
-        if event_type == "session.updated":
-            logger.info("Upstream session.updated session=%s", self._session_id)
+        if event_type in SESSION_READY_EVENT_TYPES:
+            logger.info("Upstream %s session=%s", event_type, self._session_id)
+            self._mark_session_ready()
             return
 
         if event_type == "input_audio_buffer.committed":
@@ -262,7 +275,41 @@ class IOSRealtimeBridge:
             )
 
         retriable = bool(err_payload.get("retriable", True))
+        self._mark_session_init_failed(code=code, message=message)
         await self._send_upstream_error(code=code, message=message, retriable=retriable)
+
+    async def _wait_for_upstream_session_ready(self, timeout_seconds: float = 8.0) -> None:
+        try:
+            await asyncio.wait_for(
+                self._session_ready_event.wait(),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            raise RealtimeClientError(
+                "Timed out waiting for upstream session readiness confirmation"
+            ) from exc
+
+        if self._session_ready_confirmed:
+            return
+
+        code, message = self._session_ready_error or (
+            "UPSTREAM_SESSION_NOT_READY",
+            "Upstream session was not confirmed as ready",
+        )
+        raise RealtimeClientError(f"{code}: {message}")
+
+    def _mark_session_ready(self) -> None:
+        if self._session_ready_confirmed:
+            return
+        self._session_ready_confirmed = True
+        self._session_ready_error = None
+        self._session_ready_event.set()
+
+    def _mark_session_init_failed(self, *, code: str, message: str) -> None:
+        if self._session_ready_confirmed:
+            return
+        self._session_ready_error = (code, message)
+        self._session_ready_event.set()
 
     async def _maybe_retry_legacy_session_init(
         self, *, code: str, message: str

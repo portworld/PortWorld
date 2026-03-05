@@ -34,9 +34,11 @@ class Settings:
     openai_realtime_instructions: str
     openai_realtime_include_turn_detection: bool
     openai_realtime_enable_manual_turn_fallback: bool
+    openai_realtime_allow_text_audio_fallback: bool
     openai_realtime_manual_turn_fallback_delay_ms: int
     openai_debug_dump_input_audio: bool
     openai_debug_dump_input_audio_dir: str
+    openai_debug_trace_ws_messages: bool
     host: str
     port: int
     log_level: str
@@ -62,6 +64,10 @@ class Settings:
                 "OPENAI_REALTIME_ENABLE_MANUAL_TURN_FALLBACK",
                 default=True,
             ),
+            openai_realtime_allow_text_audio_fallback=_parse_bool_env(
+                "OPENAI_REALTIME_ALLOW_TEXT_AUDIO_FALLBACK",
+                default=False,
+            ),
             openai_realtime_manual_turn_fallback_delay_ms=max(
                 100,
                 int(os.getenv("OPENAI_REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS", "900")),
@@ -73,6 +79,10 @@ class Settings:
             openai_debug_dump_input_audio_dir=os.getenv(
                 "OPENAI_DEBUG_DUMP_INPUT_AUDIO_DIR",
                 "backend/debug_audio",
+            ),
+            openai_debug_trace_ws_messages=_parse_bool_env(
+                "OPENAI_DEBUG_TRACE_WS_MESSAGES",
+                default=False,
             ),
             host=os.getenv("HOST", "0.0.0.0"),
             port=int(os.getenv("PORT", "8080")),

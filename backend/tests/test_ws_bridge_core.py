@@ -5,6 +5,7 @@ from typing import Any
 
 from backend.bridge import IOSRealtimeBridge
 from backend.frame_codec import SERVER_AUDIO_FRAME_TYPE
+from backend.openai_realtime_client import RealtimeClientError
 
 
 class FakeUpstreamClient:
@@ -35,6 +36,17 @@ class FakeUpstreamClient:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class EventfulFakeUpstreamClient(FakeUpstreamClient):
+    def __init__(self, events: list[dict[str, Any]]) -> None:
+        super().__init__()
+        self.events = events
+
+    async def iter_events(self):
+        for event in self.events:
+            await _sleep(0)
+            yield event
 
 
 def test_append_client_audio_forwards_input_audio_buffer_append() -> None:
@@ -288,6 +300,66 @@ def test_response_created_prevents_manual_turn_finalize() -> None:
     assert [event["type"] for event in upstream.sent_events] == [
         "input_audio_buffer.append",
     ]
+
+
+def test_connect_and_start_waits_for_upstream_session_ready() -> None:
+    upstream = EventfulFakeUpstreamClient(
+        [{"type": "session.created"}, {"type": "session.updated"}]
+    )
+    bridge = IOSRealtimeBridge(
+        session_id="sess_test",
+        upstream_client=upstream,
+        send_envelope=lambda *_args, **_kwargs: _noop_async(),
+        send_binary_frame=lambda *_args, **_kwargs: _noop_async(),
+        manual_turn_fallback_enabled=False,
+    )
+
+    _run(bridge.connect_and_start())
+
+    assert upstream.connected is True
+    assert upstream.initialized is True
+
+
+def test_connect_and_start_fails_when_upstream_errors_before_ready() -> None:
+    upstream = EventfulFakeUpstreamClient(
+        [
+            {
+                "type": "error",
+                "error": {
+                    "code": "invalid_request_error",
+                    "message": "Invalid session config",
+                    "retriable": False,
+                },
+            }
+        ]
+    )
+    envelopes: list[tuple[str, dict[str, Any]]] = []
+    bridge = IOSRealtimeBridge(
+        session_id="sess_test",
+        upstream_client=upstream,
+        send_envelope=lambda m_type, payload: _capture_envelope(
+            envelopes, m_type, payload
+        ),
+        send_binary_frame=lambda *_args, **_kwargs: _noop_async(),
+        manual_turn_fallback_enabled=False,
+    )
+
+    try:
+        _run(bridge.connect_and_start())
+        raised_error: Exception | None = None
+    except Exception as exc:
+        raised_error = exc
+
+    assert isinstance(raised_error, RealtimeClientError)
+    assert "invalid_request_error" in str(raised_error)
+    assert (
+        "error",
+        {
+            "code": "invalid_request_error",
+            "message": "Invalid session config",
+            "retriable": False,
+        },
+    ) in envelopes
 
 
 async def _capture_envelope(

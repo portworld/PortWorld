@@ -10,6 +10,8 @@ import websockets
 from websockets import exceptions as ws_exceptions
 
 logger = logging.getLogger(__name__)
+INPUT_AUDIO_SAMPLE_RATE = 24_000
+OUTPUT_AUDIO_SAMPLE_RATE = 24_000
 
 
 class RealtimeClientError(Exception):
@@ -267,13 +269,13 @@ class OpenAIRealtimeClient:
                 "input": {
                     "format": {
                         "type": "audio/pcm",
-                        "rate": 24000,
+                        "rate": INPUT_AUDIO_SAMPLE_RATE,
                     },
                 },
                 "output": {
                     "format": {
                         "type": "audio/pcm",
-                        "rate": 24000,
+                        "rate": OUTPUT_AUDIO_SAMPLE_RATE,
                     },
                     "voice": resolved_voice,
                 },

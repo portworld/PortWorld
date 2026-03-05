@@ -22,7 +22,10 @@ cp .env.example .env
 `OPENAI_API_KEY` is required to activate realtime streaming (`session.activate`).
 `OPENAI_REALTIME_ENABLE_MANUAL_TURN_FALLBACK=true` enables a backend fallback that sends
 `input_audio_buffer.commit` + `response.create` when VAD does not start a response.
+`OPENAI_REALTIME_ALLOW_TEXT_AUDIO_FALLBACK=true` temporarily accepts `client.audio` text/base64
+uplink frames for debugging; production framing is binary audio.
 `OPENAI_DEBUG_DUMP_INPUT_AUDIO=true` stores raw incoming iOS PCM as `.wav` files for debugging.
+`OPENAI_DEBUG_TRACE_WS_MESSAGES=true` logs raw websocket receive metadata before routing.
 
 ### TLS certificate trust (macOS)
 
@@ -81,8 +84,17 @@ OPENAI_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/debug_audio
 
 Each session writes a `24kHz/mono/int16` WAV file in the configured directory.
 
+## Websocket probe
+
+Use the local probe to validate that `/ws/session` accepts a control envelope plus audio frames:
+
+```bash
+python backend/scripts/ws_probe.py --url ws://127.0.0.1:8080/ws/session --session-id sess_probe
+```
+
 ## Endpoints
 
 - `GET /healthz`
 - `POST /vision/frame` with JSON body: `{"frame_id": "optional-id"}`
 - `WS /ws/session` for iOS control envelopes + binary audio frames
+- Optional debug-only compatibility: `client.audio` text envelopes when `OPENAI_REALTIME_ALLOW_TEXT_AUDIO_FALLBACK=true`

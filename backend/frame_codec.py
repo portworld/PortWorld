@@ -6,7 +6,12 @@ HEADER_SIZE = 9
 
 CLIENT_AUDIO_FRAME_TYPE = 0x01
 SERVER_AUDIO_FRAME_TYPE = 0x02
-SUPPORTED_FRAME_TYPES = {CLIENT_AUDIO_FRAME_TYPE, SERVER_AUDIO_FRAME_TYPE}
+CLIENT_PROBE_FRAME_TYPE = 0x03
+SUPPORTED_FRAME_TYPES = {
+    CLIENT_AUDIO_FRAME_TYPE,
+    SERVER_AUDIO_FRAME_TYPE,
+    CLIENT_PROBE_FRAME_TYPE,
+}
 
 _INT64_MIN = -(1 << 63)
 _INT64_MAX = (1 << 63) - 1
@@ -42,7 +47,7 @@ class DecodedFrame:
 def _validate_frame_type(frame_type: int) -> None:
     if frame_type not in SUPPORTED_FRAME_TYPES:
         raise UnsupportedFrameTypeError(
-            f"Unsupported frame type: {frame_type:#04x}. Supported: 0x01, 0x02."
+            f"Unsupported frame type: {frame_type:#04x}. Supported: 0x01, 0x02, 0x03."
         )
 
 
