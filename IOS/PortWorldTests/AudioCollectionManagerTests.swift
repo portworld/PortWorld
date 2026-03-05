@@ -74,10 +74,12 @@ final class AudioCollectionManagerTests: XCTestCase {
         )
 
         let sinkExpectation = expectation(description: "realtime sink receives payload")
-        var receivedPayload: Data?
+        let payloadStore = ReceivedPayloadStore()
         manager.onRealtimePCMFrame = { payload, _ in
-            receivedPayload = payload
-            sinkExpectation.fulfill()
+            Task {
+                await payloadStore.set(payload)
+                sinkExpectation.fulfill()
+            }
         }
 
         await manager.prepareAudioSession()
@@ -89,6 +91,7 @@ final class AudioCollectionManagerTests: XCTestCase {
 
         await fulfillment(of: [sinkExpectation], timeout: 1.0)
 
+        let receivedPayload = await payloadStore.get()
         XCTAssertNotNil(receivedPayload)
         XCTAssertEqual(processor.enqueueCallCount, 0)
 
@@ -107,6 +110,18 @@ final class AudioCollectionManagerTests: XCTestCase {
             channelData[index] = sample
         }
         return buffer
+    }
+}
+
+private actor ReceivedPayloadStore {
+    private var payload: Data?
+
+    func set(_ payload: Data) {
+        self.payload = payload
+    }
+
+    func get() -> Data? {
+        payload
     }
 }
 

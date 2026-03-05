@@ -20,7 +20,7 @@ final class AudioCollectionManager: ObservableObject {
 
     /// Shared audio engine for both capture and playback. Exposed so that
     /// AssistantPlaybackEngine can attach its player node to the same engine.
-    let sharedAudioEngine = AVAudioEngine()
+    let sharedAudioEngine: AVAudioEngine
 
     private let audioSessionClient: AudioSessionControlling
     private let observerCenter: NotificationObserving
@@ -43,22 +43,25 @@ final class AudioCollectionManager: ObservableObject {
     init(
         speechRMSThreshold: Float = 0.02,
         speechActivityDebounceMs: Int64 = 250,
-        audioSessionClient: AudioSessionControlling = SystemAudioSessionClient(),
-        observerCenter: NotificationObserving = SystemNotificationCenter(),
-        tapControllerFactory: (AVAudioEngine) -> AudioTapControlling = { engine in
-            EngineAudioTapController(engine: engine)
-        },
-        processor: AudioChunkProcessing = AudioChunkProcessor()
+        audioSessionClient: AudioSessionControlling? = nil,
+        observerCenter: NotificationObserving? = nil,
+        sharedAudioEngine: AVAudioEngine? = nil,
+        tapControllerFactory: ((AVAudioEngine) -> AudioTapControlling)? = nil,
+        processor: AudioChunkProcessing? = nil
     ) {
         self.speechRMSActivityThreshold = speechRMSThreshold
         self.speechActivityDebounceMs = speechActivityDebounceMs
-        self.audioSessionClient = audioSessionClient
-        self.observerCenter = observerCenter
-        self.tapController = tapControllerFactory(sharedAudioEngine)
-        self.processor = processor
-        interruptionObserver = observerCenter.addObserver(
+        self.audioSessionClient = audioSessionClient ?? SystemAudioSessionClient()
+        self.observerCenter = observerCenter ?? SystemNotificationCenter()
+        self.sharedAudioEngine = sharedAudioEngine ?? AVAudioEngine()
+        let resolvedTapFactory = tapControllerFactory ?? { engine in
+            EngineAudioTapController(engine: engine)
+        }
+        self.tapController = resolvedTapFactory(self.sharedAudioEngine)
+        self.processor = processor ?? AudioChunkProcessor()
+        interruptionObserver = self.observerCenter.addObserver(
             forName: AVAudioSession.interruptionNotification,
-            object: audioSessionClient.notificationObject,
+            object: self.audioSessionClient.notificationObject,
             queue: .main
         ) { [weak self] notification in
             let interruptionType = Self.interruptionType(from: notification)
@@ -69,11 +72,13 @@ final class AudioCollectionManager: ObservableObject {
     }
 
     deinit {
-        if let routeObserver {
-            observerCenter.removeObserver(routeObserver)
-        }
-        if let interruptionObserver {
-            observerCenter.removeObserver(interruptionObserver)
+        MainActor.assumeIsolated {
+            if let routeObserver {
+                observerCenter.removeObserver(routeObserver)
+            }
+            if let interruptionObserver {
+                observerCenter.removeObserver(interruptionObserver)
+            }
         }
     }
 
@@ -657,8 +662,8 @@ protocol AudioSessionControlling {
 private final class SystemAudioSessionClient: AudioSessionControlling {
     private let session: AVAudioSession
 
-    init(session: AVAudioSession = .sharedInstance()) {
-        self.session = session
+    init(session: AVAudioSession? = nil) {
+        self.session = session ?? .sharedInstance()
     }
 
     var notificationObject: AnyObject? {
@@ -701,8 +706,8 @@ protocol NotificationObserving {
 private final class SystemNotificationCenter: NotificationObserving {
     private let center: NotificationCenter
 
-    init(center: NotificationCenter = .default) {
-        self.center = center
+    init(center: NotificationCenter? = nil) {
+        self.center = center ?? .default
     }
 
     func addObserver(
