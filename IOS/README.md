@@ -125,6 +125,13 @@ PortWorld/
 
 - [meta-wearables-dat-ios](https://github.com/facebook/meta-wearables-dat-ios) v0.4.0 — Meta Wearables Device Access Toolkit
 
+### Debug Mock Device Testing
+
+- Available in **Debug builds only**.
+- Uses the **DAT Mock Device Kit** for local wearable simulation.
+- The default simulated media feed and capture image are generated in-app.
+- For no-glasses local validation, query audio capture uses the iPhone microphone and assistant playback uses the iPhone speaker.
+
 ## User Flow
 
 ```

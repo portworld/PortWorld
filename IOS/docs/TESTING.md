@@ -84,6 +84,19 @@ Snapshots are stored in `PortWorldTests/__Snapshots__/`. Committed to source. Re
 
 Run on a physical iPhone (16 Pro or similar) with Meta Ray-Ban Gen 2 glasses paired and a local backend running.
 
+### Debug Mock-Device iPhone Validation (No Glasses)
+
+Use this flow only in a Debug build when validating DAT integration without physical glasses.
+
+| Step | Expected |
+| --- | --- |
+| Enable Mock Device mode in app debug settings | App switches to mock DAT source |
+| Activate runtime | Session transitions to active without requiring glasses pairing |
+| Observe live stream surface | Simulated video frame appears on iPhone |
+| Trigger photo capture | Photo capture succeeds and preview renders |
+| Run one query cycle (speak + wait response) | Query audio is captured from iPhone mic and assistant playback is heard on iPhone speaker |
+| Disable Mock Device mode | App returns to normal glasses-based flow |
+
 ### T1 — Fresh Install Registration
 
 | Step                                           | Expected                                                          |
