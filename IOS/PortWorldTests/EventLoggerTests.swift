@@ -5,12 +5,14 @@ final class EventLoggerTests: XCTestCase {
   private var managedLoggers: [EventLogger] = []
   private var tempLogDirectories: [URL] = []
 
-  override func tearDown() {
-    managedLoggers.forEach { $0.flushDiskWritesForTesting() }
+  override func tearDown() async throws {
+    for logger in managedLoggers {
+      await logger.flushDiskWritesForTesting()
+    }
     managedLoggers.removeAll()
     tempLogDirectories.forEach(removeDirectory)
     tempLogDirectories.removeAll()
-    super.tearDown()
+    try await super.tearDown()
   }
 
   // MARK: - Sink emission
@@ -267,12 +269,12 @@ final class EventLoggerTests: XCTestCase {
 
   // MARK: - Disk persistence
 
-  func testLogPersistsJsonlToDisk() throws {
+  func testLogPersistsJsonlToDisk() async throws {
     let logger = makeLogger(sink: { _ in })
     let logsDirectory = currentManagedLogsDirectory()
 
     logger.log(name: "disk.event", sessionID: "sess_disk", tsMs: 123)
-    logger.flushDiskWritesForTesting()
+    await logger.flushDiskWritesForTesting()
 
     let currentLogURL = logsDirectory.appendingPathComponent("events-1.jsonl")
     let lines = try readLines(from: currentLogURL)
@@ -290,7 +292,7 @@ final class EventLoggerTests: XCTestCase {
     XCTAssertEqual(json["ts_ms"] as? Int, 123)
   }
 
-  func testDiskRotationKeepsThreeFiles() throws {
+  func testDiskRotationKeepsThreeFiles() async throws {
     let logger = makeLogger(
       sink: { _ in },
       maxLogFileBytes: 120,
@@ -305,7 +307,7 @@ final class EventLoggerTests: XCTestCase {
         fields: ["payload": .string(String(repeating: "x", count: 80))]
       )
     }
-    logger.flushDiskWritesForTesting()
+    await logger.flushDiskWritesForTesting()
 
     let events1 = logsDirectory.appendingPathComponent("events-1.jsonl")
     let events2 = logsDirectory.appendingPathComponent("events-2.jsonl")
@@ -321,11 +323,11 @@ final class EventLoggerTests: XCTestCase {
     XCTAssertTrue(mostRecent.contains("rotation_7"))
   }
 
-  func testExportCurrentLogReturnsCurrentLogURL() throws {
+  func testExportCurrentLogReturnsCurrentLogURL() async throws {
     let logger = makeLogger(sink: { _ in })
 
     logger.log(name: "exported.event", sessionID: "sess_export")
-    logger.flushDiskWritesForTesting()
+    await logger.flushDiskWritesForTesting()
 
     let exportedURL = logger.exportCurrentLog()
     XCTAssertEqual(exportedURL.lastPathComponent, "events-1.jsonl")

@@ -91,8 +91,8 @@ public final class EventLogger: EventLoggerProtocol {
     events.removeAll(keepingCapacity: false)
   }
 
-  func flushDiskWritesForTesting() {
-    diskStore.flushPendingWrites()
+  func flushDiskWritesForTesting() async {
+    await diskStore.flushPendingWrites()
   }
 }
 
@@ -138,27 +138,19 @@ fileprivate struct EventLogDiskStore {
       ensureFileExists(at: currentURL)
       return currentURL
     }
-
-    let group = DispatchGroup()
-    group.enter()
-    ioQueue.async {
-      self.ensureLogsDirectoryExists()
-      self.ensureFileExists(at: currentURL)
-      group.leave()
-    }
-    group.wait()
+    // Avoid blocking high-priority callers on the utility queue.
+    ensureLogsDirectoryExists()
+    ensureFileExists(at: currentURL)
     return currentURL
   }
 
-  func flushPendingWrites() {
+  func flushPendingWrites() async {
     if isOnIOQueue() { return }
-
-    let group = DispatchGroup()
-    group.enter()
-    ioQueue.async {
-      group.leave()
+    await withCheckedContinuation { continuation in
+      ioQueue.async {
+        continuation.resume()
+      }
     }
-    group.wait()
   }
 
   private func appendLine(_ line: String) {
