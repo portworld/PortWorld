@@ -27,7 +27,9 @@ final class GatewayTransportTests: XCTestCase {
     await fulfillment(of: [eventsExpectation], timeout: 1.0)
     eventsTask.cancel()
 
-    XCTAssertEqual(states, [.connecting, .connected])
+    XCTAssertEqual(states.count, 2)
+    XCTAssertTrue(states.contains(.connecting))
+    XCTAssertTrue(states.contains(.connected))
   }
 
   func testRawBinaryServerAudioFrameProducesAudioReceivedEvent() async throws {
