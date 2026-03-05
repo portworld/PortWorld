@@ -22,6 +22,7 @@ cp .env.example .env
 `OPENAI_API_KEY` is required to activate realtime streaming (`session.activate`).
 `OPENAI_REALTIME_ENABLE_MANUAL_TURN_FALLBACK=true` enables a backend fallback that sends
 `input_audio_buffer.commit` + `response.create` when VAD does not start a response.
+`OPENAI_DEBUG_DUMP_INPUT_AUDIO=true` stores raw incoming iOS PCM as `.wav` files for debugging.
 
 ### TLS certificate trust (macOS)
 
@@ -68,6 +69,17 @@ async def main():
 asyncio.run(main())
 PY
 ```
+
+## Audio input dump (debug)
+
+To verify iOS audio reaches backend, enable:
+
+```bash
+OPENAI_DEBUG_DUMP_INPUT_AUDIO=true
+OPENAI_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/debug_audio
+```
+
+Each session writes a `24kHz/mono/int16` WAV file in the configured directory.
 
 ## Endpoints
 

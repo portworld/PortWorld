@@ -4,6 +4,9 @@ import asyncio
 import base64
 import contextlib
 import logging
+import os
+import time
+import wave
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -32,6 +35,8 @@ class IOSRealtimeBridge:
         send_binary_frame: BinarySender,
         manual_turn_fallback_enabled: bool = True,
         manual_turn_fallback_delay_ms: int = 900,
+        dump_input_audio_enabled: bool = False,
+        dump_input_audio_dir: str = "backend/debug_audio",
     ) -> None:
         self._session_id = session_id
         self._upstream_client = upstream_client
@@ -45,10 +50,13 @@ class IOSRealtimeBridge:
         self._manual_turn_fallback_delay_s = (
             max(100, manual_turn_fallback_delay_ms) / 1000.0
         )
-        self._manual_turn_fallback_task: asyncio.Task[None] | None = None
         self._current_turn_audio_seen = False
         self._current_turn_response_started = False
         self._manual_response_sent_for_turn = False
+        self._current_turn_started_at_monotonic: float | None = None
+        self._dump_input_audio_enabled = dump_input_audio_enabled
+        self._dump_input_audio_dir = dump_input_audio_dir
+        self._input_audio_dump_writer: wave.Wave_write | None = None
         self._closed = False
 
     async def connect_and_start(self) -> None:
@@ -73,8 +81,11 @@ class IOSRealtimeBridge:
                 "audio": base64.b64encode(payload_bytes).decode("ascii"),
             }
         )
+        self._append_input_audio_dump(payload_bytes)
         self._current_turn_audio_seen = True
-        self._schedule_manual_turn_finalize()
+        if self._current_turn_started_at_monotonic is None:
+            self._current_turn_started_at_monotonic = time.monotonic()
+        await self._finalize_turn_if_needed(reason="continuous_uplink_timeout")
 
     async def close(self) -> None:
         if self._closed:
@@ -87,8 +98,7 @@ class IOSRealtimeBridge:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        self._cancel_manual_turn_finalize_task()
-
+        self._close_input_audio_dump_writer()
         with contextlib.suppress(RealtimeClientError):
             await self._upstream_client.close()
 
@@ -123,7 +133,6 @@ class IOSRealtimeBridge:
 
         if event_type == "response.output_audio.delta":
             self._current_turn_response_started = True
-            self._cancel_manual_turn_finalize_task()
             await self._on_audio_delta(event)
             return
 
@@ -139,14 +148,12 @@ class IOSRealtimeBridge:
 
         if event_type == "input_audio_buffer.speech_stopped":
             logger.info("Upstream VAD speech_stopped session=%s", self._session_id)
-            self._cancel_manual_turn_finalize_task()
             await self._finalize_turn_if_needed(reason="speech_stopped")
             return
 
         if event_type == "response.created":
             logger.info("Upstream response.created session=%s", self._session_id)
             self._current_turn_response_started = True
-            self._cancel_manual_turn_finalize_task()
             return
 
         if event_type == "session.created":
@@ -344,30 +351,6 @@ class IOSRealtimeBridge:
 
         return None
 
-    def _schedule_manual_turn_finalize(self) -> None:
-        if not self._manual_turn_fallback_enabled:
-            return
-
-        self._cancel_manual_turn_finalize_task()
-        self._manual_turn_fallback_task = asyncio.create_task(
-            self._run_manual_turn_finalize_timer(),
-            name=f"manual_turn_finalize:{self._session_id}",
-        )
-
-    def _cancel_manual_turn_finalize_task(self) -> None:
-        task = self._manual_turn_fallback_task
-        self._manual_turn_fallback_task = None
-        if task is None:
-            return
-        task.cancel()
-
-    async def _run_manual_turn_finalize_timer(self) -> None:
-        try:
-            await asyncio.sleep(self._manual_turn_fallback_delay_s)
-            await self._finalize_turn_if_needed(reason="idle_timeout")
-        except asyncio.CancelledError:
-            return
-
     async def _finalize_turn_if_needed(self, *, reason: str) -> None:
         if not self._manual_turn_fallback_enabled:
             return
@@ -377,6 +360,12 @@ class IOSRealtimeBridge:
             return
         if self._manual_response_sent_for_turn:
             return
+        if reason == "continuous_uplink_timeout":
+            if self._current_turn_started_at_monotonic is None:
+                return
+            elapsed = time.monotonic() - self._current_turn_started_at_monotonic
+            if elapsed < self._manual_turn_fallback_delay_s:
+                return
 
         self._manual_response_sent_for_turn = True
         logger.info(
@@ -391,4 +380,65 @@ class IOSRealtimeBridge:
         self._current_turn_audio_seen = False
         self._current_turn_response_started = False
         self._manual_response_sent_for_turn = False
-        self._cancel_manual_turn_finalize_task()
+        self._current_turn_started_at_monotonic = None
+
+    def _append_input_audio_dump(self, payload_bytes: bytes) -> None:
+        if not self._dump_input_audio_enabled:
+            return
+        if not payload_bytes:
+            return
+
+        writer = self._input_audio_dump_writer
+        if writer is None:
+            writer = self._create_input_audio_dump_writer()
+            if writer is None:
+                return
+            self._input_audio_dump_writer = writer
+
+        try:
+            writer.writeframes(payload_bytes)
+        except Exception as exc:
+            logger.warning(
+                "Failed writing input audio dump session=%s: %s",
+                self._session_id,
+                exc,
+            )
+
+    def _create_input_audio_dump_writer(self) -> wave.Wave_write | None:
+        try:
+            os.makedirs(self._dump_input_audio_dir, exist_ok=True)
+            file_path = os.path.join(
+                self._dump_input_audio_dir,
+                f"{self._session_id}_{now_ms()}.wav",
+            )
+            writer = wave.open(file_path, "wb")
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(24_000)
+            logger.info(
+                "Input audio dump enabled session=%s path=%s",
+                self._session_id,
+                file_path,
+            )
+            return writer
+        except Exception as exc:
+            logger.warning(
+                "Failed creating input audio dump writer session=%s: %s",
+                self._session_id,
+                exc,
+            )
+            return None
+
+    def _close_input_audio_dump_writer(self) -> None:
+        writer = self._input_audio_dump_writer
+        self._input_audio_dump_writer = None
+        if writer is None:
+            return
+        try:
+            writer.close()
+        except Exception as exc:
+            logger.warning(
+                "Failed closing input audio dump writer session=%s: %s",
+                self._session_id,
+                exc,
+            )

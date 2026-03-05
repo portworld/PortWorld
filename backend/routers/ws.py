@@ -188,6 +188,8 @@ async def ws_session(websocket: WebSocket) -> None:
                     send_binary_frame=send_server_audio,
                     manual_turn_fallback_enabled=settings.openai_realtime_enable_manual_turn_fallback,
                     manual_turn_fallback_delay_ms=settings.openai_realtime_manual_turn_fallback_delay_ms,
+                    dump_input_audio_enabled=settings.openai_debug_dump_input_audio,
+                    dump_input_audio_dir=settings.openai_debug_dump_input_audio_dir,
                 )
                 record = await session_registry.register(
                     session_id=envelope.session_id,

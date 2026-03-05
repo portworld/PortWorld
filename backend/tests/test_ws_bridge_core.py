@@ -261,6 +261,7 @@ def test_manual_turn_fallback_idle_timeout_triggers_once() -> None:
 
     _run(bridge.append_client_audio(b"\x01\x02"))
     _run(_sleep(0.03))
+    _run(bridge.append_client_audio(b"\x03\x04"))
 
     assert [event["type"] for event in upstream.sent_events] == [
         "input_audio_buffer.append",

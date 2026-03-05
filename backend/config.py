@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
+_BACKEND_ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=_BACKEND_ENV_PATH)
 load_dotenv()
 
 
@@ -32,6 +35,8 @@ class Settings:
     openai_realtime_include_turn_detection: bool
     openai_realtime_enable_manual_turn_fallback: bool
     openai_realtime_manual_turn_fallback_delay_ms: int
+    openai_debug_dump_input_audio: bool
+    openai_debug_dump_input_audio_dir: str
     host: str
     port: int
     log_level: str
@@ -60,6 +65,14 @@ class Settings:
             openai_realtime_manual_turn_fallback_delay_ms=max(
                 100,
                 int(os.getenv("OPENAI_REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS", "900")),
+            ),
+            openai_debug_dump_input_audio=_parse_bool_env(
+                "OPENAI_DEBUG_DUMP_INPUT_AUDIO",
+                default=False,
+            ),
+            openai_debug_dump_input_audio_dir=os.getenv(
+                "OPENAI_DEBUG_DUMP_INPUT_AUDIO_DIR",
+                "backend/debug_audio",
             ),
             host=os.getenv("HOST", "0.0.0.0"),
             port=int(os.getenv("PORT", "8080")),
