@@ -309,6 +309,128 @@ def test_ws_session_routes_audio_after_probe_on_same_connection(monkeypatch) -> 
         _wait_for_audio(FakeBridge.created[0], payload)
 
 
+def test_ws_session_uses_configured_uplink_ack_cadence(monkeypatch) -> None:
+    FakeBridge.created = []
+    monkeypatch.setattr(ws_router, "OpenAIRealtimeClient", DummyRealtimeClient)
+    monkeypatch.setattr(ws_router, "IOSRealtimeBridge", FakeBridge)
+    monkeypatch.setattr(
+        ws_router,
+        "settings",
+        replace(
+            ws_router.settings,
+            openai_api_key="test-key",
+            openai_realtime_allow_text_audio_fallback=False,
+            openai_realtime_uplink_ack_every_n_frames=2,
+        ),
+    )
+
+    client = TestClient(app)
+    payload_1 = b"\x01\x02"
+    payload_2 = b"\x03\x04\x05"
+    activate = _make_envelope(
+        "session.activate",
+        "sess_ack_cadence",
+        {
+            "session": {"type": "realtime"},
+            "audio_format": {
+                "encoding": "pcm_s16le",
+                "channels": 1,
+                "sample_rate": 24_000,
+            },
+        },
+    )
+
+    with client.websocket_connect("/ws/session") as websocket:
+        websocket.send_text(activate)
+        websocket.receive_json()
+
+        websocket.send_bytes(encode_frame(CLIENT_AUDIO_FRAME_TYPE, 41, payload_1))
+        ack_1 = websocket.receive_json()
+        assert ack_1["type"] == "transport.uplink.ack"
+        assert ack_1["payload"] == {
+            "frames_received": 1,
+            "bytes_received": len(payload_1),
+            "probe_acknowledged": False,
+        }
+
+        websocket.send_bytes(encode_frame(CLIENT_AUDIO_FRAME_TYPE, 42, payload_2))
+        ack_2 = websocket.receive_json()
+        assert ack_2["type"] == "transport.uplink.ack"
+        assert ack_2["payload"] == {
+            "frames_received": 2,
+            "bytes_received": len(payload_1) + len(payload_2),
+            "probe_acknowledged": False,
+        }
+
+
+def test_ws_session_reactivate_deactivates_and_unregisters_prior_session(monkeypatch) -> None:
+    FakeBridge.created = []
+    monkeypatch.setattr(ws_router, "OpenAIRealtimeClient", DummyRealtimeClient)
+    monkeypatch.setattr(ws_router, "IOSRealtimeBridge", FakeBridge)
+    monkeypatch.setattr(
+        ws_router,
+        "settings",
+        replace(
+            ws_router.settings,
+            openai_api_key="test-key",
+            openai_realtime_allow_text_audio_fallback=False,
+        ),
+    )
+
+    client = TestClient(app)
+    activate_1 = _make_envelope(
+        "session.activate",
+        "sess_reactivate_1",
+        {
+            "session": {"type": "realtime"},
+            "audio_format": {
+                "encoding": "pcm_s16le",
+                "channels": 1,
+                "sample_rate": 24_000,
+            },
+        },
+    )
+    activate_2 = _make_envelope(
+        "session.activate",
+        "sess_reactivate_2",
+        {
+            "session": {"type": "realtime"},
+            "audio_format": {
+                "encoding": "pcm_s16le",
+                "channels": 1,
+                "sample_rate": 24_000,
+            },
+        },
+    )
+
+    with client.websocket_connect("/ws/session") as websocket:
+        websocket.send_text(activate_1)
+        first_active = websocket.receive_json()
+        assert first_active["type"] == "session.state"
+        assert first_active["payload"]["state"] == "active"
+        assert ws_router.session_registry.get("sess_reactivate_1") is not None
+        assert FakeBridge.created[0].closed is False
+
+        websocket.send_text(activate_2)
+        first_ended = websocket.receive_json()
+        assert first_ended["type"] == "session.state"
+        assert first_ended["session_id"] == "sess_reactivate_1"
+        assert first_ended["payload"]["state"] == "ended"
+
+        second_active = websocket.receive_json()
+        assert second_active["type"] == "session.state"
+        assert second_active["session_id"] == "sess_reactivate_2"
+        assert second_active["payload"]["state"] == "active"
+
+        assert FakeBridge.created[0].closed is True
+        assert ws_router.session_registry.get("sess_reactivate_1") is None
+        assert ws_router.session_registry.get("sess_reactivate_2") is not None
+
+    assert len(FakeBridge.created) == 2
+    assert FakeBridge.created[1].closed is True
+    assert ws_router.session_registry.get("sess_reactivate_2") is None
+
+
 def test_ws_session_acks_binary_audio_before_upstream_forward_failure(monkeypatch) -> None:
     FakeBridge.created = []
     monkeypatch.setattr(ws_router, "OpenAIRealtimeClient", DummyRealtimeClient)

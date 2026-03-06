@@ -36,6 +36,7 @@ class IOSRealtimeBridge:
         send_binary_frame: BinarySender,
         manual_turn_fallback_enabled: bool = True,
         manual_turn_fallback_delay_ms: int = 900,
+        client_audio_queue_maxsize: int = 32,
         dump_input_audio_enabled: bool = False,
         dump_input_audio_dir: str = "backend/debug_audio",
     ) -> None:
@@ -45,7 +46,15 @@ class IOSRealtimeBridge:
         self._send_binary_frame = send_binary_frame
 
         self._upstream_task: asyncio.Task[None] | None = None
+        self._client_audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue(
+            maxsize=max(1, client_audio_queue_maxsize)
+        )
+        self._client_audio_sender_task: asyncio.Task[None] | None = None
+        self._client_audio_sent_count = 0
+        self._client_audio_dropped_oldest_count = 0
+        self._client_audio_drop_log_step = 25
         self._started_response_ids: set[str] = set()
+        self._last_stopped_response_id: str | None = None
         self._current_response_id: str | None = None
         self._manual_turn_fallback_enabled = manual_turn_fallback_enabled
         self._manual_turn_fallback_delay_s = (
@@ -68,6 +77,7 @@ class IOSRealtimeBridge:
         self._session_ready_error = None
         self._session_ready_event.clear()
         await self._upstream_client.connect()
+        self._ensure_client_audio_sender_task()
         self._upstream_task = asyncio.create_task(
             self._run_upstream_loop(),
             name=f"upstream_loop:{self._session_id}",
@@ -83,12 +93,8 @@ class IOSRealtimeBridge:
             )
             return
 
-        await self._upstream_client.send_json(
-            {
-                "type": "input_audio_buffer.append",
-                "audio": base64.b64encode(payload_bytes).decode("ascii"),
-            }
-        )
+        self._ensure_client_audio_sender_task()
+        self._enqueue_client_audio(payload_bytes)
         self._append_input_audio_dump(payload_bytes)
         self._current_turn_audio_seen = True
         if self._current_turn_started_at_monotonic is None:
@@ -106,9 +112,110 @@ class IOSRealtimeBridge:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        await self._shutdown_client_audio_sender()
         self._close_input_audio_dump_writer()
         with contextlib.suppress(RealtimeClientError):
             await self._upstream_client.close()
+
+    def _ensure_client_audio_sender_task(self) -> None:
+        task = self._client_audio_sender_task
+        if task is not None and not task.done():
+            return
+
+        self._client_audio_sender_task = asyncio.create_task(
+            self._run_client_audio_sender_loop(),
+            name=f"client_audio_sender:{self._session_id}",
+        )
+
+    def _enqueue_client_audio(self, payload_bytes: bytes) -> None:
+        while True:
+            try:
+                self._client_audio_queue.put_nowait(payload_bytes)
+                return
+            except asyncio.QueueFull:
+                try:
+                    self._client_audio_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    logger.debug(
+                        "Client audio queue unexpectedly empty during overflow handling session=%s",
+                        self._session_id,
+                    )
+                    continue
+                else:
+                    self._client_audio_queue.task_done()
+
+                self._client_audio_dropped_oldest_count += 1
+                drop_count = self._client_audio_dropped_oldest_count
+                if (
+                    drop_count == 1
+                    or drop_count % self._client_audio_drop_log_step == 0
+                ):
+                    logger.warning(
+                        "Client audio queue overflow session=%s policy=drop_oldest dropped=%s queue_max=%s",
+                        self._session_id,
+                        drop_count,
+                        self._client_audio_queue.maxsize,
+                    )
+
+    async def _run_client_audio_sender_loop(self) -> None:
+        try:
+            while True:
+                payload_bytes = await self._client_audio_queue.get()
+                try:
+                    if payload_bytes is None:
+                        return
+                    await self._upstream_client.send_json(
+                        {
+                            "type": "input_audio_buffer.append",
+                            "audio": base64.b64encode(payload_bytes).decode("ascii"),
+                        }
+                    )
+                    self._client_audio_sent_count += 1
+                finally:
+                    self._client_audio_queue.task_done()
+        except asyncio.CancelledError:
+            raise
+        except RealtimeClientError as exc:
+            logger.warning(
+                "Client audio sender closed for %s: %s",
+                self._session_id,
+                exc,
+            )
+        except Exception:
+            logger.exception(
+                "Unexpected client audio sender failure for %s",
+                self._session_id,
+            )
+
+    async def _shutdown_client_audio_sender(self) -> None:
+        task = self._client_audio_sender_task
+        self._client_audio_sender_task = None
+        if task is None:
+            return
+
+        if not task.done():
+            enqueued_stop = False
+            while not enqueued_stop:
+                try:
+                    self._client_audio_queue.put_nowait(None)
+                    enqueued_stop = True
+                except asyncio.QueueFull:
+                    try:
+                        self._client_audio_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    else:
+                        self._client_audio_queue.task_done()
+                        self._client_audio_dropped_oldest_count += 1
+            try:
+                await asyncio.wait_for(task, timeout=1.0)
+            except asyncio.TimeoutError:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        else:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     async def _run_upstream_loop(self) -> None:
         try:
@@ -195,6 +302,8 @@ class IOSRealtimeBridge:
         response_id = self._resolve_response_id(event)
         if response_id not in self._started_response_ids:
             self._started_response_ids.add(response_id)
+            if self._last_stopped_response_id == response_id:
+                self._last_stopped_response_id = None
             await self._send_envelope(
                 "assistant.playback.control",
                 {"command": "start_response", "response_id": response_id},
@@ -224,9 +333,13 @@ class IOSRealtimeBridge:
         if response_id is None:
             return
 
+        if response_id == self._last_stopped_response_id:
+            return
+
         if response_id in self._started_response_ids:
             self._started_response_ids.remove(response_id)
 
+        self._last_stopped_response_id = response_id
         await self._send_envelope(
             "assistant.playback.control",
             {"command": "stop_response", "response_id": response_id},
@@ -274,7 +387,7 @@ class IOSRealtimeBridge:
                 message,
             )
 
-        retriable = bool(err_payload.get("retriable", True))
+        retriable = self._parse_retriable_flag(err_payload.get("retriable", True))
         self._mark_session_init_failed(code=code, message=message)
         await self._send_upstream_error(code=code, message=message, retriable=retriable)
 
@@ -420,14 +533,47 @@ class IOSRealtimeBridge:
             self._session_id,
             reason,
         )
+        await self._wait_for_client_audio_queue_drain()
         await self._upstream_client.send_json({"type": "input_audio_buffer.commit"})
         await self._upstream_client.send_json({"type": "response.create"})
+
+    async def _wait_for_client_audio_queue_drain(self) -> None:
+        task = self._client_audio_sender_task
+        if task is None or task.done():
+            return
+
+        try:
+            await asyncio.wait_for(self._client_audio_queue.join(), timeout=1.5)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Timed out draining client audio queue session=%s pending=%s",
+                self._session_id,
+                self._client_audio_queue.qsize(),
+            )
 
     def _reset_turn_state(self) -> None:
         self._current_turn_audio_seen = False
         self._current_turn_response_started = False
         self._manual_response_sent_for_turn = False
         self._current_turn_started_at_monotonic = None
+        self._current_response_id = None
+
+    @staticmethod
+    def _parse_retriable_flag(raw: Any) -> bool:
+        if isinstance(raw, bool):
+            return raw
+
+        if isinstance(raw, (int, float)):
+            return raw != 0
+
+        if isinstance(raw, str):
+            normalized = raw.strip().lower()
+            if normalized in {"false", "0", "no", "off", "f", "n"}:
+                return False
+            if normalized in {"true", "1", "yes", "on", "t", "y"}:
+                return True
+
+        return True
 
     def _append_input_audio_dump(self, payload_bytes: bytes) -> None:
         if not self._dump_input_audio_enabled:

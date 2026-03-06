@@ -39,10 +39,12 @@ async def ws_session(websocket: WebSocket) -> None:
 
     active_session: SessionRecord | None = None
     did_log_first_client_audio_frame = False
+    did_warn_text_audio_fallback_deprecated = False
     did_emit_uplink_ack = False
     uplink_ack_count = 0
     client_audio_frame_count = 0
     client_audio_total_bytes = 0
+    uplink_ack_every_n_frames = settings.openai_realtime_uplink_ack_every_n_frames
 
     async def send_control(
         message_type: str,
@@ -161,7 +163,7 @@ async def ws_session(websocket: WebSocket) -> None:
                         client_audio_total_bytes,
                         frame_ts_ms,
                     )
-                elif client_audio_frame_count % 100 == 0:
+                elif client_audio_frame_count % uplink_ack_every_n_frames == 0:
                     logger.warning(
                         "Client audio frame count connection_id=%s session=%s frames=%s total_bytes=%s ts_ms=%s",
                         connection_id,
@@ -171,7 +173,10 @@ async def ws_session(websocket: WebSocket) -> None:
                         frame_ts_ms,
                     )
 
-                if client_audio_frame_count == 1 or client_audio_frame_count % 100 == 0:
+                if (
+                    client_audio_frame_count == 1
+                    or client_audio_frame_count % uplink_ack_every_n_frames == 0
+                ):
                     await send_control(
                         "transport.uplink.ack",
                         {
@@ -231,8 +236,9 @@ async def ws_session(websocket: WebSocket) -> None:
             )
             if envelope.type == "session.activate":
                 if active_session is not None:
-                    await _deactivate_session(
+                    await _deactivate_and_unregister_session(
                         active_session=active_session,
+                        websocket=websocket,
                         send_control=send_control,
                     )
                     active_session = None
@@ -327,13 +333,10 @@ async def ws_session(websocket: WebSocket) -> None:
             if envelope.type == "session.deactivate":
                 if active_session is None:
                     continue
-                await _deactivate_session(
+                await _deactivate_and_unregister_session(
                     active_session=active_session,
-                    send_control=send_control,
-                )
-                await session_registry.unregister(
-                    active_session.session_id,
                     websocket=websocket,
+                    send_control=send_control,
                 )
                 active_session = None
                 continue
@@ -402,6 +405,14 @@ async def ws_session(websocket: WebSocket) -> None:
 
                 if not payload_bytes:
                     continue
+                if not did_warn_text_audio_fallback_deprecated:
+                    did_warn_text_audio_fallback_deprecated = True
+                    logger.warning(
+                        "Deprecated client.audio text/base64 fallback used connection_id=%s session=%s. "
+                        "Use binary websocket audio frames instead.",
+                        connection_id,
+                        active_session.session_id,
+                    )
 
                 client_audio_frame_count += 1
                 client_audio_total_bytes += len(payload_bytes)
@@ -414,7 +425,7 @@ async def ws_session(websocket: WebSocket) -> None:
                         len(payload_bytes),
                         client_audio_total_bytes,
                     )
-                elif client_audio_frame_count % 100 == 0:
+                elif client_audio_frame_count % uplink_ack_every_n_frames == 0:
                     logger.warning(
                         "Client audio frame count connection_id=%s session=%s frames=%s total_bytes=%s mode=text_base64",
                         connection_id,
@@ -423,7 +434,10 @@ async def ws_session(websocket: WebSocket) -> None:
                         client_audio_total_bytes,
                     )
 
-                if client_audio_frame_count == 1 or client_audio_frame_count % 100 == 0:
+                if (
+                    client_audio_frame_count == 1
+                    or client_audio_frame_count % uplink_ack_every_n_frames == 0
+                ):
                     await send_control(
                         "transport.uplink.ack",
                         {
@@ -486,10 +500,11 @@ async def ws_session(websocket: WebSocket) -> None:
         logger.info("WebSocket disconnected")
     finally:
         if active_session is not None:
-            await active_session.bridge.close()
-            await session_registry.unregister(
-                active_session.session_id,
+            await _deactivate_and_unregister_session(
+                active_session=active_session,
                 websocket=websocket,
+                send_control=send_control,
+                emit_session_state=False,
             )
 
 
@@ -567,6 +582,26 @@ async def _deactivate_session(
         target=active_session,
     )
     await active_session.bridge.close()
+
+
+async def _deactivate_and_unregister_session(
+    *,
+    active_session: SessionRecord,
+    websocket: WebSocket,
+    send_control: Callable[..., Awaitable[None]],
+    emit_session_state: bool = True,
+) -> None:
+    if emit_session_state:
+        await _deactivate_session(
+            active_session=active_session,
+            send_control=send_control,
+        )
+    else:
+        await active_session.bridge.close()
+    await session_registry.unregister(
+        active_session.session_id,
+        websocket=websocket,
+    )
 
 
 def _trace_ws_message(

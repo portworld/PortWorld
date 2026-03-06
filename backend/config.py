@@ -26,6 +26,21 @@ def _parse_bool_env(name: str, *, default: bool) -> bool:
     return default
 
 
+def _parse_int_env(name: str, *, default: int, minimum: int | None = None) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        value = default
+    else:
+        try:
+            value = int(raw.strip())
+        except ValueError:
+            value = default
+
+    if minimum is not None and value < minimum:
+        return minimum
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     openai_api_key: str | None
@@ -35,6 +50,7 @@ class Settings:
     openai_realtime_include_turn_detection: bool
     openai_realtime_enable_manual_turn_fallback: bool
     openai_realtime_allow_text_audio_fallback: bool
+    openai_realtime_uplink_ack_every_n_frames: int
     openai_realtime_manual_turn_fallback_delay_ms: int
     openai_debug_dump_input_audio: bool
     openai_debug_dump_input_audio_dir: str
@@ -68,9 +84,15 @@ class Settings:
                 "OPENAI_REALTIME_ALLOW_TEXT_AUDIO_FALLBACK",
                 default=False,
             ),
-            openai_realtime_manual_turn_fallback_delay_ms=max(
-                100,
-                int(os.getenv("OPENAI_REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS", "900")),
+            openai_realtime_uplink_ack_every_n_frames=_parse_int_env(
+                "OPENAI_REALTIME_UPLINK_ACK_EVERY_N_FRAMES",
+                default=20,
+                minimum=1,
+            ),
+            openai_realtime_manual_turn_fallback_delay_ms=_parse_int_env(
+                "OPENAI_REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS",
+                default=900,
+                minimum=100,
             ),
             openai_debug_dump_input_audio=_parse_bool_env(
                 "OPENAI_DEBUG_DUMP_INPUT_AUDIO",
@@ -85,7 +107,7 @@ class Settings:
                 default=False,
             ),
             host=os.getenv("HOST", "0.0.0.0"),
-            port=int(os.getenv("PORT", "8080")),
+            port=_parse_int_env("PORT", default=8080),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             cors_origins=origins or ["*"],
         )
