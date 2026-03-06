@@ -929,9 +929,9 @@ Snapshots are committed to the repo and checked in CI.
 
 > **Prerequisite:** Phases 0–2 complete (clean codebase, DI, hardened runtime). Phases 3–5 can proceed in parallel.
 
-### Phase 6 status (2026-03-04)
+### Phase 6 status (2026-03-05)
 
-- ✅ **Phase 6 complete.**
+- ⚠️ **Phase 6 in stabilization.**
 - ✅ Added `RealtimeTransport` abstraction and transport domain types (`TransportConfig`, `TransportEvent`, `TransportControlMessage`, typed errors).
 - ✅ Implemented `GatewayTransport` using raw WebSocket text/binary paths with binary PCM framing (`type + timestamp + payload`).
 - ✅ Added sleep phrase support (`SON_SLEEP_PHRASE`) and wired sleep-word detection through `WakeWordEngine` to end active streaming sessions.
@@ -939,6 +939,7 @@ Snapshots are committed to the repo and checked in CI.
 - ✅ Updated `SessionOrchestrator` to drive wake→connect and sleep→disconnect streaming lifecycle, and consume transport events for playback/state.
 - ✅ Wired `RuntimeCoordinator` realtime PCM callback integration and updated session UI/store transport indicators and stream-duration display.
 - ✅ Added focused transport/streaming tests: frame codec, gateway transport mapping, orchestrator streaming flow, websocket network-availability behavior.
+- ⚠️ Current stabilization work reasserts binary audio as the canonical uplink contract, keeps text-audio fallback behind a backend debug flag, adds raw websocket receive tracing, aligns backend downlink format to 16kHz playback expectations, and now requires backend uplink acknowledgement plus short preroll buffering on iOS before flushing speech.
 - ⚠️ Build verification passes; `xcodebuild test` currently reports no test bundles configured for the active app scheme.
 
 ### P6-01 Define `RealtimeTransport` protocol and types
@@ -960,7 +961,7 @@ Define the protocol and supporting types as specified in ARCHITECTURE.md §14.3:
 2. Adds binary frame support per §14.4 (1-byte type + 8-byte LE timestamp + raw PCM).
 3. Routes text frames through existing JSON codec; binary frames through new audio path.
 4. Conforms to `RealtimeTransport`.
-5. Maps existing WS control messages (`session.state`, `assistant.playback.control`, `health.pong`, `error`) to `TransportEvent.controlReceived`.
+5. Maps existing WS control messages (`session.state`, `assistant.playback.control`, `transport.uplink.ack`, `health.pong`, `error`) to `TransportEvent.controlReceived`.
 
 ### P6-03 Add sleep word to `SFSpeechWakeWordEngine`
 
@@ -989,10 +990,12 @@ Define the protocol and supporting types as specified in ARCHITECTURE.md §14.3:
 2. Wake word triggers `transport.connect()` → enters `.streaming`.
 3. Sleep word triggers `transport.disconnect()` → enters `.disconnecting` → `.idle`.
 4. In `.streaming` state: forward `AudioCollectionManager` PCM to `transport.sendAudio()`.
-5. Consume `transport.events` async stream: route audio to `AssistantPlaybackEngine`, control messages to state updates.
-6. Remove `QueryEndpointDetector` usage in streaming path.
-7. Remove `QueryBundleBuilder` usage in streaming path.
-8. `VisionFrameUploader` continues operating independently (HTTP POST).
+5. Buffer a short preroll window while transport is connecting or waiting for `session.state=active`, then flush it once ready.
+6. Treat backend `transport.uplink.ack` as the confirmation signal that uplink audio is actually arriving server-side; reconnect once if audio is sent locally but never acknowledged.
+7. Consume `transport.events` async stream: route audio to `AssistantPlaybackEngine`, control messages to state updates.
+8. Remove `QueryEndpointDetector` usage in streaming path.
+9. Remove `QueryBundleBuilder` usage in streaming path.
+10. `VisionFrameUploader` continues operating independently (HTTP POST).
 
 ### P6-06 Wire transport into `RuntimeCoordinator`
 
@@ -1032,4 +1035,4 @@ Define the protocol and supporting types as specified in ARCHITECTURE.md §14.3:
 | Phase 3 | ✅ **Completed (2026-03-04).** Log persists to disk; keychain credential store; NWReachability wired; query bundle upload streamed; app metadata in health/query payloads; frame-drop telemetry integrated.                                                                     |
 | Phase 4 | Light + dark mode pass; all screens rebuilt per spec; `RuntimeStatusPanelView` hidden in release; hold-to-activate gesture; no debug UI visible to user                                                                                                                               |
 | Phase 5 | All active P5 suites exist and pass; legacy batch-orchestrator assumptions are marked superseded; `Runtime/` + `Audio/` line coverage > 70%                                                                                                                                           |
-| Phase 6 | ✅ **Completed (2026-03-04).** `RealtimeTransport` protocol and `GatewayTransport` are implemented; wake/sleep streaming lifecycle is wired end-to-end; audio tap forwards realtime PCM; `SessionOrchestrator` consumes transport events for playback/state; focused P6 transport/orchestrator tests were added. |
+| Phase 6 | ⚠️ **Stabilization in progress (2026-03-05).** Core streaming architecture is implemented, but transport contract repair, router-level websocket coverage, and backend/iOS format alignment are still being hardened before Phase 6 can be considered complete. |

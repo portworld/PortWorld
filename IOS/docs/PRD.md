@@ -153,21 +153,22 @@ Professionals needing hands-free AI guidance while their hands are occupied (plu
 | Type                    | Trigger                        |
 | ----------------------- | ------------------------------ |
 | `wakeword.detected`     | Wake trigger (manual or voice) |
-| `query.started`         | Query recording begins         |
-| `query.ended`           | VAD or force-end               |
-| `query.bundle.uploaded` | Upload confirmed               |
 | `health.stats`          | Every 10s                      |
 | `health.ping`           | Every 15s                      |
+| Binary frame `0x01`     | Realtime PCM uplink (`pcm_s16le`, mono, 24kHz) |
 
 **Inbound messages (server → client):**
 
 | Type                         | Action                                                 |
 | ---------------------------- | ------------------------------------------------------ |
-| `assistant.audio_chunk`      | PCM bytes → playback queue                             |
 | `assistant.playback.control` | `start_response` / `stop_response` / `cancel_response` |
 | `assistant.thinking`         | Haptic + HUD update                                    |
 | `session.state`              | Update session state display                           |
+| `transport.uplink.ack`       | Confirms backend receipt of client audio frames        |
 | `health.pong`                | Acknowledge ping                                       |
+| Binary frame `0x02`          | Realtime PCM downlink (`pcm_s16le`, mono, 16kHz)       |
+
+Legacy `query.*` websocket messages and `assistant.audio_chunk` payloads are batch-era contracts and are not the active Phase 6 realtime streaming path.
 
 ### HTTP: Vision Frame
 

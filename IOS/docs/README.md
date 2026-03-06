@@ -12,6 +12,7 @@ This directory holds the canonical, current documentation for the PortWorld iOS 
 | [PRD.md](PRD.md)                                 | Product requirements, functional requirements, transport contracts, failure modes, version roadmap   | Yes                              |
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Step-by-step refactoring plan, Phase 0–5, per-file instructions                                      | When implementing                |
 | [TESTING.md](TESTING.md)                         | Test strategy, unit test inventory, snapshot inventory, manual acceptance tests T1–T18, release gate | Before any release               |
+| [IOS_APP_REALTIME_REVIEW.md](IOS_APP_REALTIME_REVIEW.md) | Review of the current iOS app against the intended realtime wake -> stream -> converse -> sleep flow | When debugging realtime behavior |
 | [Wearables DAT SDK.md](Wearables%20DAT%20SDK.md) | Meta DAT SDK v0.4 reference: setup, session lifecycle, HFP audio, Mock Device Kit, API surface       | When touching DAT / glasses code |
 
 ---

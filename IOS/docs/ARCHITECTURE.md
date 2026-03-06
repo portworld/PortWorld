@@ -172,12 +172,15 @@ WebSocket Downlink
 
   assistant.playback.control  ─► cancel / stop / start response
   session.state               ─► SessionStateStore update
+  transport.uplink.ack        ─► confirm backend received uplink audio
   health.pong                 ─► acknowledged
 
 Health Emission (every 10s)
   SessionOrchestrator ─► WS send: health.stats
     { ws_latency_ms, audio_buffer_duration_ms, frame_drop_rate,
-      reconnect_attempts, app_version, device_model, os_version }
+      reconnect_attempts, realtime_uplink_confirmed,
+      realtime_audio_backend_confirmed_frames,
+      app_version, device_model, os_version }
 ```
 
 ---
@@ -465,7 +468,7 @@ Bluetooth HFP (AVAudioEngine inputTap)
        ├─► RMS speech-activity feedback (UI waveform)
        ├─► PCM frames → SFSpeechWakeWordEngine (local, always-on)
        └─► PCM frames → RealtimeTransport.sendAudio()
-              ─► WS binary frame: [1-byte type][8-byte ts_ms][raw PCM s16le 8kHz mono]
+              ─► WS binary frame: [1-byte type][8-byte ts_ms][raw PCM s16le 24kHz mono]
 
 RealtimeTransport.onAudioReceived()
   ─► WS binary frame → PCM s16le 16kHz mono
@@ -478,9 +481,9 @@ RealtimeTransport.onAudioReceived()
 
 | Decision            | Choice                                         | Rationale                                                           |
 | ------------------- | ---------------------------------------------- | ------------------------------------------------------------------- |
-| Audio input format  | Native rate from HFP (8kHz mono PCM s16le)     | Minimal on-device processing; server/provider resamples as needed   |
+| Audio input format  | 24kHz mono PCM s16le                           | Matches current `AudioCollectionManager` realtime conversion path   |
 | Audio output format | 16kHz mono PCM s16le (from server)             | Matches current `AssistantPlaybackEngine` pipeline                  |
-| WS framing          | Text for JSON control, binary for PCM audio    | Clean separation; ~33% bandwidth savings vs. base64                 |
+| WS framing          | Text for JSON control, binary for PCM audio    | Production contract; text-audio fallback is debug-only compatibility |
 | Session boundary    | Client-controlled (wake/sleep word, on-device) | Client owns session lifecycle; model doesn't unilaterally close     |
 | VAD ownership       | Server/provider handles turn-taking            | Client streams continuously within session; server decides turns    |
 | Video path          | Remains HTTP POST at 1fps (decoupled)          | Simpler, independent of audio stream; merge into WS later if needed |
@@ -525,7 +528,7 @@ struct TransportConfig {
 }
 
 struct AudioStreamFormat {
-    let sampleRate: Int      // 8000 (input) or 16000 (output)
+    let sampleRate: Int      // 24000 (input) or 16000 (output)
     let channels: Int        // 1 (mono)
     let encoding: String     // "pcm_s16le"
 }
@@ -560,6 +563,8 @@ Control messages remain JSON text frames using the existing envelope format:
 ```json
 {"type": "...", "session_id": "...", "seq": 0, "ts_ms": 0, "payload": {...}}
 ```
+
+`client.audio` JSON text envelopes may be accepted temporarily by the backend only when a debug compatibility flag is enabled. They are not the canonical production uplink path.
 
 ### 14.5 State Machine Evolution
 
