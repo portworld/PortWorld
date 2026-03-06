@@ -28,7 +28,7 @@ final class AudioCollectionManager: ObservableObject {
     private let processor: AudioChunkProcessing
     private let realtimePCMSinkRelay = RealtimePCMSinkRelay()
     private let chunkDurationMs = 500
-    private let realtimePCMChunkDurationMs = 100
+    private let realtimePCMChunkDurationMs = 40
     private let realtimePCMMaximumChunkBytes = 4080
     private let speechRMSActivityThreshold: Float
     private let speechActivityDebounceMs: Int64

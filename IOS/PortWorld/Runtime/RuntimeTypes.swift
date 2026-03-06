@@ -278,6 +278,13 @@ public struct HealthStatsPayload: Codable {
   public let realtimeAudioLastSendError: String?
   public let realtimeUplinkConfirmed: Bool
   public let realtimeUplinkAckLatencyMs: Int?
+  public let realtimeForceTextAudioFallback: Bool?
+  public let realtimeSocketConnectionID: Int?
+  public let realtimeSocketLastOutboundKind: String?
+  public let realtimeSocketLastOutboundBytes: Int?
+  public let realtimeSocketBinarySendAttempted: Int?
+  public let realtimeSocketBinarySendCompleted: Int?
+  public let realtimeSocketLastBinaryFirstByte: String?
   /// Number of full session restarts (deactivate+activate cycles).
   /// Unlike wsReconnectAttempts, this persists across session activations.
   public let sessionRestartCount: Int
@@ -314,6 +321,13 @@ public struct HealthStatsPayload: Codable {
     realtimeAudioLastSendError: String? = nil,
     realtimeUplinkConfirmed: Bool = false,
     realtimeUplinkAckLatencyMs: Int? = nil,
+    realtimeForceTextAudioFallback: Bool? = nil,
+    realtimeSocketConnectionID: Int? = nil,
+    realtimeSocketLastOutboundKind: String? = nil,
+    realtimeSocketLastOutboundBytes: Int? = nil,
+    realtimeSocketBinarySendAttempted: Int? = nil,
+    realtimeSocketBinarySendCompleted: Int? = nil,
+    realtimeSocketLastBinaryFirstByte: String? = nil,
     sessionRestartCount: Int,
     pendingPlaybackDurationMs: Int,
     playbackBackpressured: Bool,
@@ -345,6 +359,13 @@ public struct HealthStatsPayload: Codable {
     self.realtimeAudioLastSendError = realtimeAudioLastSendError
     self.realtimeUplinkConfirmed = realtimeUplinkConfirmed
     self.realtimeUplinkAckLatencyMs = realtimeUplinkAckLatencyMs
+    self.realtimeForceTextAudioFallback = realtimeForceTextAudioFallback
+    self.realtimeSocketConnectionID = realtimeSocketConnectionID
+    self.realtimeSocketLastOutboundKind = realtimeSocketLastOutboundKind
+    self.realtimeSocketLastOutboundBytes = realtimeSocketLastOutboundBytes
+    self.realtimeSocketBinarySendAttempted = realtimeSocketBinarySendAttempted
+    self.realtimeSocketBinarySendCompleted = realtimeSocketBinarySendCompleted
+    self.realtimeSocketLastBinaryFirstByte = realtimeSocketLastBinaryFirstByte
     self.sessionRestartCount = sessionRestartCount
     self.pendingPlaybackDurationMs = pendingPlaybackDurationMs
     self.playbackBackpressured = playbackBackpressured
@@ -378,6 +399,13 @@ public struct HealthStatsPayload: Codable {
     case realtimeAudioLastSendError = "realtime_audio_last_send_error"
     case realtimeUplinkConfirmed = "realtime_uplink_confirmed"
     case realtimeUplinkAckLatencyMs = "realtime_uplink_ack_latency_ms"
+    case realtimeForceTextAudioFallback = "realtime_force_text_audio_fallback"
+    case realtimeSocketConnectionID = "realtime_socket_connection_id"
+    case realtimeSocketLastOutboundKind = "realtime_socket_last_outbound_kind"
+    case realtimeSocketLastOutboundBytes = "realtime_socket_last_outbound_bytes"
+    case realtimeSocketBinarySendAttempted = "realtime_socket_binary_send_attempted"
+    case realtimeSocketBinarySendCompleted = "realtime_socket_binary_send_completed"
+    case realtimeSocketLastBinaryFirstByte = "realtime_socket_last_binary_first_byte"
     case sessionRestartCount = "session_restart_count"
     case pendingPlaybackDurationMs = "pending_playback_duration_ms"
     case playbackBackpressured = "playback_backpressured"
@@ -519,6 +547,7 @@ extension WSMessageEnvelope: Decodable where Payload: Decodable {}
 public enum WSOutboundType: String, Codable {
   case sessionActivate = "session.activate"
   case sessionDeactivate = "session.deactivate"
+  case sessionEndTurn = "session.end_turn"
   case wakewordDetected = "wakeword.detected"
   // Legacy batch-era query lifecycle events. Retained for compatibility and observability only.
   // In Phase 6 realtime streaming, these are not part of the active outbound transport contract.

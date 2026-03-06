@@ -429,6 +429,7 @@ final class SessionOrchestrator {
   private var transportEventsTask: Task<Void, Never>?
   private var transportState: TransportState = .disconnected
   private var wantsRealtimeStreaming = false
+  private var isRealtimeUplinkActive = false
   private var isTransportDisconnecting = false
   private var realtimeSessionReady = false
   private var realtimeServerSessionReady = false
@@ -621,7 +622,8 @@ final class SessionOrchestrator {
     snapshot.speechAuthorization = primaryWakeEngine.currentAuthorizationStatus().rawValue
     publishSnapshot()
     runtimeState = .foregroundActive
-    wantsRealtimeStreaming = false
+    wantsRealtimeStreaming = true
+    isRealtimeUplinkActive = false
     isTransportDisconnecting = false
     transportState = .disconnected
     realtimeSessionReady = false
@@ -656,6 +658,7 @@ final class SessionOrchestrator {
 
     startHealthLoop()
 
+    await connectRealtimeTransport(reason: "activate")
     await logEvent(name: "session.activate")
     await emitHealth(reason: "activate")
   }
@@ -665,6 +668,7 @@ final class SessionOrchestrator {
 
     await sendOutbound(type: .sessionDeactivate, payload: EmptyPayload())
     wantsRealtimeStreaming = false
+    isRealtimeUplinkActive = false
     isTransportDisconnecting = true
     realtimeSessionReady = false
     pendingSessionActivateForConnection = false
@@ -819,7 +823,7 @@ final class SessionOrchestrator {
   }
 
   func recordSpeechActivity(at timestampMs: Int64) {
-    guard isActivated, wantsRealtimeStreaming else { return }
+    guard isActivated, isRealtimeUplinkActive else { return }
     _ = timestampMs
   }
 
@@ -846,13 +850,14 @@ final class SessionOrchestrator {
 
   private func handleWakeDetected(_ event: WakeWordDetectionEvent) {
     guard isActivated else { return }
-    guard !wantsRealtimeStreaming else { return }
+    guard !isRealtimeUplinkActive else { return }
 
     // Cancel any in-flight playback from previous response to avoid queue buildup
     playbackEngine?.cancelResponse()
-    resetRealtimeUplinkState()
+    resetRealtimeUplinkTurnState()
     clearRealtimePrerollBuffer()
     lastRealtimePCMDeferralLogKey = ""
+    isRealtimeUplinkActive = true
 
     // Immediate audio feedback: single beep so the user knows wake word was heard
     playWakeChime()
@@ -861,7 +866,7 @@ final class SessionOrchestrator {
     snapshot.wakeCount += 1
     snapshot.queryID = "-"
     snapshot.queryState = .recording
-    snapshot.playbackState = "streaming_connecting"
+    snapshot.playbackState = transportState == .connected ? "streaming_waiting_ready" : "streaming_connecting"
     publishSnapshot()
 
     Task {
@@ -874,13 +879,12 @@ final class SessionOrchestrator {
           confidence: event.confidence.map(Double.init)
         )
       )
-      await connectRealtimeTransport(reason: "wake")
     }
   }
 
   private func handleSleepDetected(_ event: WakeWordDetectionEvent) async {
     guard isActivated else { return }
-    guard wantsRealtimeStreaming else { return }
+    guard isRealtimeUplinkActive else { return }
     guard let lastRealtimeConnectedAtMs else {
       await logEvent(
         name: "sleepword.ignored",
@@ -906,11 +910,22 @@ final class SessionOrchestrator {
       return
     }
 
-    snapshot.wakeState = .triggered
-    snapshot.playbackState = "disconnecting"
+    let didEndTurn = await sendOutbound(type: .sessionEndTurn, payload: EmptyPayload())
+    isRealtimeUplinkActive = false
+    resetRealtimeUplinkTurnState()
+    clearRealtimePrerollBuffer()
+    playbackEngine?.cancelResponse()
+    snapshot.queryState = .idle
+    snapshot.wakeState = .listening
+    snapshot.playbackState = transportState == .connected ? "standby_ready" : "standby_connecting"
     publishSnapshot()
-    await logEvent(name: "sleepword.detected", fields: ["phrase": .string(event.wakePhrase)])
-    await disconnectRealtimeTransport(reason: "sleep")
+    await logEvent(
+      name: "sleepword.detected",
+      fields: [
+        "phrase": .string(event.wakePhrase),
+        "did_end_turn": .bool(didEndTurn)
+      ]
+    )
   }
 
   private func startTransportEventsLoop() {
@@ -949,9 +964,9 @@ final class SessionOrchestrator {
     clearRealtimePrerollBufferIfStale()
     transportState = .connecting
     snapshot.sessionState = .connecting
-    snapshot.queryState = .recording
-    snapshot.wakeState = .triggered
-    snapshot.playbackState = "streaming_connecting"
+    snapshot.queryState = isRealtimeUplinkActive ? .recording : .idle
+    snapshot.wakeState = isRealtimeUplinkActive ? .triggered : .listening
+    snapshot.playbackState = isRealtimeUplinkActive ? "streaming_connecting" : "standby_connecting"
     publishSnapshot()
 
     let transportConfig = TransportConfig(
@@ -969,7 +984,7 @@ final class SessionOrchestrator {
       try await realtimeTransport.connect(config: transportConfig)
       await logEvent(name: "transport.connect", fields: ["reason": .string(reason)])
     } catch {
-      wantsRealtimeStreaming = false
+      isRealtimeUplinkActive = false
       transportState = .disconnected
       isTransportDisconnecting = false
       realtimeSessionReady = false
@@ -1078,15 +1093,15 @@ final class SessionOrchestrator {
           pendingSessionActivateForConnection = false
           if snapshot.sessionState != .failed {
             snapshot.sessionState = isActivated ? .active : .idle
-            snapshot.queryState = .idle
-            snapshot.wakeState = .listening
+            snapshot.queryState = isRealtimeUplinkActive ? .recording : .idle
+            snapshot.wakeState = isRealtimeUplinkActive ? .triggered : .listening
           }
-          snapshot.playbackState = "idle"
+          snapshot.playbackState = isRealtimeUplinkActive ? "streaming_connecting" : "idle"
         } else {
           pendingSessionActivateForConnection = true
           snapshot.sessionState = .reconnecting
           wsReconnectAttempts += 1
-          snapshot.playbackState = "streaming_reconnecting"
+          snapshot.playbackState = isRealtimeUplinkActive ? "streaming_reconnecting" : "standby_reconnecting"
         }
       case .connecting:
         realtimeSessionReady = false
@@ -1094,17 +1109,18 @@ final class SessionOrchestrator {
         cancelRealtimeUplinkAckWatchdog()
         resetRealtimeUplinkState(keepRecoveryAttempt: realtimeUplinkAckRecoveryAttempted)
         snapshot.sessionState = .connecting
-        snapshot.queryState = .recording
-        snapshot.playbackState = "streaming_connecting"
+        snapshot.queryState = isRealtimeUplinkActive ? .recording : .idle
+        snapshot.wakeState = isRealtimeUplinkActive ? .triggered : .listening
+        snapshot.playbackState = isRealtimeUplinkActive ? "streaming_connecting" : "standby_connecting"
       case .connected:
         realtimeSessionReady = false
         lastRealtimeConnectedAtMs = dependencies.clock()
         cancelRealtimeUplinkAckWatchdog()
         resetRealtimeUplinkState(keepRecoveryAttempt: realtimeUplinkAckRecoveryAttempted)
-        snapshot.sessionState = .streaming
-        snapshot.queryState = .recording
-        snapshot.wakeState = .triggered
-        snapshot.playbackState = "streaming_waiting_ready"
+        snapshot.sessionState = isRealtimeUplinkActive ? .streaming : .active
+        snapshot.queryState = isRealtimeUplinkActive ? .recording : .idle
+        snapshot.wakeState = isRealtimeUplinkActive ? .triggered : .listening
+        snapshot.playbackState = isRealtimeUplinkActive ? "streaming_waiting_ready" : "standby_ready"
         let didSendActivate = await sendSessionActivateForCurrentConnection()
         if didSendActivate {
           await replayBufferedOutboundMessages()
@@ -1116,7 +1132,9 @@ final class SessionOrchestrator {
         resetRealtimeUplinkState(keepRecoveryAttempt: realtimeUplinkAckRecoveryAttempted)
         snapshot.sessionState = .reconnecting
         wsReconnectAttempts += 1
-        snapshot.playbackState = "streaming_reconnecting"
+        snapshot.queryState = isRealtimeUplinkActive ? .recording : .idle
+        snapshot.wakeState = isRealtimeUplinkActive ? .triggered : .listening
+        snapshot.playbackState = isRealtimeUplinkActive ? "streaming_reconnecting" : "standby_reconnecting"
       }
       publishSnapshot()
     case .error(let error):
@@ -1127,7 +1145,7 @@ final class SessionOrchestrator {
       setError("Transport error: \(String(describing: error))")
       if !isTransportDisconnecting, wantsRealtimeStreaming {
         snapshot.sessionState = .reconnecting
-        snapshot.playbackState = "streaming_reconnecting"
+        snapshot.playbackState = isRealtimeUplinkActive ? "streaming_reconnecting" : "standby_reconnecting"
         publishSnapshot()
       }
     }
@@ -1155,8 +1173,10 @@ final class SessionOrchestrator {
       triggerThinkingHaptic()
     case "session.state":
       if let state = extractString(control.payload["state"]) {
-        let wasWaitingForReady = snapshot.playbackState == "streaming_waiting_ready"
-        snapshot.playbackState = "streaming.\(state)"
+        let wasWaitingForReady =
+          snapshot.playbackState == "streaming_waiting_ready" ||
+          snapshot.playbackState == "standby_ready"
+        snapshot.playbackState = isRealtimeUplinkActive ? "streaming.\(state)" : "standby.\(state)"
         let isReadyState = isRealtimeSessionReadyState(state)
         realtimeServerSessionReady = isReadyState
         realtimeSessionReady = false
@@ -1171,7 +1191,7 @@ final class SessionOrchestrator {
             markRealtimeSessionReadyAfterServerReady(wasWaitingForReady: wasWaitingForReady)
           }
         } else if transportState == .connected {
-          snapshot.playbackState = "streaming_waiting_ready"
+          snapshot.playbackState = isRealtimeUplinkActive ? "streaming_waiting_ready" : "standby_ready"
         }
       } else {
         debugLog("Realtime session state payload missing string 'state' field")
@@ -1212,7 +1232,11 @@ final class SessionOrchestrator {
             )
           }
         }
-        if snapshot.playbackState == "streaming_waiting_ready" || snapshot.playbackState == "streaming_ready" || snapshot.playbackState == "streaming_probing_uplink" {
+        if
+          snapshot.playbackState == "streaming_waiting_ready" ||
+          snapshot.playbackState == "streaming_ready" ||
+          snapshot.playbackState == "streaming_probing_uplink"
+        {
           snapshot.playbackState = "streaming_uplink_confirmed"
           publishSnapshot()
         }
@@ -1267,7 +1291,7 @@ final class SessionOrchestrator {
       logRealtimePCMDeferralOnce("session_not_activated")
       return
     }
-    guard wantsRealtimeStreaming else {
+    guard isRealtimeUplinkActive else {
       logRealtimePCMDeferralOnce("streaming_not_requested")
       return
     }
@@ -1398,7 +1422,7 @@ final class SessionOrchestrator {
     }
     realtimeSessionReady = true
     if wasWaitingForReady || snapshot.playbackState == "streaming_probing_uplink" {
-      snapshot.playbackState = "streaming_ready"
+      snapshot.playbackState = isRealtimeUplinkActive ? "streaming_ready" : "standby_ready"
     }
     if flushBufferedFrames {
       flushBufferedRealtimePCMFramesIfReady()
@@ -1443,7 +1467,7 @@ final class SessionOrchestrator {
   }
 
   private func handleRealtimeAudioSendAttempt() {
-    guard wantsRealtimeStreaming, transportState == .connected, realtimeSessionReady else { return }
+    guard isRealtimeUplinkActive, transportState == .connected, realtimeSessionReady else { return }
     let nowMs = dependencies.clock()
     if realtimeFirstAudioSendAttemptAtMs == nil {
       realtimeFirstAudioSendAttemptAtMs = nowMs
@@ -1499,7 +1523,7 @@ final class SessionOrchestrator {
 
   private func handleRealtimeUplinkAckTimeoutIfNeeded() async {
     realtimeUplinkAckWatchdogTask = nil
-    guard wantsRealtimeStreaming, transportState == .connected, realtimeSessionReady else { return }
+    guard isRealtimeUplinkActive, transportState == .connected, realtimeSessionReady else { return }
     guard !realtimeUplinkConfirmed else { return }
     guard let firstAttemptAtMs = realtimeFirstAudioSendAttemptAtMs else { return }
 
@@ -1547,20 +1571,25 @@ final class SessionOrchestrator {
     await connectRealtimeTransport(reason: "uplink_ack_timeout")
   }
 
-  private func resetRealtimeUplinkState(keepRecoveryAttempt: Bool = false) {
+  private func resetRealtimeUplinkTurnState() {
     cancelRealtimeUplinkAckWatchdog()
     realtimeBackendConfirmedFrames = 0
     realtimeBackendConfirmedBytes = 0
     realtimeUplinkConfirmed = false
-    realtimeServerSessionReady = false
-    realtimeUplinkProbePending = false
-    realtimeUplinkProbeAcknowledged = false
-    realtimeDebugPayloadSweepSent = false
     realtimeFirstAudioSendAttemptAtMs = nil
     realtimeLastUplinkAckAtMs = nil
     realtimeUplinkTerminalFailureReported = false
     realtimeTransportSendSuccessLogCount = 0
     didEmitRealtimeWorkerPathMarker = false
+  }
+
+  private func resetRealtimeUplinkState(keepRecoveryAttempt: Bool = false) {
+    resetRealtimeUplinkTurnState()
+    realtimeServerSessionReady = false
+    realtimeUplinkProbePending = false
+    realtimeUplinkProbeAcknowledged = false
+    realtimeDebugPayloadSweepSent = false
+    realtimeSessionReady = false
     if !keepRecoveryAttempt {
       realtimeUplinkAckRecoveryAttempted = false
     }
@@ -1755,6 +1784,11 @@ final class SessionOrchestrator {
       0
     }
     let realtimeUplinkMetrics = realtimePCMUplinkWorker?.metricsSnapshot()
+    let socketDiagnostics: SessionWebSocketDiagnosticsSnapshot? = if let gatewayTransport = realtimeTransport as? GatewayTransport {
+      await gatewayTransport.diagnosticsSnapshot()
+    } else {
+      nil
+    }
     let realtimeAudioFrameDropCount = realtimePCMUplinkWorker?.consumeDroppedFrameCount() ?? 0
     let prerollFrameDropCount = realtimePrerollDroppedFrameCount
     realtimePrerollDroppedFrameCount = 0
@@ -1789,6 +1823,13 @@ final class SessionOrchestrator {
       realtimeAudioLastSendError: realtimeUplinkMetrics?.lastSendError,
       realtimeUplinkConfirmed: realtimeUplinkConfirmed,
       realtimeUplinkAckLatencyMs: realtimeUplinkAckLatencyMs,
+      realtimeForceTextAudioFallback: config.realtimeForceTextAudioFallback,
+      realtimeSocketConnectionID: socketDiagnostics?.connectionID,
+      realtimeSocketLastOutboundKind: socketDiagnostics?.lastOutboundKind,
+      realtimeSocketLastOutboundBytes: socketDiagnostics?.lastOutboundBytes,
+      realtimeSocketBinarySendAttempted: socketDiagnostics?.binarySendAttemptCount,
+      realtimeSocketBinarySendCompleted: socketDiagnostics?.binarySendSuccessCount,
+      realtimeSocketLastBinaryFirstByte: socketDiagnostics?.lastBinaryFirstByteHex,
       sessionRestartCount: sessionRestartCount,
       pendingPlaybackDurationMs: pendingDurationMs,
       playbackBackpressured: backpressured,
@@ -1820,6 +1861,13 @@ final class SessionOrchestrator {
       "realtime_audio_backend_confirmed_bytes": .number(Double(realtimeBackendConfirmedBytes)),
       "realtime_audio_send_failures": .number(Double(realtimeUplinkMetrics?.sendFailures ?? 0)),
       "realtime_uplink_confirmed": .bool(realtimeUplinkConfirmed),
+      "realtime_force_text_audio_fallback": .bool(config.realtimeForceTextAudioFallback),
+      "realtime_socket_connection_id": .number(Double(socketDiagnostics?.connectionID ?? 0)),
+      "realtime_socket_last_outbound_bytes": .number(Double(socketDiagnostics?.lastOutboundBytes ?? 0)),
+      "realtime_socket_last_outbound_kind": .string(socketDiagnostics?.lastOutboundKind ?? "none"),
+      "realtime_socket_binary_send_attempted": .number(Double(socketDiagnostics?.binarySendAttemptCount ?? 0)),
+      "realtime_socket_binary_send_completed": .number(Double(socketDiagnostics?.binarySendSuccessCount ?? 0)),
+      "realtime_socket_last_binary_first_byte": .string(socketDiagnostics?.lastBinaryFirstByteHex ?? "none"),
       "session_restart_count": .number(Double(sessionRestartCount)),
       "pending_playback_duration_ms": .number(Double(pendingDurationMs)),
       "playback_backpressured": .bool(backpressured),

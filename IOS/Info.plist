@@ -73,14 +73,10 @@
 	<real>1</real>
 	<key>SON_QUERY_PATH</key>
 	<string>/v1/query</string>
-	<key>SON_QUERY_URL</key>
-	<string></string>
 	<key>SON_SLEEP_PHRASE</key>
 	<string>goodbye mario</string>
 	<key>SON_VISION_PATH</key>
 	<string>/vision/frame</string>
-	<key>SON_VISION_URL</key>
-	<string></string>
 	<key>SON_WAKE_DETECTION_COOLDOWN_MS</key>
 	<integer>1500</integer>
 	<key>SON_WAKE_LOCALE</key>
@@ -91,8 +87,6 @@
 	<true/>
 	<key>SON_WS_PATH</key>
 	<string>/ws/session</string>
-	<key>SON_WS_URL</key>
-	<string></string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-peripheral</string>

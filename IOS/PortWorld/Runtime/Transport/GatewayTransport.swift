@@ -12,9 +12,11 @@ actor GatewayTransport: RealtimeTransport {
   private var outboundSequence = 0
   private var audioSendAttemptCount = 0
   private var audioSendCount = 0
+  private let forceTextAudioFallback: Bool
 
   init(webSocketClient: SessionWebSocketClientProtocol) {
     self.webSocketClient = webSocketClient
+    self.forceTextAudioFallback = false
 
     var continuation: AsyncStream<TransportEvent>.Continuation?
     self.events = AsyncStream { streamContinuation in
@@ -42,6 +44,7 @@ actor GatewayTransport: RealtimeTransport {
       onError: nil,
       eventLogger: nil
     )
+    self.forceTextAudioFallback = false
 
     var continuation: AsyncStream<TransportEvent>.Continuation?
     self.events = AsyncStream { streamContinuation in
@@ -64,6 +67,10 @@ actor GatewayTransport: RealtimeTransport {
       onMessage: nil,
       onError: nil,
       eventLogger: nil
+    )
+    self.forceTextAudioFallback = runtimeConfig.realtimeForceTextAudioFallback
+    self.logger.warning(
+      "gateway_transport_init force_text_audio_fallback=\(runtimeConfig.realtimeForceTextAudioFallback, privacy: .public)"
     )
 
     var continuation: AsyncStream<TransportEvent>.Continuation?
@@ -124,6 +131,29 @@ actor GatewayTransport: RealtimeTransport {
 
   func sendAudio(_ buffer: Data, timestampMs: Int64) async throws {
     audioSendAttemptCount += 1
+    if audioSendAttemptCount <= 10 || audioSendAttemptCount % 100 == 0 {
+      logger.warning(
+        "gateway_send_audio_enter attempts=\(self.audioSendAttemptCount, privacy: .public) payload_bytes=\(buffer.count, privacy: .public) timestamp_ms=\(timestampMs, privacy: .public)"
+      )
+    }
+    if forceTextAudioFallback {
+      try await sendControl(
+        TransportControlMessage(
+          type: "client.audio",
+          payload: [
+            "audio_b64": .string(buffer.base64EncodedString()),
+            "timestamp_ms": .number(Double(timestampMs))
+          ]
+        )
+      )
+      audioSendCount += 1
+      if audioSendCount <= 10 || audioSendCount % 100 == 0 {
+        logger.warning(
+          "sent_audio_frame sent=\(self.audioSendCount, privacy: .public) attempts=\(self.audioSendAttemptCount, privacy: .public) payload_bytes=\(buffer.count, privacy: .public) encoded_bytes=\(buffer.count, privacy: .public) timestamp_ms=\(timestampMs, privacy: .public) mode=text_base64_fallback"
+        )
+      }
+      return
+    }
     let encodedFrame = await MainActor.run {
       let frame = TransportBinaryFrame(
         frameType: .clientAudio,
@@ -144,7 +174,7 @@ actor GatewayTransport: RealtimeTransport {
       }
       try await sendRawData(encodedFrame)
       audioSendCount += 1
-      if audioSendCount == 1 || audioSendCount % 100 == 0 {
+      if audioSendCount <= 10 || audioSendCount % 100 == 0 {
         logger.warning(
           "sent_audio_frame sent=\(self.audioSendCount, privacy: .public) attempts=\(self.audioSendAttemptCount, privacy: .public) payload_bytes=\(buffer.count, privacy: .public) encoded_bytes=\(encodedFrame.count, privacy: .public) timestamp_ms=\(timestampMs, privacy: .public) mode=binary"
         )
@@ -200,6 +230,10 @@ actor GatewayTransport: RealtimeTransport {
     }
 
     try await sendRawText(text)
+  }
+
+  func diagnosticsSnapshot() async -> SessionWebSocketDiagnosticsSnapshot {
+    await webSocketClient.diagnosticsSnapshot()
   }
 
   private func handleRawMessage(_ rawMessage: SessionWebSocketRawMessage) async {

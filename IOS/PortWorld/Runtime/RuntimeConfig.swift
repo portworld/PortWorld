@@ -12,6 +12,7 @@ public struct RuntimeConfig {
   public let webSocketURL: URL
   public let visionFrameURL: URL
   public let realtimeDiagnosticsEnabled: Bool
+  public let realtimeForceTextAudioFallback: Bool
   /// Legacy batch `/query` endpoint retained for compatibility.
   /// In Phase 6 realtime mode this endpoint is inactive on the primary path.
   public let queryURL: URL
@@ -39,6 +40,7 @@ public struct RuntimeConfig {
     webSocketURL: URL,
     visionFrameURL: URL,
     realtimeDiagnosticsEnabled: Bool = false,
+    realtimeForceTextAudioFallback: Bool = false,
     queryURL: URL,
     apiKey: String = "",
     bearerToken: String = "",
@@ -60,6 +62,7 @@ public struct RuntimeConfig {
     self.webSocketURL = webSocketURL
     self.visionFrameURL = visionFrameURL
     self.realtimeDiagnosticsEnabled = realtimeDiagnosticsEnabled
+    self.realtimeForceTextAudioFallback = realtimeForceTextAudioFallback
     self.queryURL = queryURL
     self.apiKey = apiKey
     self.bearerToken = bearerToken
@@ -131,6 +134,7 @@ public struct RuntimeConfig {
       webSocketURL: explicitWSURL ?? deriveWebSocketURL(baseURL: backendBaseURL, path: wsPath),
       visionFrameURL: explicitVisionURL ?? appendPath(path: visionPath, to: backendBaseURL),
       realtimeDiagnosticsEnabled: resolveRealtimeDiagnosticsEnabled(bundle: bundle, userDefaults: userDefaults),
+      realtimeForceTextAudioFallback: resolveRealtimeForceTextAudioFallback(bundle: bundle, userDefaults: userDefaults),
       queryURL: explicitQueryURL ?? appendPath(path: queryPath, to: backendBaseURL),
       apiKey: resolveAPIKey(bundle: bundle, userDefaults: userDefaults),
       bearerToken: resolveString(infoPlistKey: "SON_BEARER_TOKEN", defaultValue: "", bundle: bundle),
@@ -228,6 +232,25 @@ public struct RuntimeConfig {
       return override
     }
     return resolveOptionalBool(infoPlistKey: "SON_REALTIME_DIAGNOSTICS_ENABLED", bundle: bundle) ?? false
+  }
+
+  private static func resolveRealtimeForceTextAudioFallback(bundle: Bundle, userDefaults: UserDefaults) -> Bool {
+    #if DEBUG
+    return true
+    #endif
+    if let override = resolveUserDefaultsBool(key: "portworld.realtimeForceTextAudioFallback", userDefaults: userDefaults) {
+      return override
+    }
+    if let envValue = ProcessInfo.processInfo.environment["SON_REALTIME_FORCE_TEXT_AUDIO_FALLBACK"] {
+      let normalized = envValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      if ["1", "true", "yes", "on"].contains(normalized) {
+        return true
+      }
+      if ["0", "false", "no", "off"].contains(normalized) {
+        return false
+      }
+    }
+    return resolveOptionalBool(infoPlistKey: "SON_REALTIME_FORCE_TEXT_AUDIO_FALLBACK", bundle: bundle) ?? false
   }
 
   private static func resolveWakePhrase(bundle: Bundle, userDefaults: UserDefaults) -> String {

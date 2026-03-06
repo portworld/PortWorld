@@ -17,6 +17,15 @@ enum SessionWebSocketRawMessage: Sendable {
   case binary(Data)
 }
 
+struct SessionWebSocketDiagnosticsSnapshot: Sendable, Equatable {
+  let connectionID: Int
+  let lastOutboundKind: String
+  let lastOutboundBytes: Int
+  let binarySendAttemptCount: Int
+  let binarySendSuccessCount: Int
+  let lastBinaryFirstByteHex: String
+}
+
 /// Actor-isolated transport contract for the websocket control plane.
 protocol SessionWebSocketClientProtocol: Actor {
   func bindHandlers(
@@ -32,6 +41,7 @@ protocol SessionWebSocketClientProtocol: Actor {
   func disconnect(closeCode: URLSessionWebSocketTask.CloseCode)
   func ensureConnected()
   func reconnectAttemptCount() -> Int
+  func diagnosticsSnapshot() -> SessionWebSocketDiagnosticsSnapshot
   func sendText(_ text: String) async throws
   func sendData(_ data: Data) async throws
   func send<Payload: Codable>(type: WSOutboundType, sessionID: String, payload: Payload) async throws
@@ -62,6 +72,17 @@ extension SessionWebSocketClientProtocol {
 
   func setNetworkAvailable(_ isAvailable: Bool) {
     // Default no-op preserves compatibility for clients that do not gate reconnects.
+  }
+
+  func diagnosticsSnapshot() -> SessionWebSocketDiagnosticsSnapshot {
+    SessionWebSocketDiagnosticsSnapshot(
+      connectionID: 0,
+      lastOutboundKind: "none",
+      lastOutboundBytes: 0,
+      binarySendAttemptCount: 0,
+      binarySendSuccessCount: 0,
+      lastBinaryFirstByteHex: "none"
+    )
   }
 }
 

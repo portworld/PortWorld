@@ -80,6 +80,11 @@ actor SessionWebSocketClient: SessionWebSocketClientProtocol {
   private var hasPublishedConnectedForSocket = false
   private var dataSendAttemptCount = 0
   private var dataSendSuccessCount = 0
+  private var binarySendAttemptCount = 0
+  private var binarySendSuccessCount = 0
+  private var lastBinaryFirstByteHex = "none"
+  private var lastOutboundKind = "none"
+  private var lastOutboundBytes = 0
   private var nextConnectionID = 0
   private var activeConnectionID = 0
   private var outboundSendQueue: [OutboundSendRequest] = []
@@ -119,6 +124,17 @@ actor SessionWebSocketClient: SessionWebSocketClientProtocol {
 
   public func reconnectAttemptCount() -> Int {
     reconnectAttempt
+  }
+
+  public func diagnosticsSnapshot() -> SessionWebSocketDiagnosticsSnapshot {
+    SessionWebSocketDiagnosticsSnapshot(
+      connectionID: activeConnectionID,
+      lastOutboundKind: lastOutboundKind,
+      lastOutboundBytes: lastOutboundBytes,
+      binarySendAttemptCount: binarySendAttemptCount,
+      binarySendSuccessCount: binarySendSuccessCount,
+      lastBinaryFirstByteHex: lastBinaryFirstByteHex
+    )
   }
 
   func setNetworkAvailable(_ isAvailable: Bool) {
@@ -463,7 +479,21 @@ actor SessionWebSocketClient: SessionWebSocketClientProtocol {
       case .text(let text):
         try await webSocketTask.send(.string(text))
       case .data(let data):
+        let firstByteHex = data.first.map { String(format: "0x%02x", $0) } ?? "none"
+        binarySendAttemptCount += 1
+        lastBinaryFirstByteHex = firstByteHex
+        if binarySendAttemptCount == 1 || binarySendAttemptCount % 100 == 0 {
+          logger.warning(
+            "ws_binary_send_start order=\(request.enqueueOrder, privacy: .public) kind=\(request.messageKind, privacy: .public) bytes=\(data.count, privacy: .public) first_byte=\(firstByteHex, privacy: .public) connection_id=\(request.connectionID, privacy: .public) task_state=\(self.describeTaskState(taskState), privacy: .public) binary_attempts=\(self.binarySendAttemptCount, privacy: .public) binary_completions=\(self.binarySendSuccessCount, privacy: .public)"
+          )
+        }
         try await webSocketTask.send(.data(data))
+        binarySendSuccessCount += 1
+        if binarySendSuccessCount == 1 || binarySendSuccessCount % 100 == 0 {
+          logger.warning(
+            "ws_binary_send_complete order=\(request.enqueueOrder, privacy: .public) kind=\(request.messageKind, privacy: .public) bytes=\(data.count, privacy: .public) first_byte=\(firstByteHex, privacy: .public) connection_id=\(request.connectionID, privacy: .public) binary_attempts=\(self.binarySendAttemptCount, privacy: .public) binary_completions=\(self.binarySendSuccessCount, privacy: .public)"
+          )
+        }
       case .ping:
         try await sendPing()
       }
@@ -520,6 +550,8 @@ actor SessionWebSocketClient: SessionWebSocketClientProtocol {
     _ request: OutboundSendRequest,
     taskState: URLSessionTask.State
   ) {
+    lastOutboundKind = request.messageKind
+    lastOutboundBytes = request.byteCount
     logger.debug(
       "outbound_send_complete order=\(request.enqueueOrder, privacy: .public) kind=\(request.messageKind, privacy: .public) bytes=\(request.byteCount, privacy: .public) connection_id=\(request.connectionID, privacy: .public) task_state=\(self.describeTaskState(taskState), privacy: .public)"
     )

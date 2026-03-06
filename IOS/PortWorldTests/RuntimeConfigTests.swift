@@ -31,6 +31,7 @@ final class RuntimeConfigTests: XCTestCase {
     XCTAssertEqual(config.webSocketURL.absoluteString, "ws://127.0.0.1:8080/ws/session")
     XCTAssertEqual(config.visionFrameURL.absoluteString, "http://127.0.0.1:8080/vision/frame")
     XCTAssertEqual(config.queryURL.absoluteString, "http://127.0.0.1:8080/v1/query")
+    XCTAssertFalse(config.realtimeDiagnosticsEnabled)
   }
 
   func testLoadDerivesWebSocketURLFromBackendBaseURLScheme() throws {
@@ -79,6 +80,38 @@ final class RuntimeConfigTests: XCTestCase {
 
     XCTAssertEqual(config.silenceTimeoutMs, 1_200)
     XCTAssertEqual(config.wakePhrase, "hey from defaults")
+  }
+
+  func testLoadRealtimeDiagnosticsDefaultsToFalse() throws {
+    let defaults = makeIsolatedDefaults()
+    let bundle = try makeBundle(infoPlist: [:])
+
+    let config = RuntimeConfig.load(from: bundle, userDefaults: defaults)
+
+    XCTAssertFalse(config.realtimeDiagnosticsEnabled)
+  }
+
+  func testLoadRealtimeDiagnosticsUsesInfoPlistValue() throws {
+    let defaults = makeIsolatedDefaults()
+    let bundle = try makeBundle(infoPlist: [
+      "SON_REALTIME_DIAGNOSTICS_ENABLED": true
+    ])
+
+    let config = RuntimeConfig.load(from: bundle, userDefaults: defaults)
+
+    XCTAssertTrue(config.realtimeDiagnosticsEnabled)
+  }
+
+  func testLoadRealtimeDiagnosticsUserDefaultsOverrideTakesPrecedence() throws {
+    let defaults = makeIsolatedDefaults()
+    defaults.set("false", forKey: "portworld.realtimeDiagnosticsEnabled")
+    let bundle = try makeBundle(infoPlist: [
+      "SON_REALTIME_DIAGNOSTICS_ENABLED": true
+    ])
+
+    let config = RuntimeConfig.load(from: bundle, userDefaults: defaults)
+
+    XCTAssertFalse(config.realtimeDiagnosticsEnabled)
   }
 
   func testLoadFallsBackWhenSilenceTimeoutOverrideIsMalformedOrInvalid() {
@@ -145,6 +178,22 @@ final class RuntimeConfigTests: XCTestCase {
     )
 
     XCTAssertEqual(config.requestHeaders["X-API-Key"], "test-key")
+  }
+
+  func testBackendSummaryDoesNotIncludeLegacyQueryEndpoint() {
+    let config = RuntimeConfig(
+      backendBaseURL: URL(string: "https://example.com")!,
+      webSocketURL: URL(string: "wss://example.com/ws")!,
+      visionFrameURL: URL(string: "https://example.com/vision")!,
+      queryURL: URL(string: "https://example.com/query")!,
+      apiKey: "",
+      bearerToken: ""
+    )
+
+    XCTAssertFalse(config.backendSummary.contains("query="))
+    XCTAssertTrue(config.backendSummary.contains("base=https://example.com"))
+    XCTAssertTrue(config.backendSummary.contains("ws=wss://example.com/ws"))
+    XCTAssertTrue(config.backendSummary.contains("vision=https://example.com/vision"))
   }
 
   func testLoadBootstrapsAPIKeyFromPlistOnlyOnceOnFirstLoad() throws {
