@@ -28,6 +28,7 @@ explicit deprecation warning and this fallback remains temporary.
 `OPENAI_REALTIME_UPLINK_ACK_EVERY_N_FRAMES` configures `transport.uplink.ack` cadence for inbound
 audio frames (default `20`, minimum `1`; first frame is always acknowledged).
 `OPENAI_DEBUG_DUMP_INPUT_AUDIO=true` stores raw incoming iOS PCM as `.wav` files for debugging.
+`OPENAI_DEBUG_MOCK_CAPTURE_MODE=true` bypasses OpenAI realtime and captures inbound iOS audio only.
 `OPENAI_DEBUG_TRACE_WS_MESSAGES=true` logs raw websocket receive metadata before routing.
 
 ### TLS certificate trust (macOS)
@@ -86,6 +87,23 @@ OPENAI_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/debug_audio
 ```
 
 Each session writes a `24kHz/mono/int16` WAV file in the configured directory.
+
+## Mock capture mode (debug iPhone uplink only)
+
+To isolate iPhone -> backend audio transport from OpenAI realtime:
+
+```bash
+OPENAI_DEBUG_MOCK_CAPTURE_MODE=true
+OPENAI_DEBUG_DUMP_INPUT_AUDIO=true
+OPENAI_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/debug_audio
+```
+
+In this mode:
+
+- `session.activate` succeeds without `OPENAI_API_KEY`
+- inbound client audio frames are acknowledged and written to WAV
+- `session.deactivate` emits `debug.capture.summary` with frame/byte/duration stats
+- no upstream OpenAI websocket is created
 
 ## Websocket probe
 

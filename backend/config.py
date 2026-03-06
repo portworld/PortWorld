@@ -54,6 +54,7 @@ class Settings:
     openai_realtime_manual_turn_fallback_delay_ms: int
     openai_debug_dump_input_audio: bool
     openai_debug_dump_input_audio_dir: str
+    openai_debug_mock_capture_mode: bool
     openai_debug_trace_ws_messages: bool
     host: str
     port: int
@@ -101,6 +102,10 @@ class Settings:
             openai_debug_dump_input_audio_dir=os.getenv(
                 "OPENAI_DEBUG_DUMP_INPUT_AUDIO_DIR",
                 "backend/debug_audio",
+            ),
+            openai_debug_mock_capture_mode=_parse_bool_env(
+                "OPENAI_DEBUG_MOCK_CAPTURE_MODE",
+                default=False,
             ),
             openai_debug_trace_ws_messages=_parse_bool_env(
                 "OPENAI_DEBUG_TRACE_WS_MESSAGES",

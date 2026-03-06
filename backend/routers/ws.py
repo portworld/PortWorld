@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-from backend.bridge import IOSRealtimeBridge
+from backend.bridge import IOSMockCaptureBridge, IOSRealtimeBridge
 from backend.config import settings
 from backend.contracts import IOSEnvelope, make_envelope
 from backend.frame_codec import (
@@ -78,6 +78,19 @@ async def ws_session(websocket: WebSocket) -> None:
         while True:
             message = await websocket.receive()
             message_type = message.get("type")
+            has_text_payload = isinstance(message.get("text"), str)
+            has_bytes_payload = isinstance(
+                message.get("bytes"), (bytes, bytearray, memoryview)
+            )
+            logger.warning(
+                "WS_RECEIVE_SHAPE connection_id=%s type=%s has_text=%s has_bytes=%s text_len=%s byte_len=%s",
+                connection_id,
+                message_type,
+                has_text_payload,
+                has_bytes_payload,
+                len(message["text"]) if has_text_payload else 0,
+                len(message["bytes"]) if has_bytes_payload else 0,
+            )
             _trace_ws_message(
                 message,
                 active_session=active_session,
@@ -141,6 +154,23 @@ async def ws_session(websocket: WebSocket) -> None:
                     )
                     continue
 
+                if not payload_bytes:
+                    logger.warning(
+                        "Ignoring empty client audio frame connection_id=%s session=%s ts_ms=%s",
+                        connection_id,
+                        active_session.session_id,
+                        frame_ts_ms,
+                    )
+                    await send_control(
+                        "error",
+                        {
+                            "code": "EMPTY_CLIENT_AUDIO_FRAME",
+                            "message": "Client audio frame payload is empty",
+                            "retriable": False,
+                        },
+                    )
+                    continue
+
                 client_audio_frame_count += 1
                 client_audio_total_bytes += len(payload_bytes)
                 if not did_log_first_client_audio_frame:
@@ -177,6 +207,14 @@ async def ws_session(websocket: WebSocket) -> None:
                     client_audio_frame_count == 1
                     or client_audio_frame_count % uplink_ack_every_n_frames == 0
                 ):
+                    logger.warning(
+                        "WS_UPLINK_ACK_PREP connection_id=%s session=%s frames_received=%s bytes_received=%s probe_acknowledged=%s",
+                        connection_id,
+                        active_session.session_id,
+                        client_audio_frame_count,
+                        client_audio_total_bytes,
+                        False,
+                    )
                     await send_control(
                         "transport.uplink.ack",
                         {
@@ -252,44 +290,51 @@ async def ws_session(websocket: WebSocket) -> None:
                     )
                     continue
 
-                try:
-                    api_key = settings.require_openai_api_key()
-                except RuntimeError:
-                    await send_control(
-                        "error",
-                        {
-                            "code": "MISSING_OPENAI_API_KEY",
-                            "message": "Server missing OPENAI_API_KEY",
-                            "retriable": False,
-                        },
-                        fallback_session_id=envelope.session_id,
-                    )
-                    continue
-
-                client = OpenAIRealtimeClient(
-                    api_key=api_key,
-                    model=settings.openai_realtime_model,
-                    voice=settings.openai_realtime_voice,
-                    instructions=settings.openai_realtime_instructions,
-                    include_turn_detection=settings.openai_realtime_include_turn_detection,
-                )
                 record_ref: dict[str, SessionRecord | None] = {"record": None}
+                if settings.openai_debug_mock_capture_mode:
+                    bridge = IOSMockCaptureBridge(
+                        session_id=envelope.session_id,
+                        dump_input_audio_enabled=settings.openai_debug_dump_input_audio,
+                        dump_input_audio_dir=settings.openai_debug_dump_input_audio_dir,
+                    )
+                else:
+                    try:
+                        api_key = settings.require_openai_api_key()
+                    except RuntimeError:
+                        await send_control(
+                            "error",
+                            {
+                                "code": "MISSING_OPENAI_API_KEY",
+                                "message": "Server missing OPENAI_API_KEY",
+                                "retriable": False,
+                            },
+                            fallback_session_id=envelope.session_id,
+                        )
+                        continue
 
-                bridge = IOSRealtimeBridge(
-                    session_id=envelope.session_id,
-                    upstream_client=client,
-                    send_envelope=lambda m_type, payload: send_control(
-                        m_type,
-                        payload,
-                        target=record_ref["record"],
-                        fallback_session_id=envelope.session_id,
-                    ),
-                    send_binary_frame=send_server_audio,
-                    manual_turn_fallback_enabled=settings.openai_realtime_enable_manual_turn_fallback,
-                    manual_turn_fallback_delay_ms=settings.openai_realtime_manual_turn_fallback_delay_ms,
-                    dump_input_audio_enabled=settings.openai_debug_dump_input_audio,
-                    dump_input_audio_dir=settings.openai_debug_dump_input_audio_dir,
-                )
+                    client = OpenAIRealtimeClient(
+                        api_key=api_key,
+                        model=settings.openai_realtime_model,
+                        voice=settings.openai_realtime_voice,
+                        instructions=settings.openai_realtime_instructions,
+                        include_turn_detection=settings.openai_realtime_include_turn_detection,
+                    )
+
+                    bridge = IOSRealtimeBridge(
+                        session_id=envelope.session_id,
+                        upstream_client=client,
+                        send_envelope=lambda m_type, payload: send_control(
+                            m_type,
+                            payload,
+                            target=record_ref["record"],
+                            fallback_session_id=envelope.session_id,
+                        ),
+                        send_binary_frame=send_server_audio,
+                        manual_turn_fallback_enabled=settings.openai_realtime_enable_manual_turn_fallback,
+                        manual_turn_fallback_delay_ms=settings.openai_realtime_manual_turn_fallback_delay_ms,
+                        dump_input_audio_enabled=settings.openai_debug_dump_input_audio,
+                        dump_input_audio_dir=settings.openai_debug_dump_input_audio_dir,
+                    )
                 record = await session_registry.register(
                     session_id=envelope.session_id,
                     websocket=websocket,
@@ -339,6 +384,29 @@ async def ws_session(websocket: WebSocket) -> None:
                     send_control=send_control,
                 )
                 active_session = None
+                continue
+
+            if envelope.type == "session.end_turn":
+                if active_session is None:
+                    logger.info("Ignoring session.end_turn before session.activate")
+                    continue
+                try:
+                    await active_session.bridge.finalize_turn(reason="client_end_turn")
+                except RealtimeClientError as exc:
+                    logger.warning(
+                        "Failed finalizing turn connection_id=%s session=%s: %s",
+                        connection_id,
+                        active_session.session_id,
+                        exc,
+                    )
+                    await send_control(
+                        "error",
+                        {
+                            "code": "UPSTREAM_TURN_FINALIZE_FAILED",
+                            "message": "Failed to finalize active turn upstream",
+                            "retriable": True,
+                        },
+                    )
                 continue
 
             if envelope.type == "health.ping":
@@ -475,14 +543,48 @@ async def ws_session(websocket: WebSocket) -> None:
                 sent = _as_integral_int(payload.get("realtime_audio_frames_sent"))
                 send_failures = _as_integral_int(payload.get("realtime_audio_send_failures"))
                 last_send_error = payload.get("realtime_audio_last_send_error")
+                force_text_audio_fallback = payload.get(
+                    "realtime_force_text_audio_fallback"
+                )
+                socket_connection_id = _as_integral_int(
+                    payload.get("realtime_socket_connection_id")
+                )
+                socket_last_outbound_bytes = _as_integral_int(
+                    payload.get("realtime_socket_last_outbound_bytes")
+                )
+                socket_last_outbound_kind = payload.get(
+                    "realtime_socket_last_outbound_kind"
+                )
+                socket_binary_send_attempted = _as_integral_int(
+                    payload.get("realtime_socket_binary_send_attempted")
+                )
+                socket_binary_send_completed = _as_integral_int(
+                    payload.get("realtime_socket_binary_send_completed")
+                )
+                socket_last_binary_first_byte = payload.get(
+                    "realtime_socket_last_binary_first_byte"
+                )
                 logger.warning(
-                    "Health stats session=%s ios_enqueued=%s ios_attempted=%s ios_sent=%s ios_send_failures=%s ios_last_send_error=%s backend_frames=%s backend_bytes=%s uplink_ack_emitted=%s uplink_ack_count=%s",
+                    "Health stats session=%s ios_enqueued=%s ios_attempted=%s ios_sent=%s ios_send_failures=%s ios_last_send_error=%s ios_force_text_audio_fallback=%s ios_socket_connection_id=%s ios_socket_last_outbound_kind=%s ios_socket_last_outbound_bytes=%s ios_socket_binary_send_attempted=%s ios_socket_binary_send_completed=%s ios_socket_last_binary_first_byte=%s backend_frames=%s backend_bytes=%s uplink_ack_emitted=%s uplink_ack_count=%s",
                     envelope.session_id,
                     enqueued,
                     attempted,
                     sent,
                     send_failures,
                     last_send_error if isinstance(last_send_error, str) else "-",
+                    force_text_audio_fallback
+                    if isinstance(force_text_audio_fallback, bool)
+                    else "-",
+                    socket_connection_id,
+                    socket_last_outbound_kind
+                    if isinstance(socket_last_outbound_kind, str)
+                    else "-",
+                    socket_last_outbound_bytes,
+                    socket_binary_send_attempted,
+                    socket_binary_send_completed,
+                    socket_last_binary_first_byte
+                    if isinstance(socket_last_binary_first_byte, str)
+                    else "-",
                     client_audio_frame_count,
                     client_audio_total_bytes,
                     did_emit_uplink_ack,
@@ -576,6 +678,14 @@ async def _deactivate_session(
     active_session: SessionRecord,
     send_control: Callable[..., Awaitable[None]],
 ) -> None:
+    capture_summary = _capture_summary_payload(active_session)
+    if capture_summary is not None:
+        await send_control(
+            "debug.capture.summary",
+            capture_summary,
+            target=active_session,
+        )
+
     await send_control(
         "session.state",
         {"state": "ended"},
@@ -602,6 +712,23 @@ async def _deactivate_and_unregister_session(
         active_session.session_id,
         websocket=websocket,
     )
+
+
+def _capture_summary_payload(active_session: SessionRecord) -> dict[str, Any] | None:
+    capture_summary_fn = getattr(active_session.bridge, "capture_summary", None)
+    if capture_summary_fn is None or not callable(capture_summary_fn):
+        return None
+    try:
+        payload = capture_summary_fn()
+    except Exception:
+        logger.exception(
+            "Failed building capture summary session=%s",
+            active_session.session_id,
+        )
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
 
 
 def _trace_ws_message(

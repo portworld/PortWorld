@@ -101,6 +101,9 @@ class IOSRealtimeBridge:
             self._current_turn_started_at_monotonic = time.monotonic()
         await self._finalize_turn_if_needed(reason="continuous_uplink_timeout")
 
+    async def finalize_turn(self, *, reason: str = "client_end_turn") -> None:
+        await self._finalize_turn_if_needed(reason=reason)
+
     async def close(self) -> None:
         if self._closed:
             return
@@ -632,6 +635,144 @@ class IOSRealtimeBridge:
         except Exception as exc:
             logger.warning(
                 "Failed closing input audio dump writer session=%s: %s",
+                self._session_id,
+                exc,
+            )
+
+
+class IOSMockCaptureBridge:
+    """Debug bridge that captures inbound iOS PCM without upstream OpenAI calls."""
+
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        dump_input_audio_enabled: bool = True,
+        dump_input_audio_dir: str = "backend/debug_audio",
+    ) -> None:
+        self._session_id = session_id
+        self._dump_input_audio_enabled = dump_input_audio_enabled
+        self._dump_input_audio_dir = dump_input_audio_dir
+        self._input_audio_dump_writer: wave.Wave_write | None = None
+        self._input_audio_dump_path: str | None = None
+        self._frames_received = 0
+        self._bytes_received = 0
+        self._first_audio_ts: float | None = None
+        self._last_audio_ts: float | None = None
+        self._closed = False
+
+    async def connect_and_start(self) -> None:
+        logger.warning(
+            "Mock capture mode active session=%s dump_input_audio=%s dump_dir=%s",
+            self._session_id,
+            self._dump_input_audio_enabled,
+            self._dump_input_audio_dir,
+        )
+
+    async def append_client_audio(self, payload_bytes: bytes) -> None:
+        if not payload_bytes:
+            logger.warning(
+                "Mock capture received empty audio payload session=%s",
+                self._session_id,
+            )
+            return
+
+        now_s = time.monotonic()
+        if self._first_audio_ts is None:
+            self._first_audio_ts = now_s
+        self._last_audio_ts = now_s
+        self._frames_received += 1
+        self._bytes_received += len(payload_bytes)
+        self._append_input_audio_dump(payload_bytes)
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._close_input_audio_dump_writer()
+
+    async def finalize_turn(self, *, reason: str = "client_end_turn") -> None:
+        logger.info(
+            "Mock capture finalize turn session=%s reason=%s frames=%s bytes=%s",
+            self._session_id,
+            reason,
+            self._frames_received,
+            self._bytes_received,
+        )
+
+    def capture_summary(self) -> dict[str, Any]:
+        expected_duration_ms = int(round((self._bytes_received / 2.0 / 24_000.0) * 1000.0))
+        wall_duration_ms = 0
+        if self._first_audio_ts is not None and self._last_audio_ts is not None:
+            wall_duration_ms = max(
+                0,
+                int(round((self._last_audio_ts - self._first_audio_ts) * 1000.0)),
+            )
+        return {
+            "mode": "mock_capture",
+            "frames_received": self._frames_received,
+            "bytes_received": self._bytes_received,
+            "expected_audio_duration_ms": expected_duration_ms,
+            "wall_duration_ms": wall_duration_ms,
+            "wav_path": self._input_audio_dump_path,
+        }
+
+    def _append_input_audio_dump(self, payload_bytes: bytes) -> None:
+        if not self._dump_input_audio_enabled:
+            return
+
+        writer = self._input_audio_dump_writer
+        if writer is None:
+            writer = self._create_input_audio_dump_writer()
+            if writer is None:
+                return
+            self._input_audio_dump_writer = writer
+
+        try:
+            writer.writeframes(payload_bytes)
+        except Exception as exc:
+            logger.warning(
+                "Failed writing mock input audio dump session=%s: %s",
+                self._session_id,
+                exc,
+            )
+
+    def _create_input_audio_dump_writer(self) -> wave.Wave_write | None:
+        try:
+            os.makedirs(self._dump_input_audio_dir, exist_ok=True)
+            file_path = os.path.join(
+                self._dump_input_audio_dir,
+                f"{self._session_id}_{now_ms()}_mock.wav",
+            )
+            writer = wave.open(file_path, "wb")
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(24_000)
+            self._input_audio_dump_path = file_path
+            logger.warning(
+                "Mock input audio dump enabled session=%s path=%s",
+                self._session_id,
+                file_path,
+            )
+            return writer
+        except Exception as exc:
+            logger.warning(
+                "Failed creating mock input audio dump writer session=%s: %s",
+                self._session_id,
+                exc,
+            )
+            return None
+
+    def _close_input_audio_dump_writer(self) -> None:
+        writer = self._input_audio_dump_writer
+        self._input_audio_dump_writer = None
+        if writer is None:
+            return
+        try:
+            writer.close()
+        except Exception as exc:
+            logger.warning(
+                "Failed closing mock input audio dump writer session=%s: %s",
                 self._session_id,
                 exc,
             )
