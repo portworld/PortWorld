@@ -7,21 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0C6663052F5351150084DE6C /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 0C6663042F5351150084DE6C /* MWDATCamera */; };
-		0C6663072F5351150084DE6C /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0C6663062F5351150084DE6C /* MWDATCore */; };
-		0C6663092F5351150084DE6C /* MWDATMockDevice in Frameworks */ = {isa = PBXBuildFile; productRef = 0C6663082F5351150084DE6C /* MWDATMockDevice */; };
-		9F13A0032F70000100C0FFEE /* SnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 9F13A0022F70000100C0FFEE /* SnapshotTesting */; };
+			0C6663052F5351150084DE6C /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 0C6663042F5351150084DE6C /* MWDATCamera */; };
+			0C6663072F5351150084DE6C /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0C6663062F5351150084DE6C /* MWDATCore */; };
+			0C6663092F5351150084DE6C /* MWDATMockDevice in Frameworks */ = {isa = PBXBuildFile; productRef = 0C6663082F5351150084DE6C /* MWDATMockDevice */; };
 /* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-		0C6664032F6000010084DE6C /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 0C6662D42F534F350084DE6C /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 0C6662DB2F534F350084DE6C;
-			remoteInfo = PortWorld;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		0C6662DC2F534F350084DE6C /* PortWorld.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PortWorld.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -30,18 +19,12 @@
 		0C66636B2F5361000084DE6C /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		0C66636C2F5361000084DE6C /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		0C66636D2F5361000084DE6C /* Config.xcconfig.template */ = {isa = PBXFileReference; lastKnownFileType = text; path = Config.xcconfig.template; sourceTree = "<group>"; };
-		0C6664002F6000010084DE6C /* PortWorldTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PortWorldTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0C6662DE2F534F350084DE6C /* PortWorld */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = PortWorld;
-			sourceTree = "<group>";
-		};
-		0C66640A2F6000010084DE6C /* PortWorldTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = PortWorldTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -57,37 +40,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		0C6664012F6000010084DE6C /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				9F13A0032F70000100C0FFEE /* SnapshotTesting in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		0C6662D32F534F350084DE6C = {
 			isa = PBXGroup;
-			children = (
-				0C6662DE2F534F350084DE6C /* PortWorld */,
-				0C66640A2F6000010084DE6C /* PortWorldTests */,
-				0C6662DD2F534F350084DE6C /* Products */,
-				0C66636E2F5361000084DE6C /* Config */,
-				0C66630A2F5353540084DE6C /* Info.plist */,
+				children = (
+					0C6662DE2F534F350084DE6C /* PortWorld */,
+					0C6662DD2F534F350084DE6C /* Products */,
+					0C66636E2F5361000084DE6C /* Config */,
+					0C66630A2F5353540084DE6C /* Info.plist */,
 				0C66635A2F535F2D0084DE6C /* PortWorld.entitlements */,
 			);
 			sourceTree = "<group>";
 		};
 		0C6662DD2F534F350084DE6C /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				0C6662DC2F534F350084DE6C /* PortWorld.app */,
-				0C6664002F6000010084DE6C /* PortWorldTests.xctest */,
-			);
-			name = Products;
-			sourceTree = "<group>";
+				isa = PBXGroup;
+				children = (
+					0C6662DC2F534F350084DE6C /* PortWorld.app */,
+				);
+				name = Products;
+				sourceTree = "<group>";
 		};
 		0C66636E2F5361000084DE6C /* Config */ = {
 			isa = PBXGroup;
@@ -127,30 +100,6 @@
 			productReference = 0C6662DC2F534F350084DE6C /* PortWorld.app */;
 			productType = "com.apple.product-type.application";
 		};
-		AABB00032F53A0010084DE6C /* PortWorldTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 0C6664092F6000010084DE6C /* Build configuration list for PBXNativeTarget "PortWorldTests" */;
-			buildPhases = (
-				0C6664062F6000010084DE6C /* Sources */,
-				0C6664012F6000010084DE6C /* Frameworks */,
-				0C6664052F6000010084DE6C /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				0C6664042F6000010084DE6C /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				0C66640A2F6000010084DE6C /* PortWorldTests */,
-			);
-			name = PortWorldTests;
-			packageProductDependencies = (
-				9F13A0022F70000100C0FFEE /* SnapshotTesting */,
-			);
-			productName = PortWorldTests;
-			productReference = 0C6664002F6000010084DE6C /* PortWorldTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -164,12 +113,8 @@
 					0C6662DB2F534F350084DE6C = {
 						CreatedOnToolsVersion = 26.3;
 					};
-					AABB00032F53A0010084DE6C = {
-						CreatedOnToolsVersion = 26.3;
-						TestTargetID = 0C6662DB2F534F350084DE6C;
 					};
 				};
-			};
 			buildConfigurationList = 0C6662D72F534F350084DE6C /* Build configuration list for PBXProject "PortWorld" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -187,22 +132,14 @@
 			productRefGroup = 0C6662DD2F534F350084DE6C /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-			targets = (
-				0C6662DB2F534F350084DE6C /* PortWorld */,
-				AABB00032F53A0010084DE6C /* PortWorldTests */,
-			);
-		};
+				targets = (
+					0C6662DB2F534F350084DE6C /* PortWorld */,
+				);
+			};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		0C6662DA2F534F350084DE6C /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		0C6664052F6000010084DE6C /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -219,22 +156,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		0C6664062F6000010084DE6C /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		0C6664042F6000010084DE6C /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 0C6662DB2F534F350084DE6C /* PortWorld */;
-			targetProxy = 0C6664032F6000010084DE6C /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		0C6662E52F534F360084DE6C /* Debug */ = {
@@ -424,61 +346,6 @@
 			};
 			name = Release;
 		};
-		0C6664072F6000010084DE6C /* Debug */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 0C66636B2F5361000084DE6C /* Debug.xcconfig */;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5YCVDGBTJR;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = MistralParis.PortWorldTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PortWorld.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PortWorld";
-				TEST_TARGET_NAME = PortWorld;
-			};
-			name = Debug;
-		};
-		0C6664082F6000010084DE6C /* Release */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 0C66636C2F5361000084DE6C /* Release.xcconfig */;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5YCVDGBTJR;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = MistralParis.PortWorldTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PortWorld.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PortWorld";
-				TEST_TARGET_NAME = PortWorld;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -500,15 +367,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		0C6664092F6000010084DE6C /* Build configuration list for PBXNativeTarget "PortWorldTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				0C6664072F6000010084DE6C /* Debug */,
-				0C6664082F6000010084DE6C /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -518,14 +376,6 @@
 			requirement = {
 				kind = exactVersion;
 				version = 0.4.0;
-			};
-		};
-		9F13A0012F70000100C0FFEE /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/pointfreeco/swift-snapshot-testing";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.18.7;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -545,11 +395,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0C6663032F5351150084DE6C /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
 			productName = MWDATMockDevice;
-		};
-		9F13A0022F70000100C0FFEE /* SnapshotTesting */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 9F13A0012F70000100C0FFEE /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
-			productName = SnapshotTesting;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
