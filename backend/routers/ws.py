@@ -151,6 +151,16 @@ async def ws_session(websocket: WebSocket) -> None:
                         client_audio_total_bytes,
                         frame_ts_ms,
                     )
+                elif client_audio_frame_count <= 10:
+                    logger.warning(
+                        "Client audio frame received connection_id=%s session=%s frame=%s bytes=%s total_bytes=%s ts_ms=%s",
+                        connection_id,
+                        active_session.session_id,
+                        client_audio_frame_count,
+                        len(payload_bytes),
+                        client_audio_total_bytes,
+                        frame_ts_ms,
+                    )
                 elif client_audio_frame_count % 100 == 0:
                     logger.warning(
                         "Client audio frame count connection_id=%s session=%s frames=%s total_bytes=%s ts_ms=%s",
@@ -335,6 +345,18 @@ async def ws_session(websocket: WebSocket) -> None:
                     fallback_session_id=envelope.session_id,
                 )
                 logger.warning("Health ping session=%s", envelope.session_id)
+                continue
+
+            if envelope.type == "debug.payload_sweep":
+                payload = envelope.payload if isinstance(envelope.payload, dict) else {}
+                logger.warning(
+                    "Debug payload sweep control received connection_id=%s session=%s mode=%s index=%s payload_bytes=%s",
+                    connection_id,
+                    envelope.session_id,
+                    payload.get("mode"),
+                    payload.get("index"),
+                    payload.get("payload_bytes"),
+                )
                 continue
 
             if envelope.type == "client.audio":
