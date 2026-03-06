@@ -308,6 +308,7 @@ final class SessionOrchestrator {
   }
 
   struct StatusSnapshot {
+    var assistantRuntimeState: AssistantRuntimeState = .inactive
     var sessionState: SessionState = .idle
     var wakeState: WakeState = .listening
     var queryState: QueryState = .idle
@@ -610,19 +611,19 @@ final class SessionOrchestrator {
 
     isActivated = true
     await configureInjectedServices()
-    let sessionID = "sess_\(UUID().uuidString)"
-    activeSessionID = sessionID
+    activeSessionID = nil
 
-    snapshot.sessionState = .connecting
-    snapshot.sessionID = sessionID
+    snapshot.sessionState = .idle
+    snapshot.sessionID = "-"
     snapshot.wakeState = .listening
     snapshot.queryState = .idle
     snapshot.playbackState = "starting"
+    snapshot.assistantRuntimeState = .armedListening
     snapshot.wakeEngine = primaryWakeEngine.engineKind.rawValue
     snapshot.speechAuthorization = primaryWakeEngine.currentAuthorizationStatus().rawValue
     publishSnapshot()
     runtimeState = .foregroundActive
-    wantsRealtimeStreaming = true
+    wantsRealtimeStreaming = false
     isRealtimeUplinkActive = false
     isTransportDisconnecting = false
     transportState = .disconnected
@@ -652,13 +653,12 @@ final class SessionOrchestrator {
       primaryWakeEngine.startListening()
     }
 
-    snapshot.sessionState = .active
+    snapshot.sessionState = .idle
     snapshot.playbackState = "idle"
     publishSnapshot()
 
     startHealthLoop()
 
-    await connectRealtimeTransport(reason: "activate")
     await logEvent(name: "session.activate")
     await emitHealth(reason: "activate")
   }
@@ -666,6 +666,7 @@ final class SessionOrchestrator {
   func deactivate() async {
     guard isActivated else { return }
 
+    snapshot.assistantRuntimeState = .deactivating
     await sendOutbound(type: .sessionDeactivate, payload: EmptyPayload())
     wantsRealtimeStreaming = false
     isRealtimeUplinkActive = false
@@ -721,6 +722,7 @@ final class SessionOrchestrator {
     playbackEngine = nil
 
     snapshot.sessionState = .ended
+    snapshot.assistantRuntimeState = .inactive
     snapshot.queryState = .idle
     snapshot.wakeState = .listening
     snapshot.photoState = .idle
@@ -831,6 +833,25 @@ final class SessionOrchestrator {
     manualWakeEngine.triggerManualWake(timestampMs: dependencies.clock())
   }
 
+  func endConversation(reason: String = "manual_end_conversation") async {
+    guard isActivated else { return }
+    guard isRealtimeUplinkActive || transportState != .disconnected || wantsRealtimeStreaming else { return }
+
+    _ = await sendOutbound(type: .sessionEndTurn, payload: EmptyPayload())
+    isRealtimeUplinkActive = false
+    resetRealtimeUplinkTurnState()
+    clearRealtimePrerollBuffer()
+    playbackEngine?.cancelResponse()
+    snapshot.queryState = .idle
+    snapshot.wakeState = .listening
+    snapshot.playbackState = "standby_connecting"
+    snapshot.assistantRuntimeState = .connectingConversation
+    publishSnapshot()
+    await disconnectRealtimeTransport(reason: reason)
+    snapshot.assistantRuntimeState = .armedListening
+    publishSnapshot()
+  }
+
 #if DEBUG
   func triggerSleepForTesting(phrase: String? = nil, timestampMs: Int64? = nil) async {
     await handleSleepDetected(
@@ -852,6 +873,9 @@ final class SessionOrchestrator {
     guard isActivated else { return }
     guard !isRealtimeUplinkActive else { return }
 
+    let sessionID = "sess_\(UUID().uuidString)"
+    activeSessionID = sessionID
+
     // Cancel any in-flight playback from previous response to avoid queue buildup
     playbackEngine?.cancelResponse()
     resetRealtimeUplinkTurnState()
@@ -864,10 +888,16 @@ final class SessionOrchestrator {
 
     snapshot.wakeState = .triggered
     snapshot.wakeCount += 1
+    snapshot.sessionID = sessionID
     snapshot.queryID = "-"
     snapshot.queryState = .recording
+    snapshot.assistantRuntimeState = .connectingConversation
     snapshot.playbackState = transportState == .connected ? "streaming_waiting_ready" : "streaming_connecting"
     publishSnapshot()
+
+    Task { [weak self] in
+      await self?.connectRealtimeTransport(reason: "wake_detected")
+    }
 
     Task {
       await logEvent(name: "wakeword.detected")
@@ -910,20 +940,12 @@ final class SessionOrchestrator {
       return
     }
 
-    let didEndTurn = await sendOutbound(type: .sessionEndTurn, payload: EmptyPayload())
-    isRealtimeUplinkActive = false
-    resetRealtimeUplinkTurnState()
-    clearRealtimePrerollBuffer()
-    playbackEngine?.cancelResponse()
-    snapshot.queryState = .idle
-    snapshot.wakeState = .listening
-    snapshot.playbackState = transportState == .connected ? "standby_ready" : "standby_connecting"
-    publishSnapshot()
+    await endConversation(reason: "sleepword_detected")
     await logEvent(
       name: "sleepword.detected",
       fields: [
         "phrase": .string(event.wakePhrase),
-        "did_end_turn": .bool(didEndTurn)
+        "did_end_turn": .bool(true)
       ]
     )
   }
@@ -949,6 +971,7 @@ final class SessionOrchestrator {
     guard isNetworkAvailable else {
       reconnectOnNetworkRestore = true
       snapshot.sessionState = .reconnecting
+      snapshot.assistantRuntimeState = .connectingConversation
       snapshot.playbackState = "waiting_for_network"
       publishSnapshot()
       return
@@ -964,6 +987,7 @@ final class SessionOrchestrator {
     clearRealtimePrerollBufferIfStale()
     transportState = .connecting
     snapshot.sessionState = .connecting
+    snapshot.assistantRuntimeState = .connectingConversation
     snapshot.queryState = isRealtimeUplinkActive ? .recording : .idle
     snapshot.wakeState = isRealtimeUplinkActive ? .triggered : .listening
     snapshot.playbackState = isRealtimeUplinkActive ? "streaming_connecting" : "standby_connecting"
@@ -992,8 +1016,9 @@ final class SessionOrchestrator {
       lastRealtimeConnectedAtMs = nil
       resetRealtimeUplinkState()
       clearRealtimePrerollBuffer()
-      snapshot.sessionState = .failed
-      snapshot.queryState = .failed
+      snapshot.sessionState = .idle
+      snapshot.assistantRuntimeState = .armedListening
+      snapshot.queryState = .idle
       snapshot.playbackState = "idle"
       publishSnapshot()
       setError("Realtime transport connect failed: \(error.localizedDescription)")
@@ -1033,7 +1058,8 @@ final class SessionOrchestrator {
     pendingSessionActivateForConnection = false
     lastRealtimeConnectedAtMs = nil
     resetRealtimeUplinkState(keepRecoveryAttempt: realtimeUplinkAckRecoveryAttempted)
-    snapshot.sessionState = isActivated ? .active : .idle
+    snapshot.sessionState = .idle
+    snapshot.assistantRuntimeState = isActivated ? .armedListening : .inactive
     snapshot.queryState = .idle
     snapshot.wakeState = .listening
     snapshot.playbackState = "idle"
@@ -1091,15 +1117,15 @@ final class SessionOrchestrator {
         resetRealtimeUplinkState(keepRecoveryAttempt: realtimeUplinkAckRecoveryAttempted)
         if isTransportDisconnecting || !wantsRealtimeStreaming {
           pendingSessionActivateForConnection = false
-          if snapshot.sessionState != .failed {
-            snapshot.sessionState = isActivated ? .active : .idle
-            snapshot.queryState = isRealtimeUplinkActive ? .recording : .idle
-            snapshot.wakeState = isRealtimeUplinkActive ? .triggered : .listening
-          }
+          snapshot.sessionState = .idle
+          snapshot.assistantRuntimeState = isActivated ? .armedListening : .inactive
+          snapshot.queryState = isRealtimeUplinkActive ? .recording : .idle
+          snapshot.wakeState = isRealtimeUplinkActive ? .triggered : .listening
           snapshot.playbackState = isRealtimeUplinkActive ? "streaming_connecting" : "idle"
         } else {
           pendingSessionActivateForConnection = true
           snapshot.sessionState = .reconnecting
+          snapshot.assistantRuntimeState = .connectingConversation
           wsReconnectAttempts += 1
           snapshot.playbackState = isRealtimeUplinkActive ? "streaming_reconnecting" : "standby_reconnecting"
         }
@@ -1109,6 +1135,7 @@ final class SessionOrchestrator {
         cancelRealtimeUplinkAckWatchdog()
         resetRealtimeUplinkState(keepRecoveryAttempt: realtimeUplinkAckRecoveryAttempted)
         snapshot.sessionState = .connecting
+        snapshot.assistantRuntimeState = .connectingConversation
         snapshot.queryState = isRealtimeUplinkActive ? .recording : .idle
         snapshot.wakeState = isRealtimeUplinkActive ? .triggered : .listening
         snapshot.playbackState = isRealtimeUplinkActive ? "streaming_connecting" : "standby_connecting"
@@ -1118,6 +1145,7 @@ final class SessionOrchestrator {
         cancelRealtimeUplinkAckWatchdog()
         resetRealtimeUplinkState(keepRecoveryAttempt: realtimeUplinkAckRecoveryAttempted)
         snapshot.sessionState = isRealtimeUplinkActive ? .streaming : .active
+        snapshot.assistantRuntimeState = isRealtimeUplinkActive ? .connectingConversation : .armedListening
         snapshot.queryState = isRealtimeUplinkActive ? .recording : .idle
         snapshot.wakeState = isRealtimeUplinkActive ? .triggered : .listening
         snapshot.playbackState = isRealtimeUplinkActive ? "streaming_waiting_ready" : "standby_ready"
@@ -1131,6 +1159,7 @@ final class SessionOrchestrator {
         cancelRealtimeUplinkAckWatchdog()
         resetRealtimeUplinkState(keepRecoveryAttempt: realtimeUplinkAckRecoveryAttempted)
         snapshot.sessionState = .reconnecting
+        snapshot.assistantRuntimeState = .connectingConversation
         wsReconnectAttempts += 1
         snapshot.queryState = isRealtimeUplinkActive ? .recording : .idle
         snapshot.wakeState = isRealtimeUplinkActive ? .triggered : .listening
@@ -1145,6 +1174,7 @@ final class SessionOrchestrator {
       setError("Transport error: \(String(describing: error))")
       if !isTransportDisconnecting, wantsRealtimeStreaming {
         snapshot.sessionState = .reconnecting
+        snapshot.assistantRuntimeState = .connectingConversation
         snapshot.playbackState = isRealtimeUplinkActive ? "streaming_reconnecting" : "standby_reconnecting"
         publishSnapshot()
       }
@@ -1421,6 +1451,7 @@ final class SessionOrchestrator {
       return
     }
     realtimeSessionReady = true
+    snapshot.assistantRuntimeState = isRealtimeUplinkActive ? .activeConversation : .armedListening
     if wasWaitingForReady || snapshot.playbackState == "streaming_probing_uplink" {
       snapshot.playbackState = isRealtimeUplinkActive ? "streaming_ready" : "standby_ready"
     }

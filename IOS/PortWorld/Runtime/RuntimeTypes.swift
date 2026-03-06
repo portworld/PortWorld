@@ -47,6 +47,14 @@ public enum RuntimeState: String, Codable {
   case resumed
 }
 
+public enum AssistantRuntimeState: String, Codable {
+  case inactive
+  case armedListening = "armed_listening"
+  case connectingConversation = "connecting_conversation"
+  case activeConversation = "active_conversation"
+  case deactivating
+}
+
 @preconcurrency public struct VisionFrameRequest: Codable {
   public let sessionID: String
   public let tsMs: Int64

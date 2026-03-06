@@ -7,14 +7,6 @@ enum StreamingStatus {
   case stopped
 }
 
-enum AssistantRuntimeState {
-  case inactive
-  case activating
-  case active
-  case deactivating
-  case failed
-}
-
 enum InternetReachabilityState {
   case unknown
   case connected
@@ -98,19 +90,14 @@ final class SessionStateStore {
   private var streamStartedAt: Date?
 
   var shouldPresentStreamView: Bool {
-    streamingStatus == .streaming &&
-      hasReceivedFirstFrame &&
-      currentVideoFrame != nil &&
-      assistantRuntimeState != .inactive &&
-      assistantRuntimeState != .deactivating &&
-      assistantRuntimeState != .failed
+    assistantRuntimeState != .inactive
   }
 
   var isStreaming: Bool {
     switch assistantRuntimeState {
-    case .activating, .active, .deactivating:
+    case .armedListening, .connectingConversation, .activeConversation, .deactivating:
       return true
-    case .inactive, .failed:
+    case .inactive:
       return false
     }
   }
@@ -134,12 +121,12 @@ final class SessionStateStore {
   }
 
   var canActivateAssistantRuntime: Bool {
-    hasActiveDevice && !hasLiveRuntimeSessionState && (assistantRuntimeState == .inactive || assistantRuntimeState == .failed)
+    hasActiveDevice && assistantRuntimeState == .inactive
   }
 
   var canDeactivateAssistantRuntime: Bool {
     switch assistantRuntimeState {
-    case .activating, .active, .failed:
+    case .armedListening, .connectingConversation, .activeConversation:
       return true
     case .inactive, .deactivating:
       return false
@@ -209,14 +196,5 @@ final class SessionStateStore {
     firstFrameWaitStatusText = status
     firstFrameWaitUpdatedAt = timestamp
     firstFrameWaitTimestampText = Self.firstFrameTimestampFormatter.string(from: timestamp)
-  }
-
-  private var hasLiveRuntimeSessionState: Bool {
-    let sessionState = runtimeSessionStateText.lowercased()
-    return sessionState == "active" ||
-      sessionState == "streaming" ||
-      sessionState == "connecting" ||
-      sessionState == "reconnecting" ||
-      sessionState == "disconnecting"
   }
 }

@@ -205,25 +205,47 @@ struct NonStreamView: View {
 
   private var bottomActionBar: some View {
     VStack(spacing: 10) {
-      Button {
-        Task {
-          await viewModel.activateAssistantRuntime()
+      if store.assistantRuntimeState == .inactive {
+        Button {
+          Task {
+            await viewModel.activateAssistantRuntime()
+          }
+        } label: {
+          HStack(spacing: 10) {
+            Image(systemName: "bolt.fill")
+              .font(.system(size: 15, weight: .bold))
+            Text("Activate assistant")
+              .font(.system(.headline, design: .rounded).weight(.semibold))
+          }
+          .frame(maxWidth: .infinity)
+          .frame(height: 54)
         }
-      } label: {
-        HStack(spacing: 10) {
-          Image(systemName: "bolt.fill")
-            .font(.system(size: 15, weight: .bold))
-          Text(activateButtonTitle)
-            .font(.system(.headline, design: .rounded).weight(.semibold))
+        .buttonStyle(.plain)
+        .foregroundColor(.white)
+        .background(store.canActivateAssistantRuntime ? Color.appPrimary : Color.gray.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .disabled(!store.canActivateAssistantRuntime)
+      } else {
+        Button {
+          Task {
+            await viewModel.deactivateAssistantRuntime()
+          }
+        } label: {
+          HStack(spacing: 10) {
+            Image(systemName: "power")
+              .font(.system(size: 15, weight: .bold))
+            Text(deactivateButtonTitle)
+              .font(.system(.headline, design: .rounded).weight(.semibold))
+          }
+          .frame(maxWidth: .infinity)
+          .frame(height: 54)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 54)
+        .buttonStyle(.plain)
+        .foregroundColor(.white)
+        .background(store.canDeactivateAssistantRuntime ? Color.red.opacity(0.85) : Color.gray.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .disabled(!store.canDeactivateAssistantRuntime)
       }
-      .buttonStyle(.plain)
-      .foregroundColor(.white)
-      .background(store.canActivateAssistantRuntime ? Color.appPrimary : Color.gray.opacity(0.5))
-      .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-      .disabled(!store.canActivateAssistantRuntime)
     }
     .padding(.horizontal, 16)
     .padding(.top, 16)
@@ -235,14 +257,18 @@ struct NonStreamView: View {
     }
   }
 
-  private var activateButtonTitle: String {
+  private var deactivateButtonTitle: String {
     switch store.assistantRuntimeState {
-    case .activating:
-      return "Activating..."
-    case .failed:
-      return "Retry activation"
+    case .connectingConversation:
+      return "Deactivate assistant"
+    case .activeConversation:
+      return "Deactivate assistant"
+    case .armedListening:
+      return "Deactivate assistant"
+    case .deactivating:
+      return "Deactivating..."
     default:
-      return "Activate assistant"
+      return "Deactivate assistant"
     }
   }
 }

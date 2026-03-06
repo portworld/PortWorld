@@ -37,9 +37,9 @@ final class RuntimeCoordinator {
           let message = RuntimeCoordinator.audioLeaseErrorMessage(prefix: "Failed to acquire audio session lease", error: error)
           store.audioLastError = message
           store.runtimeErrorText = message
-          if store.assistantRuntimeState == .activating || store.assistantRuntimeState == .active {
-            store.assistantRuntimeState = .failed
-            store.runtimeSessionStateText = "failed"
+          if store.assistantRuntimeState != .inactive {
+            store.assistantRuntimeState = .inactive
+            store.runtimeSessionStateText = "idle"
           }
           return
         }
@@ -110,6 +110,10 @@ final class RuntimeCoordinator {
 
   func triggerWakeForTesting() {
     runtimeOrchestrator.triggerWakeForTesting()
+  }
+
+  func endConversation() async {
+    await runtimeOrchestrator.endConversation()
   }
 
   func pushVideoFrame(_ image: UIImage, timestampMs: Int64) {
@@ -200,6 +204,7 @@ final class RuntimeCoordinator {
   private func bindRuntimeState() {
     runtimeOrchestrator.onStatusUpdated = { [weak self] snapshot in
       guard let self else { return }
+      store.assistantRuntimeState = snapshot.assistantRuntimeState
       store.runtimeSessionStateText = snapshot.sessionState.rawValue
       store.runtimeWakeStateText = snapshot.wakeState.rawValue
       store.runtimeQueryStateText = snapshot.queryState.rawValue
@@ -235,20 +240,6 @@ final class RuntimeCoordinator {
         cancelFirstFrameTimeout()
       }
 
-      if store.assistantRuntimeState != .deactivating {
-        switch snapshot.sessionState {
-        case .idle, .ended:
-          store.assistantRuntimeState = .inactive
-        case .connecting, .reconnecting:
-          store.assistantRuntimeState = .activating
-        case .active, .streaming:
-          store.assistantRuntimeState = .active
-        case .disconnecting:
-          store.assistantRuntimeState = .deactivating
-        case .failed:
-          store.assistantRuntimeState = .failed
-        }
-      }
     }
 
     audioCollectionManager.onWakePCMFrame = { [weak self] frame in
@@ -326,8 +317,8 @@ final class RuntimeCoordinator {
       store.resetFirstFrameState(status: "reset_stream_stopped")
       cancelFirstFrameTimeout()
       if store.assistantRuntimeState == .deactivating {
-        store.runtimeSessionStateText = "inactive"
-      } else if store.assistantRuntimeState == .activating || store.assistantRuntimeState == .active {
+        store.runtimeSessionStateText = "idle"
+      } else if store.assistantRuntimeState == .connectingConversation || store.assistantRuntimeState == .activeConversation {
         store.runtimeSessionStateText = "stopped"
       }
     case .waitingForDevice, .starting, .stopping, .paused:
@@ -339,7 +330,7 @@ final class RuntimeCoordinator {
       store.streamingStatus = .streaming
       store.markWaitingForFirstFrame()
       scheduleFirstFrameTimeoutIfNeeded()
-      if store.assistantRuntimeState == .activating || store.assistantRuntimeState == .active {
+      if store.assistantRuntimeState == .connectingConversation || store.assistantRuntimeState == .activeConversation {
         store.runtimeSessionStateText = "active"
       }
     }
@@ -352,9 +343,9 @@ final class RuntimeCoordinator {
     store.resetFirstFrameState(status: "reset_stream_error")
     cancelFirstFrameTimeout()
 
-    if store.assistantRuntimeState == .activating || store.assistantRuntimeState == .active {
-      store.assistantRuntimeState = .failed
-      store.runtimeSessionStateText = "failed"
+    if store.assistantRuntimeState != .inactive {
+      store.assistantRuntimeState = .inactive
+      store.runtimeSessionStateText = "idle"
     }
   }
 
@@ -377,7 +368,7 @@ final class RuntimeCoordinator {
       }
       guard !Task.isCancelled else { return }
       guard !self.store.hasReceivedFirstFrame else { return }
-      guard self.store.assistantRuntimeState == .activating || self.store.assistantRuntimeState == .active else { return }
+      guard self.store.assistantRuntimeState == .connectingConversation || self.store.assistantRuntimeState == .activeConversation else { return }
       self.store.resetFirstFrameState(status: "first_frame_timeout")
       if self.store.runtimeInfoText.isEmpty {
         self.store.runtimeInfoText = "No video frame received yet. Check mock device state (PowerOn/Unfold/Don) and retry activation."

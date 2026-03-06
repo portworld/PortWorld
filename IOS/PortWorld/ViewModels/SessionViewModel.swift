@@ -58,8 +58,6 @@ final class SessionViewModel {
       store.runtimeSleepPhraseText = runtimeConfig.sleepPhrase
     }
 
-    store.assistantRuntimeState = .activating
-    store.runtimeSessionStateText = "activating"
     store.runtimeErrorText = ""
     store.runtimeInfoText = ""
 
@@ -74,8 +72,8 @@ final class SessionViewModel {
       store.errorMessage = "Permission error: \(error.localizedDescription)"
       store.showError = true
       store.runtimeErrorText = "Permission error: \(error.localizedDescription)"
-      store.assistantRuntimeState = .failed
-      store.runtimeSessionStateText = "failed"
+      store.assistantRuntimeState = .inactive
+      store.runtimeSessionStateText = "idle"
     }
   }
 
@@ -89,6 +87,10 @@ final class SessionViewModel {
     runtimeCoordinatorIsActivated = false
     store.assistantRuntimeState = .inactive
     store.runtimeSessionStateText = "inactive"
+  }
+
+  func endConversation() async {
+    await runtimeCoordinator.endConversation()
   }
 
   func dismissError() {
