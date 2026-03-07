@@ -278,7 +278,6 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
       onError?(WakeWordEngineError.recognitionTaskCreationFailed)
       return
     }
-    debugLog("Started listening generation=\(listeningSessionGeneration)")
     runtimeStatus = .listening
     publishStatus(authorization: authorization, runtime: .listening)
   }
@@ -303,9 +302,6 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
     guard let buffer = Self.makeRecognitionBuffer(from: frame) else { return }
     if firstAudioAppendTimestampMs == 0 {
       firstAudioAppendTimestampMs = nowMsProvider()
-      debugLog(
-        "First PCM frame appended after start generation=\(listeningSessionGeneration) sampleRate=\(Int(frame.sampleRateHz))"
-      )
       scheduleNoRecognitionUpdateRecoveryIfNeeded(for: listeningSessionGeneration)
     }
     request.append(buffer)
@@ -356,7 +352,6 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
       return false
     }
 
-    debugLog("Speech recognition task created generation=\(listeningSessionGeneration)")
     scheduleNoRecognitionUpdateRecoveryIfNeeded(for: listeningSessionGeneration)
     return true
   }
@@ -374,7 +369,6 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
     taskGeneration: Int
   ) {
     guard taskGeneration == recognitionTaskGeneration else {
-      debugLog("Ignoring stale recognition callback taskGeneration=\(taskGeneration) current=\(recognitionTaskGeneration)")
       return
     }
 
@@ -383,9 +377,6 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
       if receivedRecognitionUpdateSinceStart == false {
         receivedRecognitionUpdateSinceStart = true
         cancelNoRecognitionUpdateRecoveryTask()
-        debugLog(
-          "First recognition update received generation=\(listeningSessionGeneration) final=\(update.isFinal)"
-        )
       }
       let transcript = Self.normalizePhrase(update.transcript)
       if !transcript.isEmpty {

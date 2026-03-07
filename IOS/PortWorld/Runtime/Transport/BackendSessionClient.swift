@@ -144,8 +144,19 @@ actor BackendSessionClient {
     inboundEventSequence += 1
     let envelope = EventEnvelope(id: inboundEventSequence, event: event)
     let resolvedSessionID = sessionID ?? self.sessionID ?? "-"
-    debugLog("Yielding event#\(envelope.id) session=\(resolvedSessionID) \(describe(event))")
+    if shouldLogEvent(event) {
+      debugLog("Yielding event#\(envelope.id) session=\(resolvedSessionID) \(describe(event))")
+    }
     eventHandler?(envelope)
+  }
+
+  func shouldLogEvent(_ event: Event) -> Bool {
+    switch event {
+    case .stateChanged, .sessionReady, .playbackControl, .closed, .error:
+      return true
+    case .uplinkAcknowledged, .serverAudio:
+      return false
+    }
   }
 
   func describe(_ event: Event) -> String {

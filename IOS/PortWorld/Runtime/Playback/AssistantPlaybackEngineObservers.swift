@@ -31,7 +31,9 @@ extension AssistantPlaybackEngine {
     let route = currentRouteDescription()
     onRouteChanged?(route)
 
-    logRouteChange(notification: notification)
+    if routeIssueDescription(for: audioSession.currentRoute) != nil || pendingBufferCount > 0 {
+      logRouteChange(notification: notification)
+    }
 
     if isPlayerNodeAttached && !isPlayerNodeActuallyConnected() {
       debugLog("[AssistantPlaybackEngine] Route change invalidated player node connection, reconnecting")

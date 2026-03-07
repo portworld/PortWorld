@@ -37,23 +37,19 @@ extension BackendSessionClient {
 
   func handleControlMessage(_ data: Data) async throws {
     let rawEnvelope = try PhoneOnlyWSMessageCodec.decodeRawEnvelopeType(from: data)
-    debugLog("Inbound control type=\(rawEnvelope)")
 
     switch rawEnvelope {
     case PhoneOnlyWSInboundType.sessionState.rawValue:
       let envelope = try PhoneOnlyWSMessageCodec.decodeEnvelope(PhoneOnlySessionStatePayload.self, from: data)
-      debugLog("Inbound session.state=\(envelope.payload.state.rawValue)")
       if envelope.payload.state == .active {
         yieldEvent(.sessionReady)
       }
     case PhoneOnlyWSInboundType.transportUplinkAcknowledged.rawValue:
       let envelope = try PhoneOnlyWSMessageCodec.decodeEnvelope(PhoneOnlyRealtimeUplinkAckPayload.self, from: data)
-      debugLog("Inbound transport.uplink.ack frames=\(envelope.payload.framesReceived) bytes=\(envelope.payload.bytesReceived)")
       yieldEvent(.uplinkAcknowledged(envelope.payload))
     case PhoneOnlyWSInboundType.assistantPlaybackControl.rawValue:
       let envelope = try PhoneOnlyWSMessageCodec.decodeEnvelope(PhoneOnlyPlaybackControlPayload.self, from: data)
       lastPlaybackControlCommand = envelope.payload.command.rawValue
-      debugLog("Inbound assistant.playback.control command=\(envelope.payload.command.rawValue)")
       yieldEvent(.playbackControl(envelope.payload))
     case PhoneOnlyWSInboundType.error.rawValue:
       let envelope = try PhoneOnlyWSMessageCodec.decodeEnvelope(PhoneOnlyRuntimeErrorPayload.self, from: data)
@@ -70,10 +66,7 @@ extension BackendSessionClient {
     inboundServerAudioFrameCount += 1
     inboundServerAudioBytes += frame.payload.count
     lastInboundServerAudioBytes = frame.payload.count
-    if loggedFirstServerAudioFrame == false {
-      loggedFirstServerAudioFrame = true
-      debugLog("Inbound first server audio frame bytes=\(frame.payload.count) timestamp=\(frame.timestampMs)")
-    }
+    loggedFirstServerAudioFrame = true
     yieldEvent(.serverAudio(frame.payload))
   }
 }

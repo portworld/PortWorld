@@ -52,7 +52,6 @@ final class PhoneAudioIO {
 
     playbackEngine.onRouteChanged = { [weak self] route in
       guard let self else { return }
-      self.debugLog("Playback route changed: \(route)")
       do {
         try self.ensurePhoneSpeakerRouteIfNeeded(context: "route_changed")
       } catch {

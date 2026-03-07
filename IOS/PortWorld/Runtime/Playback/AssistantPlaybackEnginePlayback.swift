@@ -22,10 +22,7 @@ extension AssistantPlaybackEngine {
       throw AssistantPlaybackError.formatMismatch(expected: currentFormat, received: incomingFormat)
     }
 
-    if hasLoggedFirstAppend == false {
-      hasLoggedFirstAppend = true
-      debugLog("[AssistantPlaybackEngine] First appendPCMData bytes=\(pcmData.count) format=\(incomingFormat.description) route=\(currentRouteDescription()) engineRunning=\(audioEngine.isRunning)")
-    }
+    hasLoggedFirstAppend = true
 
     guard audioSession.category == .playAndRecord else {
       let expectedCategory = AVAudioSession.Category.playAndRecord.rawValue
@@ -68,7 +65,6 @@ extension AssistantPlaybackEngine {
     try recoverAudioGraphIfNeeded(context: "pre_play")
 
     if !playerNode.isPlaying {
-      debugLog("[AssistantPlaybackEngine] Starting player node")
       playerNode.play()
     }
 
@@ -77,18 +73,15 @@ extension AssistantPlaybackEngine {
     playerNode.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self, bufferDurationMs] callbackType in
       Task { @MainActor [weak self] in
         guard let self else { return }
-        self.debugLog("[AssistantPlaybackEngine] Buffer completion callback type=\(String(describing: callbackType)) pendingCount=\(self.pendingBufferCount)")
         self.queueState.recordBufferDrained(durationMs: bufferDurationMs, nowMs: self.nowMsProvider())
         self.logQueuePressureTransitionIfNeeded(context: "drain", chunkDurationMs: bufferDurationMs)
         if self.hasLoggedFirstDrain == false {
           self.hasLoggedFirstDrain = true
-          self.debugLog("[AssistantPlaybackEngine] First buffer drain completed route=\(self.currentRouteDescription()) pendingCount=\(self.pendingBufferCount)")
         }
       }
     }
     if hasLoggedFirstSchedule == false {
       hasLoggedFirstSchedule = true
-      debugLog("[AssistantPlaybackEngine] First buffer scheduled route=\(currentRouteDescription()) playerNode.isPlaying=\(playerNode.isPlaying) pendingCount=\(pendingBufferCount)")
     }
   }
 
@@ -120,12 +113,7 @@ extension AssistantPlaybackEngine {
     hasLoggedFirstFailureState = false
     hasLoggedBackpressureHighWater = false
     hasLoggedBackpressureCritical = false
-    if hasLoggedFirstStartResponse == false {
-      hasLoggedFirstStartResponse = true
-      debugLog("[AssistantPlaybackEngine] First startResponse received route=\(currentRouteDescription())")
-    } else {
-      debugLog("[AssistantPlaybackEngine] startResponse: counters reset, player node untouched")
-    }
+    hasLoggedFirstStartResponse = true
   }
 
   public func stopResponse() {

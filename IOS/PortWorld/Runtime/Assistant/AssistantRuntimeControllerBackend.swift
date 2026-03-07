@@ -8,7 +8,6 @@ extension AssistantRuntimeController {
       await self?.backendSessionClient.setEventHandler { [weak self] envelope in
         Task { @MainActor [weak self] in
           guard let self else { return }
-          self.debugLog("Consuming backend event#\(envelope.id) \(self.describeBackendEvent(envelope.event))")
           await self.handleBackendEvent(envelope)
         }
       }
@@ -29,18 +28,13 @@ extension AssistantRuntimeController {
     case .uplinkAcknowledged(let payload):
       firstUplinkAckReceived = true
       status.uplinkStatusText = "ack frames=\(payload.framesReceived) bytes=\(payload.bytesReceived)"
-      debugLog("Received uplink ack event#\(envelope.id) frames=\(payload.framesReceived) bytes=\(payload.bytesReceived)")
 
     case .serverAudio(let data):
       if isLocallyInterruptingAssistantPlayback {
-        debugLog("Dropping stale server audio during local barge-in bytes=\(data.count)")
         break
       }
       do {
-        debugLog("Received server audio event#\(envelope.id) bytes=\(data.count)")
-        debugLog("Calling appendAssistantPCMData for event#\(envelope.id)")
         try phoneAudioIO.appendAssistantPCMData(data)
-        debugLog("appendAssistantPCMData completed for event#\(envelope.id) route=\(phoneAudioIO.playbackRouteDescription())")
         let diagnostics = await backendSessionClient.diagnosticsSnapshot()
         status.playbackStatusText = "scheduled frames=\(diagnostics.inboundServerAudioFrameCount) bytes=\(diagnostics.inboundServerAudioBytes)"
         status.playbackRouteText = phoneAudioIO.playbackRouteDescription()

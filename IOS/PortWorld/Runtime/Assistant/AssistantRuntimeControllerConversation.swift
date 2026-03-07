@@ -71,7 +71,6 @@ extension AssistantRuntimeController {
       if hasLoggedUplinkDuringPlayback == false {
         hasLoggedUplinkDuringPlayback = true
         status.uplinkStatusText = "streaming_during_playback"
-        debugLog("Continuing realtime uplink during assistant playback for barge-in")
       }
     } else {
       hasLoggedUplinkDuringPlayback = false
