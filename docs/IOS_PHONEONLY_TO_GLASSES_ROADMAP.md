@@ -154,3 +154,192 @@ We are on the right path if:
 - glasses support can be added without reviving the old runtime architecture
 - vision can be added without destabilizing the assistant loop
 - backend cleanup becomes a follow-through step instead of another reset
+
+## Phase 2 Working Plan
+
+This section is the concrete implementation plan for Phase 2:
+
+- keep `IOS/PortWorld/` as the only active runtime source tree
+- preserve the current working phone-only path at every step
+- add glasses capability by extending the cleaned runtime, not by restoring legacy runtime layers
+- retain mock-device support as part of the active development workflow
+- keep vision and camera features out of scope for this phase
+
+### Phase 2 target runtime shape
+
+One assistant runtime should own lifecycle, UI state, backend transport, wake / sleep policy, and activation flow.
+
+That runtime should support two routes:
+
+- phone route
+- glasses route
+
+The runtime stays phone-owned.
+
+Glasses integration should be introduced as a bounded hardware capability layer that supplies:
+
+- DAT registration state
+- device discovery and availability
+- DAT session state
+- glasses audio route readiness
+- mock-device support
+
+The glasses layer should not become a second runtime controller.
+
+### Ownership boundaries for Phase 2
+
+Phone-owned responsibilities:
+
+- app shell and startup
+- main assistant runtime controller and published status
+- route selection in the main runtime UI
+- backend websocket contract and conversation lifecycle
+- wake / sleep policy
+- fallback to the phone route
+- scene-phase handling
+- audio format adaptation needed to keep the backend contract stable
+
+Glasses-owned responsibilities:
+
+- DAT SDK configuration and callback completion
+- registration and unregistration flow
+- device discovery and compatibility observation
+- DAT session lifecycle observation
+- HFP microphone / speaker route readiness for glasses mode
+- mock-device pairing and state simulation
+
+Still out of scope in Phase 2:
+
+- camera streaming
+- photo capture
+- vision upload / frame delivery
+- backend vision contract changes
+- revival of old generic runtime or compat architecture
+
+### Step-by-step implementation sequence
+
+#### Step 1. Promote DAT to an app-scoped capability layer
+
+Owner:
+- app shell
+- future hardware integration
+
+Work:
+
+- configure DAT once at app scope instead of inside a secondary setup screen
+- move Meta callback handling to app scope so registration / permission callbacks are not owned by a sheet
+- introduce one shared wearables state owner for DAT readiness, registration state, discovered devices, active device, and mock-device state
+- keep the phone assistant path unchanged while this is introduced
+
+Expected result:
+
+- DAT becomes a shared app capability, not a secondary mini-app
+
+#### Step 2. Surface route and readiness in the main runtime
+
+Owner:
+- main runtime UI
+- runtime status model
+
+Work:
+
+- add a route concept for `phone` versus `glasses`
+- extend runtime status so the main assistant screen can show glasses readiness, selected route, and recoverable hardware errors
+- make the main runtime screen the primary place where the user sees whether glasses are available
+- keep the setup sheet only as a secondary setup / diagnostics surface
+
+Expected result:
+
+- the user can understand and choose runtime route from the main assistant flow
+
+#### Step 3. Integrate DAT session lifecycle into the runtime
+
+Owner:
+- assistant runtime controller
+- future hardware session coordination
+
+Work:
+
+- connect DAT session state into the active runtime without creating a second runtime owner
+- define runtime reactions for `running`, `paused`, and `stopped`
+- require registration, compatible device availability, and session readiness before glasses activation can proceed
+- release glasses resources cleanly when DAT reports stop or device availability is lost
+
+Expected result:
+
+- glasses lifecycle becomes part of the active assistant lifecycle in a bounded way
+
+#### Step 4. Add a glasses audio path behind the same runtime controller
+
+Owner:
+- runtime audio I/O
+- assistant runtime controller
+
+Work:
+
+- introduce a bounded audio I/O seam so the controller can run either phone audio or glasses audio without forking conversation logic
+- keep `PhoneAudioIO` as the concrete phone path
+- add a glasses audio implementation that owns HFP preparation, device mic input, and device speaker output
+- preserve the current backend audio contract by adapting the glasses input format locally as needed
+- keep wake detection, backend transport, and playback policy under the existing runtime controller
+
+Expected result:
+
+- the same assistant loop can run through either phone audio or glasses audio
+
+#### Step 5. Preserve and formalize mock-device workflow
+
+Owner:
+- future hardware integration
+- development workflow
+
+Work:
+
+- keep mock-device pairing, readiness, and teardown in the active DAT workflow
+- ensure the shared wearables state owner can expose mock-device readiness to the main runtime
+- use mock-device support for development-time validation of DAT state handling even while physical-glasses validation remains necessary for live audio behavior
+
+Expected result:
+
+- the team can keep iterating on glasses lifecycle work without depending on physical hardware for every pass
+
+#### Step 6. Rename shared runtime surfaces once both routes exist
+
+Owner:
+- runtime structure
+- naming / docs hygiene
+
+Work:
+
+- rename phone-only runtime surfaces that now represent shared assistant runtime behavior
+- keep concrete phone-specific implementations named as phone-specific where that ownership is still true
+- update docs so the active runtime is described as one runtime with two routes, not a phone-only runtime plus a side DAT flow
+
+Expected result:
+
+- the codebase mental model matches the actual architecture after Phase 2
+
+### Early decisions and risks to resolve first
+
+- confirm that Phase 2 includes full glasses audio ownership, not DAT lifecycle only
+- keep the backend contract unchanged during Phase 2 and absorb audio-format adaptation on iOS
+- treat DAT session state as device-driven; do not infer transition causes or build hidden restart logic
+- keep route switching conservative: no mid-conversation hot-swap between phone and glasses in this phase
+- verify early what signal is reliable enough to treat HFP as ready before starting glasses audio work
+- assume mock-device support is useful for DAT lifecycle testing, but not sufficient alone to validate real HFP audio behavior
+
+### Verification plan for the phase
+
+- build after every non-trivial milestone
+- keep the current phone route working after each step
+- add targeted tests around:
+  - route selection
+  - DAT readiness gating
+  - DAT session `running`
+  - DAT session `paused`
+  - DAT session `stopped`
+  - loss of device availability during an active glasses session
+  - callback handling
+  - audio-format adaptation for glasses input
+- use mock-device workflow for registration, discovery, and session-state validation
+- use physical-glasses validation for final live audio-path confirmation
