@@ -4,12 +4,12 @@ import MWDATCore
 import SwiftUI
 
 @MainActor
-final class PhoneAssistantRuntimeViewModel: ObservableObject {
-  @Published private(set) var status: PhoneAssistantRuntimeStatus
+final class AssistantRuntimeViewModel: ObservableObject {
+  @Published private(set) var status: AssistantRuntimeStatus
 
   private let controller: AssistantRuntimeController
   private let wearablesRuntimeManager: WearablesRuntimeManager
-  private var controllerStatus: PhoneAssistantRuntimeStatus
+  private var controllerStatus: AssistantRuntimeStatus
   private var selectedRoute: AssistantRoute = .phone
   private var pendingGlassesActivation = false
   private var isStartingPhoneRuntimeForGlassesRoute = false
@@ -18,7 +18,7 @@ final class PhoneAssistantRuntimeViewModel: ObservableObject {
 
   init(wearablesRuntimeManager: WearablesRuntimeManager) {
     self.wearablesRuntimeManager = wearablesRuntimeManager
-    let config = PhoneOnlyRuntimeConfig.load()
+    let config = AssistantRuntimeConfig.load()
     self.controller = AssistantRuntimeController(config: config)
     self.controllerStatus = controller.status
     self.status = controller.status

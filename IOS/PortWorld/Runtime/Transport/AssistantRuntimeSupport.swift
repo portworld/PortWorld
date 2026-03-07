@@ -1,7 +1,7 @@
-// Active phone-only runtime support types that should not depend on legacy transport surfaces.
+// Active assistant runtime support types that should not depend on legacy transport surfaces.
 import Foundation
 
-enum PhoneAssistantRuntimeState: String, Codable, Sendable {
+enum AssistantRuntimeState: String, Codable, Sendable {
   case inactive
   case armedListening = "armed_listening"
   case connectingConversation = "connecting_conversation"
@@ -17,7 +17,7 @@ enum AssistantAudioMode: String, Codable, Sendable {
   case glassesMockFallback = "glasses_mock_fallback"
 }
 
-enum PhoneOnlyTransportError: Error, LocalizedError, Sendable {
+enum AssistantTransportError: Error, LocalizedError, Sendable {
   case notConnected
   case transport(String)
   case decoding(String)
@@ -37,7 +37,7 @@ enum PhoneOnlyTransportError: Error, LocalizedError, Sendable {
   }
 }
 
-nonisolated struct PhoneOnlyTransportDiagnosticsSnapshot: Sendable, Equatable {
+nonisolated struct AssistantTransportDiagnosticsSnapshot: Sendable, Equatable {
   let connectionID: Int
   let lastOutboundKind: String
   let lastOutboundBytes: Int
@@ -51,7 +51,7 @@ nonisolated struct PhoneOnlyTransportDiagnosticsSnapshot: Sendable, Equatable {
 }
 
 @MainActor
-protocol PhoneOnlyAssistantPlaybackControlling: AnyObject {
+protocol AssistantPlaybackControlling: AnyObject {
   var onRouteChanged: ((String) -> Void)? { get set }
   var onRouteIssue: ((String) -> Void)? { get set }
   var pendingBufferCount: Int { get }
@@ -60,7 +60,7 @@ protocol PhoneOnlyAssistantPlaybackControlling: AnyObject {
 
   func hasActivePendingPlayback() -> Bool
   func appendPCMData(_ pcmData: Data, format incomingFormat: AssistantAudioFormat) throws
-  func handlePlaybackControl(_ payload: PhoneOnlyPlaybackControlPayload)
+  func handlePlaybackControl(_ payload: AssistantPlaybackControlPayload)
   func cancelResponse()
   func shutdown()
   func prepareForBackground()
@@ -77,7 +77,7 @@ protocol AssistantAudioIOControlling: AnyObject {
 
   func prepareForArmedListening() async throws
   func appendAssistantPCMData(_ pcmData: Data) throws
-  func handlePlaybackControl(_ payload: PhoneOnlyPlaybackControlPayload)
+  func handlePlaybackControl(_ payload: AssistantPlaybackControlPayload)
   func cancelPlayback()
   func isAssistantPlaybackActive() -> Bool
   func prepareForBackground()

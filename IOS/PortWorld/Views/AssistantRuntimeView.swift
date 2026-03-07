@@ -1,13 +1,13 @@
 // Primary runtime screen for the assistant runtime across phone and glasses routes.
 import SwiftUI
 
-struct PhoneAssistantRuntimeView: View {
-  @ObservedObject private var viewModel: PhoneAssistantRuntimeViewModel
+struct AssistantRuntimeView: View {
+  @ObservedObject private var viewModel: AssistantRuntimeViewModel
   private let onOpenFutureHardwareSetup: () -> Void
   @Environment(\.scenePhase) private var scenePhase
 
   init(
-    viewModel: PhoneAssistantRuntimeViewModel,
+    viewModel: AssistantRuntimeViewModel,
     onOpenFutureHardwareSetup: @escaping () -> Void
   ) {
     self.viewModel = viewModel
@@ -205,7 +205,7 @@ struct PhoneAssistantRuntimeView: View {
   }
 }
 
-private extension PhoneAssistantRuntimeView {
+private extension AssistantRuntimeView {
   func glassesReadinessColor(_ kind: GlassesReadinessKind) -> Color {
     switch kind {
     case .neutral:

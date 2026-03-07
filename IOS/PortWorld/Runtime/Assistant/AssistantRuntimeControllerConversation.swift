@@ -1,4 +1,4 @@
-// Conversation flow and realtime audio uplink handling for the phone-only assistant.
+// Conversation flow and realtime audio uplink handling for the assistant runtime.
 import Foundation
 
 extension AssistantRuntimeController {

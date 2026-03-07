@@ -113,7 +113,7 @@ final class GlassesAudioIO: AssistantAudioIOControlling {
     }
   }
 
-  func handlePlaybackControl(_ payload: PhoneOnlyPlaybackControlPayload) {
+  func handlePlaybackControl(_ payload: AssistantPlaybackControlPayload) {
     switch payload.command {
     case .startResponse:
       isResponseStreaming = true

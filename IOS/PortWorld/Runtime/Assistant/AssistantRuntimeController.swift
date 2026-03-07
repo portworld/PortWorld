@@ -1,4 +1,4 @@
-// Main-actor coordinator that owns phone-only assistant runtime state and service bindings.
+// Main-actor coordinator that owns the shared assistant runtime state and service bindings.
 import Foundation
 
 @MainActor
@@ -8,7 +8,7 @@ final class AssistantRuntimeController {
     let timestampMs: Int64
   }
 
-  let config: PhoneOnlyRuntimeConfig
+  let config: AssistantRuntimeConfig
   let phoneAudioIO: PhoneAudioIO
   let glassesAudioIO: GlassesAudioIO
   let backendSessionClient: BackendSessionClient
@@ -32,12 +32,12 @@ final class AssistantRuntimeController {
   let localBargeInRMSFloor: Double = 0.012
   let localBargeInFrameThreshold = 3
 
-  var status: PhoneAssistantRuntimeStatus
-  var onStatusUpdated: ((PhoneAssistantRuntimeStatus) -> Void)?
+  var status: AssistantRuntimeStatus
+  var onStatusUpdated: ((AssistantRuntimeStatus) -> Void)?
   var onGlassesAudioModeUpdated: ((AssistantAudioMode, Bool) -> Void)?
 
   init(
-    config: PhoneOnlyRuntimeConfig,
+    config: AssistantRuntimeConfig,
     phoneAudioIO: PhoneAudioIO? = nil,
     glassesAudioIO: GlassesAudioIO? = nil,
     backendSessionClient: BackendSessionClient? = nil,
@@ -54,10 +54,10 @@ final class AssistantRuntimeController {
     )
     self.wakePhraseDetector = wakePhraseDetector ?? WakePhraseDetector(config: config)
     self.activeAudioIO = resolvedPhoneAudioIO
-    self.status = PhoneAssistantRuntimeStatus(
+    self.status = AssistantRuntimeStatus(
       wakePhraseText: config.wakePhrase,
       sleepPhraseText: config.sleepPhrase,
-      infoText: "Phone-only assistant ready."
+      infoText: "Assistant runtime ready."
     )
 
     bindAudioIO(resolvedPhoneAudioIO)

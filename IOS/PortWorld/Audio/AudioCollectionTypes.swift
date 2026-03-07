@@ -1,4 +1,4 @@
-// Shared audio collection state, statistics, and frame types used by the phone-only capture pipeline.
+// Shared audio collection state, statistics, and frame types used by the assistant runtime capture pipelines.
 
 import Foundation
 

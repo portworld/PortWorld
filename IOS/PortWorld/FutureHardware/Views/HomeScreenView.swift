@@ -341,7 +341,7 @@ private extension HomeScreenView {
       HomeProgressRow.RowData(
         id: "runtime",
         title: "Runtime activation",
-        detail: "Phone-only mode available now",
+        detail: "Phone route available now",
         status: .done
       ),
     ]

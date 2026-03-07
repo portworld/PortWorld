@@ -1,4 +1,4 @@
-// Keychain-backed storage for assistant credentials used by the phone-only runtime.
+// Keychain-backed storage for assistant credentials used by the assistant runtime.
 import Foundation
 import Security
 

@@ -1,4 +1,4 @@
-// Coordinates the shared audio engine, microphone capture, and realtime frame delivery for the phone-only assistant.
+// Coordinates the shared audio engine, microphone capture, and realtime frame delivery for the assistant runtime.
 
 @preconcurrency import AVFAudio
 import Combine

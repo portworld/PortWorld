@@ -1,25 +1,25 @@
-// Phone-only configuration surface for the active assistant runtime.
+// Shared configuration surface for the active assistant runtime.
 import Foundation
 
-enum PhoneOnlyWakeWordMode: String, Codable {
+enum AssistantWakeWordMode: String, Codable {
   case manualOnly = "manual_only"
   case onDevicePreferred = "on_device_preferred"
 }
 
-struct PhoneOnlyRuntimeConfig {
+struct AssistantRuntimeConfig {
   private static let apiKeyBootstrapMarkerUserDefaultsKey = "portworld.apiKeyBootstrapSeeded"
 
   let webSocketURL: URL
   let requestHeaders: [String: String]
   let wakePhrase: String
   let sleepPhrase: String
-  let wakeWordMode: PhoneOnlyWakeWordMode
+  let wakeWordMode: AssistantWakeWordMode
   let wakeWordLocaleIdentifier: String
   let wakeWordRequiresOnDeviceRecognition: Bool
   let wakeWordDetectionCooldownMs: Int64
   let sleepWordMinActiveStreamMs: Int64
 
-  static func load(from bundle: Bundle = .main, userDefaults: UserDefaults = .standard) -> PhoneOnlyRuntimeConfig {
+  static func load(from bundle: Bundle = .main, userDefaults: UserDefaults = .standard) -> AssistantRuntimeConfig {
     let backendBaseURL = resolveURL(
       infoPlistKey: "SON_BACKEND_BASE_URL",
       defaultURLString: "http://127.0.0.1:8080",
@@ -35,7 +35,7 @@ struct PhoneOnlyRuntimeConfig {
     let apiKey = resolveAPIKey(bundle: bundle, userDefaults: userDefaults)
     let bearerToken = resolveString(infoPlistKey: "SON_BEARER_TOKEN", defaultValue: "", bundle: bundle)
 
-    return PhoneOnlyRuntimeConfig(
+    return AssistantRuntimeConfig(
       webSocketURL: explicitWebSocketURL ?? deriveWebSocketURL(baseURL: backendBaseURL, path: wsPath),
       requestHeaders: makeRequestHeaders(apiKey: apiKey, bearerToken: bearerToken),
       wakePhrase: resolveWakePhrase(bundle: bundle, userDefaults: userDefaults),
@@ -74,7 +74,7 @@ struct PhoneOnlyRuntimeConfig {
       }
     } catch {
       #if DEBUG
-        NSLog("PhoneOnlyRuntimeConfig: failed to retrieve API key from keychain: \(error)")
+        NSLog("AssistantRuntimeConfig: failed to retrieve API key from keychain: \(error)")
       #endif
     }
 
@@ -93,7 +93,7 @@ struct PhoneOnlyRuntimeConfig {
       try KeychainCredentialStore.store(apiKey: plistAPIKey)
     } catch {
       #if DEBUG
-        NSLog("PhoneOnlyRuntimeConfig: failed to seed API key into keychain: \(error)")
+        NSLog("AssistantRuntimeConfig: failed to seed API key into keychain: \(error)")
       #endif
     }
 
@@ -111,10 +111,10 @@ struct PhoneOnlyRuntimeConfig {
     return resolveString(infoPlistKey: "SON_WAKE_PHRASE", defaultValue: "hey mario", bundle: bundle)
   }
 
-  private static func resolveWakeWordMode(bundle: Bundle) -> PhoneOnlyWakeWordMode {
+  private static func resolveWakeWordMode(bundle: Bundle) -> AssistantWakeWordMode {
     if let raw = bundle.object(forInfoDictionaryKey: "SON_WAKE_MODE") as? String {
       let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-      return PhoneOnlyWakeWordMode(rawValue: trimmed) ?? .onDevicePreferred
+      return AssistantWakeWordMode(rawValue: trimmed) ?? .onDevicePreferred
     }
 
     return .onDevicePreferred

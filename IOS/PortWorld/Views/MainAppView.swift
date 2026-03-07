@@ -2,20 +2,20 @@
 import SwiftUI
 
 struct MainAppView: View {
-  @StateObject private var phoneRuntimeViewModel: PhoneAssistantRuntimeViewModel
+  @StateObject private var runtimeViewModel: AssistantRuntimeViewModel
   @ObservedObject private var wearablesRuntimeManager: WearablesRuntimeManager
   @State private var isPresentingFutureHardwareSetup = false
 
   init(wearablesRuntimeManager: WearablesRuntimeManager) {
     self.wearablesRuntimeManager = wearablesRuntimeManager
-    _phoneRuntimeViewModel = StateObject(
-      wrappedValue: PhoneAssistantRuntimeViewModel(wearablesRuntimeManager: wearablesRuntimeManager)
+    _runtimeViewModel = StateObject(
+      wrappedValue: AssistantRuntimeViewModel(wearablesRuntimeManager: wearablesRuntimeManager)
     )
   }
 
   var body: some View {
-    PhoneAssistantRuntimeView(
-      viewModel: phoneRuntimeViewModel,
+    AssistantRuntimeView(
+      viewModel: runtimeViewModel,
       onOpenFutureHardwareSetup: {
         isPresentingFutureHardwareSetup = true
       }

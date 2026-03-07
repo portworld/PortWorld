@@ -1,4 +1,4 @@
-// Inbound receive loop and message decoding for the phone-only backend session client.
+// Inbound receive loop and message decoding for the assistant backend session client.
 import Foundation
 
 extension BackendSessionClient {
@@ -36,23 +36,23 @@ extension BackendSessionClient {
   }
 
   func handleControlMessage(_ data: Data) async throws {
-    let rawEnvelope = try PhoneOnlyWSMessageCodec.decodeRawEnvelopeType(from: data)
+    let rawEnvelope = try AssistantWSMessageCodec.decodeRawEnvelopeType(from: data)
 
     switch rawEnvelope {
-    case PhoneOnlyWSInboundType.sessionState.rawValue:
-      let envelope = try PhoneOnlyWSMessageCodec.decodeEnvelope(PhoneOnlySessionStatePayload.self, from: data)
+    case AssistantWSInboundType.sessionState.rawValue:
+      let envelope = try AssistantWSMessageCodec.decodeEnvelope(AssistantSessionStatePayload.self, from: data)
       if envelope.payload.state == .active {
         yieldEvent(.sessionReady)
       }
-    case PhoneOnlyWSInboundType.transportUplinkAcknowledged.rawValue:
-      let envelope = try PhoneOnlyWSMessageCodec.decodeEnvelope(PhoneOnlyRealtimeUplinkAckPayload.self, from: data)
+    case AssistantWSInboundType.transportUplinkAcknowledged.rawValue:
+      let envelope = try AssistantWSMessageCodec.decodeEnvelope(AssistantRealtimeUplinkAckPayload.self, from: data)
       yieldEvent(.uplinkAcknowledged(envelope.payload))
-    case PhoneOnlyWSInboundType.assistantPlaybackControl.rawValue:
-      let envelope = try PhoneOnlyWSMessageCodec.decodeEnvelope(PhoneOnlyPlaybackControlPayload.self, from: data)
+    case AssistantWSInboundType.assistantPlaybackControl.rawValue:
+      let envelope = try AssistantWSMessageCodec.decodeEnvelope(AssistantPlaybackControlPayload.self, from: data)
       lastPlaybackControlCommand = envelope.payload.command.rawValue
       yieldEvent(.playbackControl(envelope.payload))
-    case PhoneOnlyWSInboundType.error.rawValue:
-      let envelope = try PhoneOnlyWSMessageCodec.decodeEnvelope(PhoneOnlyRuntimeErrorPayload.self, from: data)
+    case AssistantWSInboundType.error.rawValue:
+      let envelope = try AssistantWSMessageCodec.decodeEnvelope(AssistantRuntimeErrorPayload.self, from: data)
       debugLog("Inbound error code=\(envelope.payload.code) message=\(envelope.payload.message)")
       yieldEvent(.error(envelope.payload.message))
     default:
@@ -61,7 +61,7 @@ extension BackendSessionClient {
   }
 
   func handleBinaryMessage(_ data: Data) async throws {
-    let frame = try PhoneOnlyBinaryFrameCodec.decode(data)
+    let frame = try AssistantBinaryFrameCodec.decode(data)
     guard frame.frameType == .serverAudio else { return }
     inboundServerAudioFrameCount += 1
     inboundServerAudioBytes += frame.payload.count

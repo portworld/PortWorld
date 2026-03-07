@@ -1,7 +1,7 @@
-// Phone-only websocket and binary framing types for the active assistant runtime.
+// Shared websocket and binary framing types for the active assistant runtime.
 import Foundation
 
-enum PhoneOnlySessionState: String, Codable, Sendable {
+enum AssistantSessionState: String, Codable, Sendable {
   case idle
   case connecting
   case active
@@ -12,17 +12,17 @@ enum PhoneOnlySessionState: String, Codable, Sendable {
   case failed
 }
 
-enum PhoneOnlyPlaybackControlCommand: String, Codable, Sendable {
+enum AssistantPlaybackControlCommand: String, Codable, Sendable {
   case startResponse = "start_response"
   case stopResponse = "stop_response"
   case cancelResponse = "cancel_response"
 }
 
-nonisolated struct PhoneOnlyPlaybackControlPayload: Codable, Sendable {
-  let command: PhoneOnlyPlaybackControlCommand
+nonisolated struct AssistantPlaybackControlPayload: Codable, Sendable {
+  let command: AssistantPlaybackControlCommand
   let responseID: String?
 
-  init(command: PhoneOnlyPlaybackControlCommand, responseID: String? = nil) {
+  init(command: AssistantPlaybackControlCommand, responseID: String? = nil) {
     self.command = command
     self.responseID = responseID
   }
@@ -33,7 +33,7 @@ nonisolated struct PhoneOnlyPlaybackControlPayload: Codable, Sendable {
   }
 }
 
-nonisolated struct PhoneOnlyRealtimeUplinkAckPayload: Codable, Sendable {
+nonisolated struct AssistantRealtimeUplinkAckPayload: Codable, Sendable {
   let framesReceived: Int
   let bytesReceived: Int
   let probeAcknowledged: Bool?
@@ -45,20 +45,20 @@ nonisolated struct PhoneOnlyRealtimeUplinkAckPayload: Codable, Sendable {
   }
 }
 
-nonisolated struct PhoneOnlyRuntimeErrorPayload: Codable, Sendable {
+nonisolated struct AssistantRuntimeErrorPayload: Codable, Sendable {
   let code: String
   let retriable: Bool
   let message: String
 }
 
-nonisolated struct PhoneOnlySessionStatePayload: Codable, Sendable {
-  let state: PhoneOnlySessionState
+nonisolated struct AssistantSessionStatePayload: Codable, Sendable {
+  let state: AssistantSessionState
   let detail: String?
 }
 
-nonisolated struct PhoneOnlyEmptyPayload: Codable, Sendable {}
+nonisolated struct AssistantEmptyPayload: Codable, Sendable {}
 
-nonisolated struct PhoneOnlySessionActivatePayload: Codable, Sendable {
+nonisolated struct AssistantSessionActivatePayload: Codable, Sendable {
   nonisolated struct SessionInfo: Codable, Sendable {
     let type: String
   }
@@ -84,7 +84,7 @@ nonisolated struct PhoneOnlySessionActivatePayload: Codable, Sendable {
   }
 }
 
-nonisolated struct PhoneOnlyWakewordDetectedPayload: Codable, Sendable {
+nonisolated struct AssistantWakeWordDetectedPayload: Codable, Sendable {
   let wakePhrase: String
   let engine: String
   let confidence: Double?
@@ -96,7 +96,7 @@ nonisolated struct PhoneOnlyWakewordDetectedPayload: Codable, Sendable {
   }
 }
 
-@preconcurrency nonisolated struct PhoneOnlyWSControlEnvelope<Payload> {
+@preconcurrency nonisolated struct AssistantWSControlEnvelope<Payload> {
   let type: String
   let sessionID: String
   let seq: Int
@@ -112,36 +112,36 @@ nonisolated struct PhoneOnlyWakewordDetectedPayload: Codable, Sendable {
   }
 }
 
-extension PhoneOnlyWSControlEnvelope: Sendable where Payload: Sendable {}
+extension AssistantWSControlEnvelope: Sendable where Payload: Sendable {}
 
-private nonisolated struct PhoneOnlyWSRawEnvelopeHeader: Decodable, Sendable {
+private nonisolated struct AssistantWSRawEnvelopeHeader: Decodable, Sendable {
   let type: String
 }
 
-enum PhoneOnlyWSOutboundType: String, Codable, Sendable {
+enum AssistantWSOutboundType: String, Codable, Sendable {
   case sessionActivate = "session.activate"
   case sessionDeactivate = "session.deactivate"
   case sessionEndTurn = "session.end_turn"
   case wakewordDetected = "wakeword.detected"
 }
 
-enum PhoneOnlyWSInboundType: String, Codable, Sendable {
+enum AssistantWSInboundType: String, Codable, Sendable {
   case sessionState = "session.state"
   case transportUplinkAcknowledged = "transport.uplink.ack"
   case assistantPlaybackControl = "assistant.playback.control"
   case error
 }
 
-@preconcurrency enum PhoneOnlyWSMessageCodec {
+@preconcurrency enum AssistantWSMessageCodec {
   nonisolated static func decodeRawEnvelopeType(from data: Data, decoder: JSONDecoder = JSONDecoder()) throws -> String {
-    try decoder.decode(PhoneOnlyWSRawEnvelopeHeader.self, from: data).type
+    try decoder.decode(AssistantWSRawEnvelopeHeader.self, from: data).type
   }
 
   nonisolated static func decodeEnvelope<Payload: Decodable>(
     _ payloadType: Payload.Type,
     from data: Data,
     decoder: JSONDecoder = JSONDecoder()
-  ) throws -> PhoneOnlyWSControlEnvelope<Payload> {
+  ) throws -> AssistantWSControlEnvelope<Payload> {
     guard
       let jsonObject = try JSONSerialization.jsonObject(with: data) as? [String: Any],
       let type = jsonObject["type"] as? String,
@@ -149,7 +149,7 @@ enum PhoneOnlyWSInboundType: String, Codable, Sendable {
       let seq = jsonObject["seq"] as? Int,
       let tsValue = jsonObject["ts_ms"]
     else {
-      throw PhoneOnlyTransportError.decoding("Malformed websocket control envelope.")
+      throw AssistantTransportError.decoding("Malformed websocket control envelope.")
     }
 
     let tsMs: Int64
@@ -160,21 +160,21 @@ enum PhoneOnlyWSInboundType: String, Codable, Sendable {
     } else if let number = tsValue as? NSNumber {
       tsMs = number.int64Value
     } else {
-      throw PhoneOnlyTransportError.decoding("Invalid websocket envelope timestamp.")
+      throw AssistantTransportError.decoding("Invalid websocket envelope timestamp.")
     }
 
     let payloadObject = jsonObject["payload"] ?? [:]
     guard JSONSerialization.isValidJSONObject(payloadObject) else {
-      throw PhoneOnlyTransportError.decoding("Invalid websocket envelope payload object.")
+      throw AssistantTransportError.decoding("Invalid websocket envelope payload object.")
     }
 
     let payloadData = try JSONSerialization.data(withJSONObject: payloadObject)
     let payload = try decoder.decode(payloadType, from: payloadData)
-    return PhoneOnlyWSControlEnvelope(type: type, sessionID: sessionID, seq: seq, tsMs: tsMs, payload: payload)
+    return AssistantWSControlEnvelope(type: type, sessionID: sessionID, seq: seq, tsMs: tsMs, payload: payload)
   }
 
   nonisolated static func encodeEnvelope<Payload: Encodable>(
-    _ envelope: PhoneOnlyWSControlEnvelope<Payload>,
+    _ envelope: AssistantWSControlEnvelope<Payload>,
     encoder: JSONEncoder = JSONEncoder()
   ) throws -> Data {
     let payloadData = try encoder.encode(envelope.payload)
@@ -190,18 +190,18 @@ enum PhoneOnlyWSInboundType: String, Codable, Sendable {
   }
 }
 
-enum PhoneOnlyBinaryFrameType: UInt8, Sendable {
+enum AssistantBinaryFrameType: UInt8, Sendable {
   case clientAudio = 0x01
   case serverAudio = 0x02
 }
 
-nonisolated struct PhoneOnlyBinaryFrame: Sendable, Equatable {
-  let frameType: PhoneOnlyBinaryFrameType
+nonisolated struct AssistantBinaryFrame: Sendable, Equatable {
+  let frameType: AssistantBinaryFrameType
   let timestampMs: Int64
   let payload: Data
 }
 
-@preconcurrency enum PhoneOnlyBinaryFrameCodec {
+@preconcurrency enum AssistantBinaryFrameCodec {
   enum DecodeError: Error, LocalizedError, Sendable {
     case frameTooShort(expectedMinimum: Int, actual: Int)
     case unsupportedFrameType(UInt8)
@@ -218,7 +218,7 @@ nonisolated struct PhoneOnlyBinaryFrame: Sendable, Equatable {
 
   private nonisolated static let headerSize = 9
 
-  nonisolated static func encode(_ frame: PhoneOnlyBinaryFrame) -> Data {
+  nonisolated static func encode(_ frame: AssistantBinaryFrame) -> Data {
     var data = Data(capacity: headerSize + frame.payload.count)
     data.append(frame.frameType.rawValue)
 
@@ -231,7 +231,7 @@ nonisolated struct PhoneOnlyBinaryFrame: Sendable, Equatable {
     return data
   }
 
-  nonisolated static func decode(_ data: Data) throws -> PhoneOnlyBinaryFrame {
+  nonisolated static func decode(_ data: Data) throws -> AssistantBinaryFrame {
     guard data.count >= headerSize else {
       throw DecodeError.frameTooShort(expectedMinimum: headerSize, actual: data.count)
     }
@@ -241,7 +241,7 @@ nonisolated struct PhoneOnlyBinaryFrame: Sendable, Equatable {
     let payloadStart = data.index(headerStart, offsetBy: headerSize)
 
     let rawType = data[headerStart]
-    guard let frameType = PhoneOnlyBinaryFrameType(rawValue: rawType) else {
+    guard let frameType = AssistantBinaryFrameType(rawValue: rawType) else {
       throw DecodeError.unsupportedFrameType(rawType)
     }
 
@@ -250,7 +250,7 @@ nonisolated struct PhoneOnlyBinaryFrame: Sendable, Equatable {
       rawTimestamp |= UInt64(byte) << UInt64(shift * 8)
     }
 
-    return PhoneOnlyBinaryFrame(
+    return AssistantBinaryFrame(
       frameType: frameType,
       timestampMs: Int64(bitPattern: rawTimestamp),
       payload: Data(data[payloadStart..<data.endIndex])

@@ -1,4 +1,4 @@
-// Phone-only websocket session actor that owns transport state and event delivery.
+// Shared websocket session actor that owns transport state and event delivery.
 import Foundation
 
 actor BackendSessionClient {
@@ -17,9 +17,9 @@ actor BackendSessionClient {
   enum Event: Sendable {
     case stateChanged(ConnectionState)
     case sessionReady
-    case uplinkAcknowledged(PhoneOnlyRealtimeUplinkAckPayload)
+    case uplinkAcknowledged(AssistantRealtimeUplinkAckPayload)
     case serverAudio(Data)
-    case playbackControl(PhoneOnlyPlaybackControlPayload)
+    case playbackControl(AssistantPlaybackControlPayload)
     case closed
     case error(String)
   }
@@ -121,8 +121,8 @@ actor BackendSessionClient {
     connectionState.rawValue
   }
 
-  func diagnosticsSnapshot() -> PhoneOnlyTransportDiagnosticsSnapshot {
-    PhoneOnlyTransportDiagnosticsSnapshot(
+  func diagnosticsSnapshot() -> AssistantTransportDiagnosticsSnapshot {
+    AssistantTransportDiagnosticsSnapshot(
       connectionID: connectionState == .idle ? 0 : 1,
       lastOutboundKind: lastOutboundKind,
       lastOutboundBytes: lastOutboundBytes,

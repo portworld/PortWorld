@@ -1,4 +1,4 @@
-// Core assistant playback engine types and shared state for streamed phone-only audio responses.
+// Core assistant playback engine types and shared state for streamed assistant audio responses.
 
 import AVFAudio
 import Foundation
@@ -133,7 +133,7 @@ struct AssistantPlaybackQueueState {
 }
 
 @MainActor
-public final class AssistantPlaybackEngine: PhoneOnlyAssistantPlaybackControlling {
+public final class AssistantPlaybackEngine: AssistantPlaybackControlling {
   public var onRouteChanged: ((String) -> Void)?
   public var onRouteIssue: ((String) -> Void)?
 

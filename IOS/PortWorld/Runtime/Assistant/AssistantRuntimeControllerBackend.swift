@@ -1,4 +1,4 @@
-// Backend event binding and status updates for the phone-only assistant controller.
+// Backend event binding and status updates for the assistant runtime controller.
 import Foundation
 
 extension AssistantRuntimeController {

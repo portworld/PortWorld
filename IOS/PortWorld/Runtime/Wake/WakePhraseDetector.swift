@@ -1,4 +1,4 @@
-// Phone-only facade that configures and bridges the active wake-word engine.
+// Shared facade that configures and bridges the active wake-word engine.
 import Foundation
 
 @MainActor
@@ -23,7 +23,7 @@ final class WakePhraseDetector {
     engine.isListening
   }
 
-  init(config: PhoneOnlyRuntimeConfig) {
+  init(config: AssistantRuntimeConfig) {
     if config.wakeWordMode == .onDevicePreferred {
       self.engine = SFSpeechWakeWordEngine(
         wakePhrase: config.wakePhrase,

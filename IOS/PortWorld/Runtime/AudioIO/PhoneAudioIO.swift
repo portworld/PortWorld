@@ -1,4 +1,4 @@
-// Bridges phone microphone capture and assistant playback for the active phone-only runtime.
+// Bridges phone microphone capture and assistant playback for the phone-owned runtime path.
 
 import AVFAudio
 import Foundation
@@ -41,7 +41,7 @@ final class PhoneAudioIO: AssistantAudioIOControlling {
 
   private let audioManager: AudioCollectionManager
   private let audioSession: AVAudioSession
-  private let playbackEngine: PhoneOnlyAssistantPlaybackControlling
+  private let playbackEngine: AssistantPlaybackControlling
   private let audioSessionLeaseManager: AudioSessionLeaseManager
   private var isResponseStreaming = false
 
@@ -104,7 +104,7 @@ final class PhoneAudioIO: AssistantAudioIOControlling {
     try playbackEngine.appendPCMData(pcmData, format: format)
   }
 
-  func handlePlaybackControl(_ payload: PhoneOnlyPlaybackControlPayload) {
+  func handlePlaybackControl(_ payload: AssistantPlaybackControlPayload) {
     switch payload.command {
     case .startResponse:
       isResponseStreaming = true

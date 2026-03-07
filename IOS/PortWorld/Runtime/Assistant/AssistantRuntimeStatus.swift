@@ -1,4 +1,4 @@
-// Shared UI-facing status model for the phone-only assistant runtime.
+// Shared UI-facing status model for the assistant runtime across phone and glasses routes.
 import Foundation
 
 enum AssistantRoute: String {
@@ -13,8 +13,8 @@ enum GlassesReadinessKind {
   case error
 }
 
-struct PhoneAssistantRuntimeStatus {
-  var assistantRuntimeState: PhoneAssistantRuntimeState = .inactive
+struct AssistantRuntimeStatus {
+  var assistantRuntimeState: AssistantRuntimeState = .inactive
   var selectedRoute: AssistantRoute = .phone
   var activeRouteText: String = "none"
   var glassesReadinessTitle: String = "Glasses setup required"
