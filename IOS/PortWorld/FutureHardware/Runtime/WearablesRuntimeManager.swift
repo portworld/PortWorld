@@ -301,9 +301,7 @@ final class WearablesRuntimeManager: ObservableObject {
       for await state in wearables.registrationStateStream() {
         self.registrationState = state
         self.refreshDevelopmentReadiness()
-        if state != .registered {
-          await self.stopGlassesSession()
-        }
+        await self.reconcileActiveGlassesSession()
       }
     }
 
@@ -314,6 +312,7 @@ final class WearablesRuntimeManager: ObservableObject {
         self.devices = devices
         self.monitorDeviceCompatibility(devices: devices)
         self.refreshDevelopmentReadiness()
+        await self.reconcileActiveGlassesSession()
       }
     }
   }
@@ -348,6 +347,7 @@ final class WearablesRuntimeManager: ObservableObject {
             self.compatibilityMessages[deviceID] = nil
             self.updateActiveCompatibilityMessage()
           }
+          await self.reconcileActiveGlassesSession()
         }
       }
       compatibilityListenerTokens[deviceID] = token
@@ -371,6 +371,7 @@ final class WearablesRuntimeManager: ObservableObject {
   }
 
   private func applyGlassesSessionSnapshot(_ snapshot: GlassesSessionCoordinator.Snapshot) {
+    let previousPhase = glassesSessionPhase
     glassesSessionPhase = snapshot.phase
     glassesSessionState = snapshot.sessionState
     activeGlassesDeviceName = snapshot.activeDeviceName
@@ -380,6 +381,14 @@ final class WearablesRuntimeManager: ObservableObject {
       glassesSessionErrorMessage = nil
     }
     refreshDevelopmentReadiness()
+
+    if isGlassesSessionRequested &&
+      snapshot.phase == .waitingForDevice &&
+      (previousPhase == .running || previousPhase == .paused) {
+      Task { @MainActor [weak self] in
+        await self?.stopGlassesSession()
+      }
+    }
   }
 
   private func resetGlassesSessionSnapshot() {
@@ -540,6 +549,30 @@ final class WearablesRuntimeManager: ObservableObject {
 
       glassesDevelopmentReadinessDetail =
         "Glasses runtime can activate, but live audio still depends on a real Bluetooth HFP route."
+    }
+  }
+
+  private func reconcileActiveGlassesSession() async {
+    guard isGlassesSessionRequested else { return }
+
+    guard configurationState == .ready else {
+      await stopGlassesSession()
+      return
+    }
+
+    guard registrationState == .registered else {
+      await stopGlassesSession()
+      return
+    }
+
+    guard devices.isEmpty == false else {
+      await stopGlassesSession()
+      return
+    }
+
+    guard activeCompatibilityMessage == nil else {
+      await stopGlassesSession()
+      return
     }
   }
 

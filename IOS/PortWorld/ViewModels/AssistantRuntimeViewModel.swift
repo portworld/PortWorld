@@ -200,6 +200,11 @@ final class AssistantRuntimeViewModel: ObservableObject {
     let glassesSessionPhase = wearablesRuntimeManager.glassesSessionPhase
     let glassesSessionState = wearablesRuntimeManager.glassesSessionState
 
+    if glassesRoutePrerequisitesInvalidated {
+      await stopGlassesRouteIfNeeded()
+      return
+    }
+
     if glassesSessionPhase == .running {
       if pendingGlassesActivation &&
         controllerStatus.assistantRuntimeState == .inactive &&
@@ -208,6 +213,9 @@ final class AssistantRuntimeViewModel: ObservableObject {
         pendingGlassesActivation = false
         await controller.activate(using: .glasses)
         isStartingPhoneRuntimeForGlassesRoute = false
+        if controllerStatus.assistantRuntimeState == .inactive {
+          await stopGlassesRouteIfNeeded()
+        }
         return
       }
 
@@ -227,22 +235,61 @@ final class AssistantRuntimeViewModel: ObservableObject {
       }
     }
 
-    if glassesSessionPhase == .failed || glassesSessionState == .stopped {
-      guard isStoppingGlassesRoute == false else { return }
-      guard pendingGlassesActivation ||
-        wearablesRuntimeManager.isGlassesSessionRequested ||
-        controllerStatus.assistantRuntimeState != .inactive else {
-        return
-      }
-
-      isStoppingGlassesRoute = true
-      pendingGlassesActivation = false
-      if controllerStatus.assistantRuntimeState != .inactive {
-        await controller.deactivate()
-      }
-      await wearablesRuntimeManager.stopGlassesSession()
-      isStoppingGlassesRoute = false
+    if glassesSessionPhase == .waitingForDevice && shouldTearDownForWaitingDeviceLoss {
+      await stopGlassesRouteIfNeeded()
+      return
     }
+
+    if glassesSessionPhase == .failed || glassesSessionState == .stopped {
+      await stopGlassesRouteIfNeeded()
+    }
+  }
+
+  private var glassesRoutePrerequisitesInvalidated: Bool {
+    guard pendingGlassesActivation ||
+      wearablesRuntimeManager.isGlassesSessionRequested ||
+      controllerStatus.assistantRuntimeState != .inactive else {
+      return false
+    }
+
+    if wearablesRuntimeManager.configurationState != .ready {
+      return true
+    }
+
+    if wearablesRuntimeManager.registrationState != .registered {
+      return true
+    }
+
+    if wearablesRuntimeManager.devices.isEmpty {
+      return true
+    }
+
+    return wearablesRuntimeManager.activeCompatibilityMessage != nil
+  }
+
+  private var shouldTearDownForWaitingDeviceLoss: Bool {
+    guard pendingGlassesActivation == false else { return false }
+    return wearablesRuntimeManager.isGlassesSessionRequested ||
+      controllerStatus.assistantRuntimeState == .pausedByHardware ||
+      controllerStatus.assistantRuntimeState != .inactive
+  }
+
+  private func stopGlassesRouteIfNeeded() async {
+    guard isStoppingGlassesRoute == false else { return }
+    guard pendingGlassesActivation ||
+      wearablesRuntimeManager.isGlassesSessionRequested ||
+      controllerStatus.assistantRuntimeState != .inactive else {
+      return
+    }
+
+    isStoppingGlassesRoute = true
+    pendingGlassesActivation = false
+    isStartingPhoneRuntimeForGlassesRoute = false
+    if controllerStatus.assistantRuntimeState != .inactive {
+      await controller.deactivate()
+    }
+    await wearablesRuntimeManager.stopGlassesSession()
+    isStoppingGlassesRoute = false
   }
 
   private func publishMergedStatus() {
