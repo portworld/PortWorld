@@ -329,7 +329,7 @@ class OpenAIRealtimeClient:
         }
         if self._include_turn_detection:
             session["audio"]["input"]["turn_detection"] = {
-                "type": "semantic_vad",
+                "type": "server_vad",
                 "create_response": True,
                 "interrupt_response": True,
             }

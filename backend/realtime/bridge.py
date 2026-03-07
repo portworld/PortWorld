@@ -50,6 +50,7 @@ class IOSRealtimeBridge:
             maxsize=max(1, client_audio_queue_maxsize)
         )
         self._client_audio_sender_task: asyncio.Task[None] | None = None
+        self._cancelled_response_ids: set[str] = set()
         self._client_audio_sent_count = 0
         self._client_audio_dropped_oldest_count = 0
         self._client_audio_drop_log_step = 25
@@ -234,6 +235,43 @@ class IOSRealtimeBridge:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 
+    async def _interrupt_active_response(self, *, reason: str) -> None:
+        response_id = self._current_response_id
+        if response_id is None or response_id in self._cancelled_response_ids:
+            return
+
+        logger.warning(
+            "Interrupting assistant response session=%s response_id=%s reason=%s",
+            self._session_id,
+            response_id,
+            reason,
+        )
+
+        self._cancelled_response_ids.add(response_id)
+        if response_id in self._started_response_ids:
+            self._started_response_ids.remove(response_id)
+        self._last_stopped_response_id = response_id
+        self._current_response_id = None
+        try:
+            await self._upstream_client.send_json(
+                {"type": "response.cancel", "response_id": response_id}
+            )
+            logger.warning(
+                "Upstream response.cancel sent session=%s response_id=%s",
+                self._session_id,
+                response_id,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to send upstream response.cancel session=%s response_id=%s",
+                self._session_id,
+                response_id,
+            )
+        await self._send_envelope(
+            "assistant.playback.control",
+            {"command": "cancel_response", "response_id": response_id},
+        )
+
     async def _run_upstream_loop(self) -> None:
         try:
             async for event in self._upstream_client.iter_events():
@@ -284,6 +322,8 @@ class IOSRealtimeBridge:
         if event_type == "input_audio_buffer.speech_started":
             self._server_vad_speaking = True
             logger.warning("Upstream VAD speech_started session=%s", self._session_id)
+            if self._current_response_id is not None:
+                await self._interrupt_active_response(reason="speech_started")
             await self._send_envelope("assistant.thinking", {"status": "thinking"})
             return
 
@@ -322,6 +362,13 @@ class IOSRealtimeBridge:
             return
 
         response_id = self._resolve_response_id(event)
+        if response_id in self._cancelled_response_ids:
+            logger.warning(
+                "Ignoring late audio delta for cancelled response session=%s response_id=%s",
+                self._session_id,
+                response_id,
+            )
+            return
         if response_id not in self._started_response_ids:
             self._started_response_ids.add(response_id)
             if self._last_stopped_response_id == response_id:
@@ -361,6 +408,10 @@ class IOSRealtimeBridge:
         if response_id in self._started_response_ids:
             self._started_response_ids.remove(response_id)
 
+        if response_id in self._cancelled_response_ids:
+            self._cancelled_response_ids.remove(response_id)
+            return
+
         self._last_stopped_response_id = response_id
         await self._send_envelope(
             "assistant.playback.control",
@@ -383,6 +434,15 @@ class IOSRealtimeBridge:
             code = "UPSTREAM_ERROR"
         if not isinstance(message, str) or not message:
             message = "Unknown upstream error"
+
+        if self._is_expected_interrupt_race_error(code=code, message=message):
+            logger.warning(
+                "Ignoring expected interrupt race error session=%s code=%s message=%s",
+                self._session_id,
+                code,
+                message,
+            )
+            return
 
         if await self._maybe_retry_legacy_session_init(code=code, message=message):
             logger.warning(
@@ -492,6 +552,18 @@ class IOSRealtimeBridge:
             "output_modalities",
         )
         return any(marker in lower_message for marker in schema_markers)
+
+    @staticmethod
+    def _is_expected_interrupt_race_error(*, code: str, message: str) -> bool:
+        lower_code = code.strip().lower()
+        lower_message = message.strip().lower()
+        return (
+            lower_code == "response_cancel_not_active"
+            or (
+                "cancel" in lower_message
+                and "no active response" in lower_message
+            )
+        )
 
     async def _send_upstream_error(
         self,
