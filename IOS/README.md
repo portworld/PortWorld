@@ -170,8 +170,6 @@ The local mock backend remains useful for low-cost control-flow validation of:
 
 Use these docs as the current source of truth:
 
-- [docs/IOS_AUDIO_ONLY_ASSISTANT_PLAN.md](../docs/IOS_AUDIO_ONLY_ASSISTANT_PLAN.md)
-  current assistant-runtime behavior and implementation direction
 - [docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md](../docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md)
   high-level sequencing from the cleaned phone runtime toward glasses support
 - [docs/intermediary/PHASE1_IMPLEMENTATION.md](../docs/intermediary/PHASE1_IMPLEMENTATION.md)

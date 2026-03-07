@@ -19,8 +19,6 @@ The codebase is a **hackathon MVP being refactored into a cleaner consumer-grade
 
 Active planning docs:
 
-- `docs/IOS_AUDIO_ONLY_ASSISTANT_PLAN.md`
-  Source of truth for the active assistant runtime
 - `docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md`
   High-level sequencing from the cleaned phone runtime toward glasses support
 - `docs/intermediary/PHASE1_IMPLEMENTATION.md`
@@ -113,8 +111,7 @@ If a preferred tool is unavailable, use the closest substitute and note that in 
 
 ## Implementation Policy
 
-- For active iOS assistant runtime work, align first with `docs/IOS_AUDIO_ONLY_ASSISTANT_PLAN.md`.
-- Use `docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md` for current sequencing and phase status.
+- For active iOS assistant runtime work, align first with `docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md`.
 - Use `docs/intermediary/PHASE1_IMPLEMENTATION.md` for the detailed record of the completed phone-only cleanup.
 - Use archived docs only for historical context or migration reasoning.
 - If archived docs conflict with active root docs, follow the active root docs unless the user explicitly directs otherwise.

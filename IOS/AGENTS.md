@@ -19,7 +19,6 @@ Read the relevant docs before non-trivial iOS work:
 
 | File | Read when… |
 |---|---|
-| `docs/IOS_AUDIO_ONLY_ASSISTANT_PLAN.md` | Touching the active assistant runtime, wake/sleep flow, audio-only scope, transport ownership, interruption, playback, or execution order |
 | `docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md` | Checking current phase status, forward sequencing, or how glasses work should build onto the cleaned phone runtime |
 | `docs/intermediary/PHASE1_IMPLEMENTATION.md` | You need the detailed record of the completed phone-runtime cleanup and stabilization work |
 | `IOS/docs/Wearables DAT SDK.md` | Any code that touches the DAT SDK |
@@ -32,9 +31,9 @@ For small, localized fixes, read only the directly relevant files.
 
 Rules of authority:
 
-1. `docs/IOS_AUDIO_ONLY_ASSISTANT_PLAN.md`
-2. `docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md`
-3. current active code in `IOS/PortWorld/`
+1. `docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md`
+2. current active code in `IOS/PortWorld/`
+3. `docs/intermediary/PHASE1_IMPLEMENTATION.md` for historical Phase 1 detail
 4. historical docs only for context
 
 If archived docs conflict with the active runtime plan or current code, the active runtime plan wins unless the task explicitly concerns migration/history.
