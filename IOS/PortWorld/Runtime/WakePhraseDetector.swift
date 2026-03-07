@@ -18,6 +18,9 @@ final class WakePhraseDetector {
     runtime: WakeWordRuntimeStatus.idle.rawValue,
     authorization: WakeWordAuthorizationState.notRequired.rawValue
   )
+  var isListening: Bool {
+    engine.isListening
+  }
 
   init(config: RuntimeConfig) {
     if config.wakeWordMode == .onDevicePreferred {

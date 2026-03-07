@@ -318,6 +318,7 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
   private static let speechErrorDomain = "SFSpeechErrorDomain"
   private static let noSpeechDetectedMessageFragment = "no speech detected"
   private static let transientLogThrottleMs: Int64 = 5_000
+  private static let noRecognitionUpdateRecoveryDelayMs: Int64 = 1_500
   private var recognizer: (any WakeWordSpeechRecognizer)?
   private var recognitionRequest: (any WakeWordSpeechRecognitionRequest)?
   private var recognitionTask: (any WakeWordSpeechRecognitionTask)?
@@ -328,6 +329,12 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
   private var lastTransientRecognitionErrorLogMs: Int64 = 0
   private var listeningStartedAtMs: Int64 = 0
   private var attemptedColdStartRecognizerRecovery = false
+  private var attemptedNoRecognitionUpdateRecovery = false
+  private var receivedRecognitionUpdateSinceStart = false
+  private var firstAudioAppendTimestampMs: Int64 = 0
+  private var listeningSessionGeneration: Int = 0
+  private var recognitionTaskGeneration: Int = 0
+  private var noRecognitionUpdateRecoveryTask: Task<Void, Never>?
 
   init(
     wakePhrase: String,
@@ -424,15 +431,21 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
     }
 
     isListening = true
+    listeningSessionGeneration += 1
     listeningStartedAtMs = nowMsProvider()
     attemptedColdStartRecognizerRecovery = false
+    attemptedNoRecognitionUpdateRecovery = false
+    receivedRecognitionUpdateSinceStart = false
+    firstAudioAppendTimestampMs = 0
     lastDetectionTimestampMs = 0
     consecutiveRecognitionErrorCount = 0
+    cancelNoRecognitionUpdateRecoveryTask()
     guard startRecognitionTaskLocked() else {
       failRecognitionStartLocked(detail: "Failed to start speech recognition task")
       onError?(WakeWordEngineError.recognitionTaskCreationFailed)
       return
     }
+    debugLog("Started listening generation=\(listeningSessionGeneration)")
     runtimeStatus = .listening
     publishStatus(authorization: authorization, runtime: .listening)
   }
@@ -441,7 +454,11 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
     isListening = false
     listeningStartedAtMs = 0
     attemptedColdStartRecognizerRecovery = false
+    attemptedNoRecognitionUpdateRecovery = false
+    receivedRecognitionUpdateSinceStart = false
+    firstAudioAppendTimestampMs = 0
     consecutiveRecognitionErrorCount = 0
+    cancelNoRecognitionUpdateRecoveryTask()
     stopRecognitionTaskLocked()
     runtimeStatus = .idle
     publishStatus(authorization: authorization, runtime: .idle)
@@ -451,6 +468,13 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
     guard isListening else { return }
     guard let request = recognitionRequest else { return }
     guard let buffer = Self.makeRecognitionBuffer(from: frame) else { return }
+    if firstAudioAppendTimestampMs == 0 {
+      firstAudioAppendTimestampMs = nowMsProvider()
+      debugLog(
+        "First PCM frame appended after start generation=\(listeningSessionGeneration) sampleRate=\(Int(frame.sampleRateHz))"
+      )
+      scheduleNoRecognitionUpdateRecoveryIfNeeded(for: listeningSessionGeneration)
+    }
     request.append(buffer)
   }
 
@@ -479,10 +503,16 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
     recognitionRequest = request
 
     recognitionTask = recognizer.flatMap { recognizer in
-      recognitionTaskFactory(recognizer, request) { [weak self] update, error in
+      let taskGeneration = recognitionTaskGeneration + 1
+      recognitionTaskGeneration = taskGeneration
+      return recognitionTaskFactory(recognizer, request) { [weak self] update, error in
         Task { @MainActor [weak self] in
           guard let self else { return }
-          self.handleRecognitionUpdateLocked(update: update, error: error)
+          self.handleRecognitionUpdateLocked(
+            update: update,
+            error: error,
+            taskGeneration: taskGeneration
+          )
         }
       }
     }
@@ -493,6 +523,8 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
       return false
     }
 
+    debugLog("Speech recognition task created generation=\(listeningSessionGeneration)")
+    scheduleNoRecognitionUpdateRecoveryIfNeeded(for: listeningSessionGeneration)
     return true
   }
 
@@ -503,9 +535,25 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
     recognitionRequest = nil
   }
 
-  private func handleRecognitionUpdateLocked(update: WakeWordRecognitionUpdate?, error: Error?) {
+  private func handleRecognitionUpdateLocked(
+    update: WakeWordRecognitionUpdate?,
+    error: Error?,
+    taskGeneration: Int
+  ) {
+    guard taskGeneration == recognitionTaskGeneration else {
+      debugLog("Ignoring stale recognition callback taskGeneration=\(taskGeneration) current=\(recognitionTaskGeneration)")
+      return
+    }
+
     if let update {
       consecutiveRecognitionErrorCount = 0
+      if receivedRecognitionUpdateSinceStart == false {
+        receivedRecognitionUpdateSinceStart = true
+        cancelNoRecognitionUpdateRecoveryTask()
+        debugLog(
+          "First recognition update received generation=\(listeningSessionGeneration) final=\(update.isFinal)"
+        )
+      }
       let transcript = Self.normalizePhrase(update.transcript)
       if !transcript.isEmpty {
         let now = nowMsProvider()
@@ -513,7 +561,7 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
           let detectedSleep = normalizedSleepPhrase.map { transcript.contains($0) } ?? false
           let detectedWake = transcript.contains(normalizedWakePhrase)
 
-          if detectedSleep, update.isFinal, let sleepPhrase {
+          if detectedSleep, let sleepPhrase {
             lastDetectionTimestampMs = now
             attemptedColdStartRecognizerRecovery = true
             onSleepDetected?(
@@ -632,6 +680,47 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
     return startRecognitionTaskLocked()
   }
 
+  private func scheduleNoRecognitionUpdateRecoveryIfNeeded(for generation: Int) {
+    guard isListening else { return }
+    guard receivedRecognitionUpdateSinceStart == false else { return }
+    guard firstAudioAppendTimestampMs > 0 else { return }
+
+    noRecognitionUpdateRecoveryTask?.cancel()
+    noRecognitionUpdateRecoveryTask = Task { @MainActor [weak self] in
+      do {
+        try await Task.sleep(for: .milliseconds(Self.noRecognitionUpdateRecoveryDelayMs))
+      } catch {
+        return
+      }
+
+      guard let self else { return }
+      guard self.isListening else { return }
+      guard self.listeningSessionGeneration == generation else { return }
+      guard self.receivedRecognitionUpdateSinceStart == false else { return }
+      guard self.firstAudioAppendTimestampMs > 0 else { return }
+      guard self.attemptedNoRecognitionUpdateRecovery == false else { return }
+
+      self.attemptedNoRecognitionUpdateRecovery = true
+      self.firstAudioAppendTimestampMs = 0
+      self.debugLog(
+        "No recognition update received after first audio; rebuilding recognizer generation=\(generation)"
+      )
+      self.rebuildRecognizer()
+      guard self.startRecognitionTaskLocked() else {
+        self.failRecognitionStartLocked(detail: "Failed to recover speech recognition task after missing initial updates")
+        self.onError?(WakeWordEngineError.recognitionTaskCreationFailed)
+        return
+      }
+      self.runtimeStatus = .listening
+      self.publishStatus(authorization: self.authorization, runtime: .listening)
+    }
+  }
+
+  private func cancelNoRecognitionUpdateRecoveryTask() {
+    noRecognitionUpdateRecoveryTask?.cancel()
+    noRecognitionUpdateRecoveryTask = nil
+  }
+
   private func debugLogTransientRecognitionErrorIfNeeded(_ error: NSError) {
 #if DEBUG
     let now = nowMsProvider()
@@ -646,8 +735,15 @@ final class SFSpeechWakeWordEngine: NSObject, WakeWordEngine {
   private func failRecognitionStartLocked(detail: String) {
     isListening = false
     runtimeStatus = .failed
+    cancelNoRecognitionUpdateRecoveryTask()
     stopRecognitionTaskLocked()
     publishStatus(authorization: authorization, runtime: .failed, detail: detail)
+  }
+
+  private func debugLog(_ message: String) {
+#if DEBUG
+    Self.logger.debug("[SFSpeechWakeWordEngine] \(message, privacy: .public)")
+#endif
   }
 
   private func publishStatus(

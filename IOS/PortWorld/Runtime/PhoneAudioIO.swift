@@ -113,6 +113,7 @@ final class PhoneAudioIO {
   }
 
   func cancelPlayback() {
+    guard isResponseStreaming || playbackEngine.hasActivePendingPlayback() else { return }
     isResponseStreaming = false
     playbackEngine.cancelResponse()
   }

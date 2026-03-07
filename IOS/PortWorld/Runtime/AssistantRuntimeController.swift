@@ -30,12 +30,14 @@ final class AssistantRuntimeController {
   private let wakePhraseDetector: WakePhraseDetector
 
   private var wakeWarmupTask: Task<Void, Never>?
-  private var hasCompletedInitialWakePrimer = false
   private var wakeListeningGeneration: Int = 0
   private var activeSessionID: String?
   private var backendReady = false
   private var firstUplinkAckReceived = false
   private var isSuppressingRealtimeUplinkForPlayback = false
+  private var awaitingFirstWakePCMFrame = false
+  private var activeConversationStartedAtMs: Int64?
+  private var isResettingConversationToArmedState = false
   private var pendingRealtimeFrames: [PendingRealtimeFrame] = []
   private let maxPendingRealtimeFrames = 24
 
@@ -104,6 +106,8 @@ final class AssistantRuntimeController {
     backendReady = false
     firstUplinkAckReceived = false
     isSuppressingRealtimeUplinkForPlayback = false
+    awaitingFirstWakePCMFrame = false
+    activeConversationStartedAtMs = nil
     wakeListeningGeneration += 1
     snapshot.assistantRuntimeState = .armedListening
     snapshot.transportStatusText = "idle"
@@ -132,6 +136,9 @@ final class AssistantRuntimeController {
     backendReady = false
     firstUplinkAckReceived = false
     isSuppressingRealtimeUplinkForPlayback = false
+    awaitingFirstWakePCMFrame = false
+    activeConversationStartedAtMs = nil
+    isResettingConversationToArmedState = false
     snapshot.assistantRuntimeState = .inactive
     snapshot.sessionID = "-"
     snapshot.transportStatusText = "disconnected"
@@ -176,7 +183,14 @@ final class AssistantRuntimeController {
 
   private func bindPhoneAudio() {
     phoneAudioIO.onWakePCMFrame = { [weak self] frame in
-      self?.wakePhraseDetector.processPCMFrame(frame)
+      guard let self else { return }
+      if self.awaitingFirstWakePCMFrame, self.snapshot.assistantRuntimeState == .armedListening {
+        self.awaitingFirstWakePCMFrame = false
+        self.snapshot.infoText = "Say \"\(self.config.wakePhrase)\" to start a conversation."
+        self.debugLog("Received first wake PCM frame after arming")
+        self.publishSnapshot()
+      }
+      self.wakePhraseDetector.processPCMFrame(frame)
     }
     phoneAudioIO.onRealtimePCMFrame = { [weak self] payload, timestampMs in
       Task { @MainActor [weak self] in
@@ -191,9 +205,9 @@ final class AssistantRuntimeController {
         await self?.startConversation(from: event)
       }
     }
-    wakePhraseDetector.onSleepDetected = { [weak self] _ in
+    wakePhraseDetector.onSleepDetected = { [weak self] event in
       Task { @MainActor [weak self] in
-        await self?.endConversation()
+        await self?.handleSleepDetected(event)
       }
     }
     wakePhraseDetector.onError = { [weak self] message in
@@ -221,11 +235,12 @@ final class AssistantRuntimeController {
     wakeWarmupTask?.cancel()
     wakeWarmupTask = nil
     wakeListeningGeneration += 1
-    wakePhraseDetector.stop()
     activeSessionID = "sess_\(UUID().uuidString)"
     backendReady = false
     firstUplinkAckReceived = false
     isSuppressingRealtimeUplinkForPlayback = false
+    awaitingFirstWakePCMFrame = false
+    activeConversationStartedAtMs = nil
     snapshot.errorText = ""
     snapshot.assistantRuntimeState = .connectingConversation
     snapshot.sessionID = activeSessionID ?? "-"
@@ -337,11 +352,18 @@ final class AssistantRuntimeController {
       phoneAudioIO.handlePlaybackControl(payload)
 
     case .closed:
+      if isResettingConversationToArmedState {
+        break
+      }
       if snapshot.assistantRuntimeState == .activeConversation || snapshot.assistantRuntimeState == .connectingConversation {
         await resetConversationToArmedState(reason: "Connection closed. Listening for wake phrase again.")
       }
 
     case .error(let message):
+      if isResettingConversationToArmedState, isExpectedDisconnectError(message) {
+        debugLog("Ignoring expected backend disconnect error during reset: \(message)")
+        break
+      }
       snapshot.errorText = message
       if snapshot.assistantRuntimeState == .connectingConversation || snapshot.assistantRuntimeState == .activeConversation {
         await resetConversationToArmedState(reason: "Conversation failed. Listening for wake phrase again.")
@@ -352,24 +374,56 @@ final class AssistantRuntimeController {
     publishSnapshot()
   }
 
+  private func handleSleepDetected(_ event: WakeWordDetectionEvent) async {
+    guard snapshot.assistantRuntimeState == .activeConversation else {
+      return
+    }
+
+    guard let activeConversationStartedAtMs else {
+      debugLog("Ignoring sleep phrase because active conversation start time is unavailable")
+      return
+    }
+
+    let activeDurationMs = max(0, event.timestampMs - activeConversationStartedAtMs)
+    guard activeDurationMs >= config.sleepWordMinActiveStreamMs else {
+      debugLog(
+        "Ignoring sleep phrase because active conversation duration \(activeDurationMs)ms is below threshold \(config.sleepWordMinActiveStreamMs)ms"
+      )
+      return
+    }
+
+    debugLog("Accepting sleep phrase after active duration \(activeDurationMs)ms")
+    await endConversation()
+  }
+
   private func resetConversationToArmedState(reason: String) async {
+    guard isResettingConversationToArmedState == false else {
+      debugLog("Reset to armed state already in progress")
+      return
+    }
+
+    isResettingConversationToArmedState = true
     phoneAudioIO.cancelPlayback()
-    await backendSessionClient.disconnect(sendDeactivate: false)
     activeSessionID = nil
     backendReady = false
     firstUplinkAckReceived = false
     isSuppressingRealtimeUplinkForPlayback = false
+    activeConversationStartedAtMs = nil
+    awaitingFirstWakePCMFrame = true
     pendingRealtimeFrames.removeAll(keepingCapacity: false)
     wakeListeningGeneration += 1
+    let generation = wakeListeningGeneration
     snapshot.assistantRuntimeState = .armedListening
     snapshot.sessionID = "-"
     snapshot.transportStatusText = "idle"
     snapshot.uplinkStatusText = "armed_waiting_for_wake"
     snapshot.playbackStatusText = "armed_waiting_for_response"
     snapshot.infoText = "Warming up wake detection."
+    await backendSessionClient.disconnect(sendDeactivate: false)
     await refreshSubsystemStatus()
     publishSnapshot()
-    scheduleWakeListeningStart(generation: wakeListeningGeneration, readyMessage: reason)
+    scheduleWakeListeningStart(generation: generation, readyMessage: reason)
+    isResettingConversationToArmedState = false
   }
 
   private func refreshSubsystemStatus() async {
@@ -400,38 +454,20 @@ final class AssistantRuntimeController {
 
   private func scheduleWakeListeningStart(generation: Int, readyMessage: String? = nil) {
     wakeWarmupTask?.cancel()
-    let shouldRunPrimer = hasCompletedInitialWakePrimer == false
-    if shouldRunPrimer {
-      hasCompletedInitialWakePrimer = true
-    }
     wakeWarmupTask = Task { @MainActor [weak self] in
       guard let self else { return }
-      do {
-        try await Task.sleep(for: .milliseconds(900))
-      } catch {
-        return
-      }
       guard wakeListeningGeneration == generation, snapshot.assistantRuntimeState == .armedListening else { return }
-      if shouldRunPrimer {
-        debugLog("Priming wake recognizer for cold app start")
+      if wakePhraseDetector.isListening == false {
+        awaitingFirstWakePCMFrame = true
+        snapshot.infoText = "Starting wake detection."
+        publishSnapshot()
+        debugLog("Starting wake recognizer for generation \(generation)")
         wakePhraseDetector.startArmedListening()
-        do {
-          try await Task.sleep(for: .milliseconds(1_200))
-        } catch {
-          return
-        }
-        guard wakeListeningGeneration == generation, snapshot.assistantRuntimeState == .armedListening else { return }
-        wakePhraseDetector.stop()
-        do {
-          try await Task.sleep(for: .milliseconds(150))
-        } catch {
-          return
-        }
-        guard wakeListeningGeneration == generation, snapshot.assistantRuntimeState == .armedListening else { return }
+        snapshot.infoText = readyMessage ?? "Listening for microphone frames."
+      } else {
+        awaitingFirstWakePCMFrame = false
+        snapshot.infoText = readyMessage ?? "Say \"\(config.wakePhrase)\" to start a conversation."
       }
-      debugLog("Starting wake recognizer after arm warm-up")
-      wakePhraseDetector.startArmedListening()
-      snapshot.infoText = readyMessage ?? "Say \"\(config.wakePhrase)\" to start a conversation."
       await refreshSubsystemStatus()
       publishSnapshot()
     }
@@ -439,6 +475,8 @@ final class AssistantRuntimeController {
 
   private func markConversationReady(source: String) {
     backendReady = true
+    activeConversationStartedAtMs = Clocks.nowMs()
+    awaitingFirstWakePCMFrame = false
     snapshot.assistantRuntimeState = .activeConversation
     snapshot.uplinkStatusText = firstUplinkAckReceived ? snapshot.uplinkStatusText : "streaming_live_audio"
     snapshot.infoText = "Conversation active."
@@ -473,6 +511,11 @@ final class AssistantRuntimeController {
     #if DEBUG
       print("[AssistantRuntimeController] \(message)")
     #endif
+  }
+
+  private func isExpectedDisconnectError(_ message: String) -> Bool {
+    let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return normalized.contains("socket is not connected")
   }
 
   private func describeBackendEvent(_ event: BackendSessionClient.Event) -> String {

@@ -44,6 +44,7 @@ actor BackendSessionClient {
   private var inboundServerAudioBytes = 0
   private var lastInboundServerAudioBytes = 0
   private var lastPlaybackControlCommand = "none"
+  private var isLocallyDisconnecting = false
 
   init(webSocketURL: URL, requestHeaders: [String: String], urlSession: URLSession = .shared) {
     self.webSocketURL = webSocketURL
@@ -54,6 +55,7 @@ actor BackendSessionClient {
   func connect(sessionID: String) {
     disconnect(sendDeactivate: false, emitLifecycleEvents: false)
     self.sessionID = sessionID
+    isLocallyDisconnecting = false
     loggedFirstServerAudioFrame = false
     inboundServerAudioFrameCount = 0
     inboundServerAudioBytes = 0
@@ -91,6 +93,7 @@ actor BackendSessionClient {
       }
     }
 
+    isLocallyDisconnecting = true
     receiveTask?.cancel()
     receiveTask = nil
     webSocketTask?.cancel(with: .normalClosure, reason: nil)
@@ -203,10 +206,19 @@ actor BackendSessionClient {
       } catch is CancellationError {
         return
       } catch {
+        if shouldIgnoreReceiveLoopError(error) {
+          return
+        }
         yieldEvent(.error(error.localizedDescription))
         return
       }
     }
+  }
+
+  private func shouldIgnoreReceiveLoopError(_ error: Error) -> Bool {
+    guard isLocallyDisconnecting else { return false }
+    let normalized = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return normalized.contains("socket is not connected")
   }
 
   private func handleControlMessage(_ data: Data) async throws {
