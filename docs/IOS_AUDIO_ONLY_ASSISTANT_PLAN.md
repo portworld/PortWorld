@@ -6,6 +6,10 @@
 - Scope: iPhone microphone + iPhone speaker only
 - Primary target: make the assistant loop work reliably before DAT/glasses and vision input
 - Transport path: iOS -> `backend/` gateway -> OpenAI Realtime
+- Progress:
+  - Step 1 completed
+  - Step 2 completed
+  - Step 3 completed
 
 ## 1. Goal
 
@@ -288,6 +292,10 @@ Responsibilities:
 
 ## Step 1: Define the active assistant state machine
 
+Status:
+
+- Completed on 2026-03-06
+
 Owner:
 
 - Runtime orchestration
@@ -316,7 +324,18 @@ Definition of done:
 - One documented source of truth exists for runtime states and transitions.
 - Existing snapshot/store labels are remapped to match these states.
 
+Implementation notes:
+
+- `AssistantRuntimeState` is now the canonical top-level lifecycle model used by runtime + UI.
+- `SessionOrchestrator.StatusSnapshot` publishes assistant lifecycle directly instead of forcing the UI to reconstruct it from transport/playback strings.
+- `SessionStateStore` and runtime screen controls now derive activation/deactivation behavior from the assistant lifecycle model.
+- The assistant runtime screen no longer depends on DAT/video first-frame routing to stay visible.
+
 ## Step 2: Make activation an "arm assistant" action only
+
+Status:
+
+- Completed on 2026-03-06
 
 Owner:
 
@@ -347,7 +366,18 @@ Definition of done:
 
 - Activating the assistant does not emit websocket connect behavior until wake is detected.
 
+Implementation notes:
+
+- `activate()` no longer opens websocket transport or sends backend activation traffic.
+- The app now exposes a phone-only entry path so the assistant runtime can be reached without Meta registration or active glasses.
+- Activation no longer requires camera permission or active DAT device availability on the active audio-only path.
+- Activation now prepares phone-side wake/audio services only; DAT stream startup, vision uploader startup, and first-frame wait behavior were removed from the activation path.
+
 ## Step 3: Make wake own conversation startup
+
+Status:
+
+- Completed on 2026-03-06
 
 Owner:
 
@@ -380,7 +410,19 @@ Definition of done:
 - Wake triggers the full conversation startup path from idle armed state.
 - Wake while already active does nothing.
 
+Implementation notes:
+
+- Wake now routes through a single conversation startup path in `SessionOrchestrator`.
+- Each wake creates a fresh conversation session id plus fresh transport/event-loop/uplink-worker ownership.
+- `session.activate` remains conversation-scoped and is sent only after the wake-started connection is established.
+- Realtime mic audio continues to buffer locally until backend `session.state` readiness is observed, then preroll frames flush for that conversation.
+- Conversation teardown now releases conversation-scoped transport resources so the next wake starts cleanly.
+
 ## Step 4: Simplify the active uplink path to binary only
+
+Status:
+
+- Completed on 2026-03-06
 
 Owner:
 
@@ -401,6 +443,14 @@ Definition of done:
 
 - The active assistant flow sends binary audio in both Debug and Release builds.
 - Runtime UI/telemetry no longer implies text fallback is part of the normal path.
+
+Implementation notes:
+
+- `GatewayTransport.sendAudio` now uses binary websocket frame encoding only on the active runtime path.
+- The old active-runtime `client.audio` text/base64 fallback branch was removed from iOS transport sending.
+- `RuntimeConfig.realtimeForceTextAudioFallback` is now treated as a legacy compatibility knob and is no longer force-enabled in debug for the active assistant runtime.
+- Active health/telemetry payloads no longer advertise text fallback as a normal runtime mode.
+- Backend-side deprecated `client.audio` handling remains available for explicit diagnostics/probe tooling, but the iOS assistant runtime no longer depends on it.
 
 ## Step 5: Make the iPhone microphone the only active capture source
 
