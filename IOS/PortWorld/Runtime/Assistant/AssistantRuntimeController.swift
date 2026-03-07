@@ -18,12 +18,16 @@ final class AssistantRuntimeController {
   var activeSessionID: String?
   var backendReady = false
   var firstUplinkAckReceived = false
-  var isSuppressingRealtimeUplinkForPlayback = false
+  var hasLoggedUplinkDuringPlayback = false
   var awaitingFirstWakePCMFrame = false
   var activeConversationStartedAtMs: Int64?
   var isResettingConversationToArmedState = false
+  var isLocallyInterruptingAssistantPlayback = false
+  var consecutiveLocalBargeInFrames = 0
   var pendingRealtimeFrames: [PendingRealtimeFrame] = []
   let maxPendingRealtimeFrames = 24
+  let localBargeInRMSFloor: Double = 0.012
+  let localBargeInFrameThreshold = 3
 
   var status: PhoneAssistantRuntimeStatus
   var onStatusUpdated: ((PhoneAssistantRuntimeStatus) -> Void)?

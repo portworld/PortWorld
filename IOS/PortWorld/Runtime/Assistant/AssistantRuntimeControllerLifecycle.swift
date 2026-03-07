@@ -31,7 +31,7 @@ extension AssistantRuntimeController {
 
     backendReady = false
     firstUplinkAckReceived = false
-    isSuppressingRealtimeUplinkForPlayback = false
+    hasLoggedUplinkDuringPlayback = false
     awaitingFirstWakePCMFrame = false
     activeConversationStartedAtMs = nil
     wakeListeningGeneration += 1
@@ -67,7 +67,7 @@ extension AssistantRuntimeController {
     activeSessionID = nil
     backendReady = false
     firstUplinkAckReceived = false
-    isSuppressingRealtimeUplinkForPlayback = false
+    hasLoggedUplinkDuringPlayback = false
     awaitingFirstWakePCMFrame = false
     activeConversationStartedAtMs = nil
     isResettingConversationToArmedState = false

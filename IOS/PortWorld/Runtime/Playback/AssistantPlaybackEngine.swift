@@ -158,6 +158,8 @@ public final class AssistantPlaybackEngine: PhoneOnlyAssistantPlaybackControllin
   var hasLoggedFirstDrain = false
   var hasLoggedFirstStartResponse = false
   var hasLoggedFirstFailureState = false
+  var hasLoggedBackpressureHighWater = false
+  var hasLoggedBackpressureCritical = false
 
   /// Threshold (ms) for detecting stuck playback. If buffers were scheduled
   /// this recently but no drain callback fired, we may be stuck.
@@ -168,12 +170,15 @@ public final class AssistantPlaybackEngine: PhoneOnlyAssistantPlaybackControllin
   static let maxStuckChecksBeforeRecovery: Int = 3
 
   /// Maximum pending audio duration (ms) before backpressure kicks in.
-  /// 3 seconds balances latency vs. resilience to Bluetooth HFP drain variability.
-  static let maxPendingDurationMs: Double = 3000
+  /// 1 second keeps playback responsive enough for barge-in without overreacting to small bursts.
+  static let maxPendingDurationMs: Double = 1000
 
   /// High water mark (ms) at which we signal backpressure to callers.
-  /// Set lower than maxPendingDurationMs to allow proactive throttling.
-  static let backpressureHighWaterMs: Double = 1500
+  /// Set lower than maxPendingDurationMs to surface queue growth before it becomes user-visible.
+  static let backpressureHighWaterMs: Double = 500
+
+  /// Recovery mark below which the queue is considered healthy again.
+  static let backpressureRecoveryMs: Double = 250
 
   /// Whether the playback queue is under backpressure (pending audio exceeds high water mark).
   /// Callers can use this to throttle upstream chunk generation.
@@ -189,8 +194,8 @@ public final class AssistantPlaybackEngine: PhoneOnlyAssistantPlaybackControllin
   }
 
   /// Maximum number of pending buffers before backpressure kicks in.
-  /// At ~100ms per buffer chunk, 50 buffers ≈ 5 seconds of queued audio.
-  static let maxPendingBuffers = 50
+  /// With backend output rechunked to 40ms frames, 25 buffers ≈ 1 second of queued audio.
+  static let maxPendingBuffers = 25
 
   /// Creates a playback engine.
   /// - Parameters:

@@ -110,6 +110,7 @@ final class PhoneAudioIO {
       isResponseStreaming = false
     case .cancelResponse:
       isResponseStreaming = false
+      debugLog("Received cancel_response; flushing assistant playback immediately")
     }
     playbackEngine.handlePlaybackControl(payload)
   }
@@ -120,7 +121,7 @@ final class PhoneAudioIO {
     playbackEngine.cancelResponse()
   }
 
-  func shouldSuppressRealtimeUplink() -> Bool {
+  func isAssistantPlaybackActive() -> Bool {
     isResponseStreaming || playbackEngine.hasActivePendingPlayback()
   }
 

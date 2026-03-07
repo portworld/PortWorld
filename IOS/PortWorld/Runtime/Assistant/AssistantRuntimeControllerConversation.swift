@@ -21,7 +21,9 @@ extension AssistantRuntimeController {
     activeSessionID = "sess_\(UUID().uuidString)"
     backendReady = false
     firstUplinkAckReceived = false
-    isSuppressingRealtimeUplinkForPlayback = false
+    hasLoggedUplinkDuringPlayback = false
+    isLocallyInterruptingAssistantPlayback = false
+    consecutiveLocalBargeInFrames = 0
     awaitingFirstWakePCMFrame = false
     activeConversationStartedAtMs = nil
     status.errorText = ""
@@ -64,19 +66,16 @@ extension AssistantRuntimeController {
       return
     }
 
-    if phoneAudioIO.shouldSuppressRealtimeUplink() {
-      if isSuppressingRealtimeUplinkForPlayback == false {
-        isSuppressingRealtimeUplinkForPlayback = true
-        status.uplinkStatusText = "suppressed_during_playback"
-        debugLog("Suppressing realtime uplink while assistant playback is active")
-        publishStatus()
+    if phoneAudioIO.isAssistantPlaybackActive() {
+      detectLocalBargeInIfNeeded(payload)
+      if hasLoggedUplinkDuringPlayback == false {
+        hasLoggedUplinkDuringPlayback = true
+        status.uplinkStatusText = "streaming_during_playback"
+        debugLog("Continuing realtime uplink during assistant playback for barge-in")
       }
-      return
-    }
-
-    if isSuppressingRealtimeUplinkForPlayback {
-      isSuppressingRealtimeUplinkForPlayback = false
-      debugLog("Resuming realtime uplink after assistant playback")
+    } else {
+      hasLoggedUplinkDuringPlayback = false
+      consecutiveLocalBargeInFrames = 0
     }
 
     do {
@@ -132,7 +131,9 @@ extension AssistantRuntimeController {
     activeSessionID = nil
     backendReady = false
     firstUplinkAckReceived = false
-    isSuppressingRealtimeUplinkForPlayback = false
+    hasLoggedUplinkDuringPlayback = false
+    isLocallyInterruptingAssistantPlayback = false
+    consecutiveLocalBargeInFrames = 0
     activeConversationStartedAtMs = nil
     awaitingFirstWakePCMFrame = true
     pendingRealtimeFrames.removeAll(keepingCapacity: false)
@@ -183,5 +184,51 @@ extension AssistantRuntimeController {
     }
     let diagnostics = await backendSessionClient.diagnosticsSnapshot()
     status.uplinkStatusText = "binary_sent=\(diagnostics.binarySendSuccessCount) last=\(diagnostics.lastBinaryFirstByteHex)"
+  }
+
+  func detectLocalBargeInIfNeeded(_ payload: Data) {
+    guard phoneAudioIO.isAssistantPlaybackActive() else {
+      consecutiveLocalBargeInFrames = 0
+      return
+    }
+
+    let rms = payloadPCM16RMS(payload)
+    guard rms >= localBargeInRMSFloor else {
+      consecutiveLocalBargeInFrames = 0
+      return
+    }
+
+    consecutiveLocalBargeInFrames += 1
+    guard isLocallyInterruptingAssistantPlayback == false,
+          consecutiveLocalBargeInFrames >= localBargeInFrameThreshold else {
+      return
+    }
+
+    isLocallyInterruptingAssistantPlayback = true
+    status.infoText = "User speech detected. Interrupting assistant playback."
+    status.playbackStatusText = "local_barge_in"
+    debugLog(
+      "Local barge-in triggered rms=\(String(format: "%.4f", rms)) frames=\(consecutiveLocalBargeInFrames)"
+    )
+    phoneAudioIO.cancelPlayback()
+  }
+
+  func payloadPCM16RMS(_ payload: Data) -> Double {
+    guard payload.count >= MemoryLayout<Int16>.size else { return 0 }
+
+    var sumSquares = 0.0
+    var sampleCount = 0
+
+    payload.withUnsafeBytes { rawBuffer in
+      let samples = rawBuffer.bindMemory(to: Int16.self)
+      sampleCount = samples.count
+      for sample in samples {
+        let normalized = Double(sample) / Double(Int16.max)
+        sumSquares += normalized * normalized
+      }
+    }
+
+    guard sampleCount > 0 else { return 0 }
+    return (sumSquares / Double(sampleCount)).squareRoot()
   }
 }

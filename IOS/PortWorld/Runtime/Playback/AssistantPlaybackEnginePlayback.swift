@@ -65,10 +65,6 @@ extension AssistantPlaybackEngine {
       attemptPlaybackRecovery()
     }
 
-    if pendingBufferDurationMs >= Self.maxPendingDurationMs || pendingBufferCount >= Self.maxPendingBuffers {
-      debugLog("[AssistantPlaybackEngine] Backpressure: high queue depth, pendingBufferCount=\(pendingBufferCount), pendingDurationMs=\(Int(pendingBufferDurationMs)), chunkDurationMs=\(Int(bufferDurationMs))")
-    }
-
     try recoverAudioGraphIfNeeded(context: "pre_play")
 
     if !playerNode.isPlaying {
@@ -77,11 +73,13 @@ extension AssistantPlaybackEngine {
     }
 
     queueState.recordScheduledBuffer(durationMs: bufferDurationMs, nowMs: nowMs)
+    logQueuePressureTransitionIfNeeded(context: "append", chunkDurationMs: bufferDurationMs)
     playerNode.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self, bufferDurationMs] callbackType in
       Task { @MainActor [weak self] in
         guard let self else { return }
         self.debugLog("[AssistantPlaybackEngine] Buffer completion callback type=\(String(describing: callbackType)) pendingCount=\(self.pendingBufferCount)")
         self.queueState.recordBufferDrained(durationMs: bufferDurationMs, nowMs: self.nowMsProvider())
+        self.logQueuePressureTransitionIfNeeded(context: "drain", chunkDurationMs: bufferDurationMs)
         if self.hasLoggedFirstDrain == false {
           self.hasLoggedFirstDrain = true
           self.debugLog("[AssistantPlaybackEngine] First buffer drain completed route=\(self.currentRouteDescription()) pendingCount=\(self.pendingBufferCount)")
@@ -108,8 +106,11 @@ extension AssistantPlaybackEngine {
   public func startResponse() {
     if pendingBufferCount > 0 {
       debugLog(
-        "[AssistantPlaybackEngine] startResponse: resetting \(pendingBufferCount) pending buffers - possible orphaned completions from chime"
+        "[AssistantPlaybackEngine] startResponse: flushing stale pending audio pendingCount=\(pendingBufferCount) pendingDurationMs=\(Int(pendingBufferDurationMs))"
       )
+      playerNode.stop()
+      playerNode.reset()
+      queueState.resetForCancelResponse()
     }
 
     queueState.resetForStartResponse(nowMs: nowMsProvider())
@@ -117,6 +118,8 @@ extension AssistantPlaybackEngine {
     hasLoggedFirstSchedule = false
     hasLoggedFirstDrain = false
     hasLoggedFirstFailureState = false
+    hasLoggedBackpressureHighWater = false
+    hasLoggedBackpressureCritical = false
     if hasLoggedFirstStartResponse == false {
       hasLoggedFirstStartResponse = true
       debugLog("[AssistantPlaybackEngine] First startResponse received route=\(currentRouteDescription())")
@@ -139,7 +142,9 @@ extension AssistantPlaybackEngine {
     hasLoggedFirstSchedule = false
     hasLoggedFirstDrain = false
     hasLoggedFirstFailureState = false
-    debugLog("[AssistantPlaybackEngine] cancelResponse: flushed playback queue")
+    hasLoggedBackpressureHighWater = false
+    hasLoggedBackpressureCritical = false
+    debugLog("[AssistantPlaybackEngine] cancelResponse: flushed playback queue for interruption")
   }
 
   public func shutdown() {
@@ -152,6 +157,8 @@ extension AssistantPlaybackEngine {
     hasLoggedFirstSchedule = false
     hasLoggedFirstDrain = false
     hasLoggedFirstFailureState = false
+    hasLoggedBackpressureHighWater = false
+    hasLoggedBackpressureCritical = false
     if isPlayerNodeAttached {
       audioEngine.detach(playerNode)
       isPlayerNodeAttached = false
@@ -162,5 +169,31 @@ extension AssistantPlaybackEngine {
     }
     currentFormat = nil
     debugLog("[AssistantPlaybackEngine] shutdown complete")
+  }
+
+  func logQueuePressureTransitionIfNeeded(context: String, chunkDurationMs: Double) {
+    if pendingBufferDurationMs >= Self.backpressureHighWaterMs, hasLoggedBackpressureHighWater == false {
+      hasLoggedBackpressureHighWater = true
+      debugLog(
+        "[AssistantPlaybackEngine] Queue high-water crossed (\(context)): pendingBufferCount=\(pendingBufferCount) pendingDurationMs=\(Int(pendingBufferDurationMs)) chunkDurationMs=\(Int(chunkDurationMs))"
+      )
+    }
+
+    if pendingBufferDurationMs >= Self.maxPendingDurationMs, hasLoggedBackpressureCritical == false {
+      hasLoggedBackpressureCritical = true
+      debugLog(
+        "[AssistantPlaybackEngine] Backpressure: high queue depth, pendingBufferCount=\(pendingBufferCount), pendingDurationMs=\(Int(pendingBufferDurationMs)), chunkDurationMs=\(Int(chunkDurationMs))"
+      )
+    }
+
+    if pendingBufferDurationMs <= Self.backpressureRecoveryMs {
+      if hasLoggedBackpressureHighWater || hasLoggedBackpressureCritical {
+        debugLog(
+          "[AssistantPlaybackEngine] Queue recovered (\(context)): pendingBufferCount=\(pendingBufferCount) pendingDurationMs=\(Int(pendingBufferDurationMs))"
+        )
+      }
+      hasLoggedBackpressureHighWater = false
+      hasLoggedBackpressureCritical = false
+    }
   }
 }

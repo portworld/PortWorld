@@ -32,6 +32,10 @@ extension AssistantRuntimeController {
       debugLog("Received uplink ack event#\(envelope.id) frames=\(payload.framesReceived) bytes=\(payload.bytesReceived)")
 
     case .serverAudio(let data):
+      if isLocallyInterruptingAssistantPlayback {
+        debugLog("Dropping stale server audio during local barge-in bytes=\(data.count)")
+        break
+      }
       do {
         debugLog("Received server audio event#\(envelope.id) bytes=\(data.count)")
         debugLog("Calling appendAssistantPCMData for event#\(envelope.id)")
@@ -48,6 +52,16 @@ extension AssistantRuntimeController {
     case .playbackControl(let payload):
       debugLog("Received playback control event#\(envelope.id) command=\(payload.command.rawValue)")
       status.playbackStatusText = payload.command.rawValue
+      if payload.command == .cancelResponse {
+        isLocallyInterruptingAssistantPlayback = false
+        consecutiveLocalBargeInFrames = 0
+        status.infoText = "Assistant interrupted. Listening to user speech."
+        status.uplinkStatusText = "streaming_during_playback"
+        debugLog("Assistant playback canceled by backend; continuing live uplink")
+      } else if payload.command == .startResponse {
+        isLocallyInterruptingAssistantPlayback = false
+        consecutiveLocalBargeInFrames = 0
+      }
       phoneAudioIO.handlePlaybackControl(payload)
 
     case .closed:
@@ -63,6 +77,11 @@ extension AssistantRuntimeController {
         debugLog("Ignoring expected backend disconnect error during reset: \(message)")
         break
       }
+      if isExpectedInterruptRaceError(message) {
+        debugLog("Ignoring expected interrupt race backend error: \(message)")
+        status.infoText = "Assistant interrupted. Listening to user speech."
+        break
+      }
       status.errorText = message
       if status.assistantRuntimeState == .connectingConversation || status.assistantRuntimeState == .activeConversation {
         await resetConversationToArmedState(reason: "Conversation failed. Listening for wake phrase again.")
@@ -76,6 +95,11 @@ extension AssistantRuntimeController {
   func isExpectedDisconnectError(_ message: String) -> Bool {
     let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     return normalized.contains("socket is not connected")
+  }
+
+  func isExpectedInterruptRaceError(_ message: String) -> Bool {
+    let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return normalized.contains("cancellation failed") && normalized.contains("no active response found")
   }
 
   func describeBackendEvent(_ event: BackendSessionClient.Event) -> String {
