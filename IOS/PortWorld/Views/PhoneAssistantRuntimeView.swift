@@ -1,16 +1,17 @@
+// Primary runtime screen for the shipping phone-only assistant flow.
 import SwiftUI
 
 struct PhoneAssistantRuntimeView: View {
-  @ObservedObject private var wearablesVM: WearablesViewModel
   @ObservedObject private var viewModel: PhoneAssistantRuntimeViewModel
+  private let onOpenFutureHardwareSetup: () -> Void
   @Environment(\.scenePhase) private var scenePhase
 
   init(
-    wearablesVM: WearablesViewModel,
-    viewModel: PhoneAssistantRuntimeViewModel
+    viewModel: PhoneAssistantRuntimeViewModel,
+    onOpenFutureHardwareSetup: @escaping () -> Void
   ) {
-    self.wearablesVM = wearablesVM
     self.viewModel = viewModel
+    self.onOpenFutureHardwareSetup = onOpenFutureHardwareSetup
   }
 
   var body: some View {
@@ -127,9 +128,9 @@ struct PhoneAssistantRuntimeView: View {
         }
 
         Button {
-          wearablesVM.exitPhoneOnlyAssistantMode()
+          onOpenFutureHardwareSetup()
         } label: {
-          Text("Exit Phone-Only Mode")
+          Text("Open Glasses Setup")
             .font(.system(.headline, design: .rounded).weight(.semibold))
             .foregroundColor(.white)
             .frame(maxWidth: .infinity)
