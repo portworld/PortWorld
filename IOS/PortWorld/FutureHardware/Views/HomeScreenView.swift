@@ -8,19 +8,19 @@ import SwiftUI
 
 struct HomeScreenView: View {
   @Environment(\.dismiss) private var dismiss
-  @ObservedObject var viewModel: WearablesViewModel
+  @ObservedObject var wearablesRuntimeManager: WearablesRuntimeManager
   @Namespace private var onboardingAnimation
 
   private var isRegistering: Bool {
-    viewModel.registrationState == .registering
+    wearablesRuntimeManager.registrationState == .registering
   }
 
   private var isRegistered: Bool {
-    viewModel.registrationState == .registered
+    wearablesRuntimeManager.registrationState == .registered
   }
 
   private var hasDiscoveredDevice: Bool {
-    !viewModel.devices.isEmpty
+    !wearablesRuntimeManager.devices.isEmpty
   }
 
   private var registrationStatusTitle: String {
@@ -147,10 +147,18 @@ struct HomeScreenView: View {
         .padding(.bottom, 140)
       }
     }
-    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.registrationState)
-    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.devices.count)
+    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: wearablesRuntimeManager.registrationState)
+    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: wearablesRuntimeManager.devices.count)
     .safeAreaInset(edge: .bottom) {
       VStack(spacing: 10) {
+        if let compatibilityMessage = wearablesRuntimeManager.activeCompatibilityMessage {
+          Text(compatibilityMessage)
+            .font(.system(.caption, design: .rounded).weight(.medium))
+            .foregroundColor(.orange.opacity(0.95))
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
         Text("Phone-only assistant is the active runtime. Meta onboarding stays available only for future hardware features.")
           .font(.system(.caption, design: .rounded).weight(.medium))
           .foregroundColor(.white.opacity(0.7))
@@ -176,11 +184,11 @@ struct HomeScreenView: View {
         #if DEBUG
           Button {
             Task {
-              await viewModel.toggleMockMode()
+              await wearablesRuntimeManager.toggleMockMode()
             }
           } label: {
             HStack(spacing: 10) {
-              Image(systemName: viewModel.isPreparingMockDevice ? "hourglass" : "iphone")
+              Image(systemName: wearablesRuntimeManager.isPreparingMockDevice ? "hourglass" : "iphone")
               Text(mockButtonTitle)
             }
             .font(.system(.headline, design: .rounded).weight(.semibold))
@@ -191,7 +199,7 @@ struct HomeScreenView: View {
           .buttonStyle(.plain)
           .background(Color.white.opacity(0.18))
           .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-          .disabled(viewModel.isPreparingMockDevice)
+          .disabled(wearablesRuntimeManager.isPreparingMockDevice)
 
           Text("DEBUG: Pair a simulated glasses device to continue without physical hardware.")
             .font(.system(.caption2, design: .rounded).weight(.medium))
@@ -200,7 +208,7 @@ struct HomeScreenView: View {
         #endif
 
         Button {
-          viewModel.connectGlasses()
+          wearablesRuntimeManager.connectGlasses()
         } label: {
           HStack(spacing: 10) {
             Image(systemName: isRegistering ? "hourglass" : "bolt.horizontal.fill")
@@ -230,8 +238,8 @@ struct HomeScreenView: View {
 private extension HomeScreenView {
   #if DEBUG
     var mockButtonTitle: String {
-      if viewModel.isPreparingMockDevice { return "Preparing Mock Device…" }
-      if viewModel.isMockModeEnabled { return "Disable Mock Device" }
+      if wearablesRuntimeManager.isPreparingMockDevice { return "Preparing Mock Device…" }
+      if wearablesRuntimeManager.isMockModeEnabled { return "Disable Mock Device" }
       return "Use iPhone Mock Device"
     }
   #endif
@@ -253,7 +261,7 @@ private extension HomeScreenView {
       HomeProgressRow.RowData(
         id: "device",
         title: "Device discovery",
-        detail: hasDiscoveredDevice ? "\(viewModel.devices.count) device(s) available" : "Waiting for glasses",
+        detail: hasDiscoveredDevice ? "\(wearablesRuntimeManager.devices.count) device(s) available" : "Waiting for glasses",
         status: hasDiscoveredDevice ? .done : (isRegistered ? .active : .pending)
       ),
       HomeProgressRow.RowData(

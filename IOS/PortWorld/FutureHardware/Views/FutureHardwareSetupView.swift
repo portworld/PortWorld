@@ -1,77 +1,34 @@
-// Secondary setup screen that lazily initializes wearables/DAT only when requested.
-import Combine
-import Foundation
-import MWDATCore
+// Secondary setup screen that consumes the shared app-scoped wearables manager.
 import SwiftUI
-
-@MainActor
-final class FutureHardwareSetupModel: ObservableObject {
-  @Published var sdkInitError: String?
-  @Published var sdkInitDiagnostics: [String] = []
-  @Published var didAttemptInitialSDKInit = false
-  @Published var isRetryingSDKInit = false
-  @Published var wearablesViewModel: WearablesViewModel?
-
-  func initializeWearablesSDKIfNeeded() {
-    guard didAttemptInitialSDKInit == false else { return }
-    didAttemptInitialSDKInit = true
-    initializeWearablesSDK()
-  }
-
-  func initializeWearablesSDK() {
-    guard isRetryingSDKInit == false else { return }
-    isRetryingSDKInit = true
-    defer { isRetryingSDKInit = false }
-
-    do {
-      // The DAT SDK should be configured only once per app lifetime.
-      try Wearables.configure()
-      wearablesViewModel = WearablesViewModel(wearables: Wearables.shared)
-      sdkInitError = nil
-      sdkInitDiagnostics = []
-    } catch {
-      wearablesViewModel = nil
-      sdkInitError = error.localizedDescription
-      sdkInitDiagnostics = Self.buildInitializationDiagnostics(from: error)
-    }
-  }
-
-  private static func buildInitializationDiagnostics(from error: Error) -> [String] {
-    let nsError = error as NSError
-    var diagnostics = [
-      "Confirm the Meta AI app is installed and developer mode is enabled for this build.",
-      "Verify `MWDAT.AppLinkURLScheme` and `MWDAT.MetaAppID` values in `Info.plist` (`MetaAppID=0` is valid for developer mode).",
-      "Check that Bluetooth is enabled and your glasses can be discovered by the phone.",
-      "Retry initialization after correcting the issue."
-    ]
-
-    #if DEBUG
-      diagnostics.append("Debug details: domain=\(nsError.domain), code=\(nsError.code)")
-    #endif
-
-    return diagnostics
-  }
-}
 
 struct FutureHardwareSetupView: View {
   @Environment(\.dismiss) private var dismiss
-  @ObservedObject private var model: FutureHardwareSetupModel
+  @ObservedObject private var wearablesRuntimeManager: WearablesRuntimeManager
 
-  init(model: FutureHardwareSetupModel) {
-    self.model = model
+  init(wearablesRuntimeManager: WearablesRuntimeManager) {
+    self.wearablesRuntimeManager = wearablesRuntimeManager
   }
 
   var body: some View {
     NavigationStack {
       Group {
-        if let wearablesViewModel = model.wearablesViewModel {
-          HomeScreenView(viewModel: wearablesViewModel)
-        } else {
+        switch wearablesRuntimeManager.configurationState {
+        case .ready:
+          HomeScreenView(wearablesRuntimeManager: wearablesRuntimeManager)
+
+        case .idle, .configuring:
+          WearablesInitializationView()
+
+        case .failed:
           RecoverableWearablesInitializationView(
-            errorMessage: model.sdkInitError ?? "Wearables SDK is not initialized yet.",
-            diagnostics: model.sdkInitDiagnostics,
-            isRetrying: model.isRetryingSDKInit,
-            onRetry: model.initializeWearablesSDK
+            errorMessage: wearablesRuntimeManager.configurationErrorMessage ?? "Wearables SDK is not initialized yet.",
+            diagnostics: wearablesRuntimeManager.configurationDiagnostics,
+            isRetrying: wearablesRuntimeManager.configurationState == .configuring,
+            onRetry: {
+              Task {
+                await wearablesRuntimeManager.retryConfiguration()
+              }
+            }
           )
         }
       }
@@ -85,26 +42,36 @@ struct FutureHardwareSetupView: View {
         }
       }
       .task {
-        model.initializeWearablesSDKIfNeeded()
-      }
-      .onOpenURL { url in
-        Task {
-          await model.wearablesViewModel?.handleMetaCallback(url: url)
-        }
+        await wearablesRuntimeManager.startIfNeeded()
       }
       .alert("Error", isPresented: Binding(
-        get: { model.wearablesViewModel?.showError ?? false },
-        set: { newValue in
-          model.wearablesViewModel?.showError = newValue
-        }
+        get: { wearablesRuntimeManager.showError },
+        set: { wearablesRuntimeManager.showError = $0 }
       )) {
         Button("OK") {
-          model.wearablesViewModel?.dismissError()
+          wearablesRuntimeManager.dismissError()
         }
       } message: {
-        Text(model.wearablesViewModel?.errorMessage ?? "")
+        Text(wearablesRuntimeManager.errorMessage)
       }
     }
+  }
+}
+
+private struct WearablesInitializationView: View {
+  var body: some View {
+    VStack(spacing: 16) {
+      ProgressView()
+        .progressViewStyle(.circular)
+      Text("Initializing Wearables SDK")
+        .font(.headline)
+      Text("Preparing the shared glasses capability layer for this app.")
+        .font(.subheadline)
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    .padding(24)
   }
 }
 

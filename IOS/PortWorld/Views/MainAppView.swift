@@ -3,8 +3,12 @@ import SwiftUI
 
 struct MainAppView: View {
   @StateObject private var phoneRuntimeViewModel = PhoneAssistantRuntimeViewModel()
-  @StateObject private var futureHardwareSetupModel = FutureHardwareSetupModel()
+  @ObservedObject private var wearablesRuntimeManager: WearablesRuntimeManager
   @State private var isPresentingFutureHardwareSetup = false
+
+  init(wearablesRuntimeManager: WearablesRuntimeManager) {
+    self.wearablesRuntimeManager = wearablesRuntimeManager
+  }
 
   var body: some View {
     PhoneAssistantRuntimeView(
@@ -14,7 +18,7 @@ struct MainAppView: View {
       }
     )
     .sheet(isPresented: $isPresentingFutureHardwareSetup) {
-      FutureHardwareSetupView(model: futureHardwareSetupModel)
+      FutureHardwareSetupView(wearablesRuntimeManager: wearablesRuntimeManager)
     }
   }
 }
