@@ -20,6 +20,7 @@ Read the relevant docs before non-trivial iOS work:
 | File | Read when… |
 |---|---|
 | `docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md` | Checking current phase status, forward sequencing, or how glasses work should build onto the cleaned phone runtime |
+| `docs/intermediary/PHASE2_IMPLEMENTATION.md` | You need the detailed record of the currently landed glasses-capable runtime, DAT lifecycle integration, mock workflow, and follow-on hardening |
 | `docs/intermediary/PHASE1_IMPLEMENTATION.md` | You need the detailed record of the completed phone-runtime cleanup and stabilization work |
 | `IOS/docs/Wearables DAT SDK.md` | Any code that touches the DAT SDK |
 | `IOS/docs/archived/ARCHITECTURE.md` | Looking up legacy architecture rationale |
@@ -33,8 +34,9 @@ Rules of authority:
 
 1. `docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md`
 2. current active code in `IOS/PortWorld/`
-3. `docs/intermediary/PHASE1_IMPLEMENTATION.md` for historical Phase 1 detail
-4. historical docs only for context
+3. `docs/intermediary/PHASE2_IMPLEMENTATION.md` for current landed Phase 2 detail
+4. `docs/intermediary/PHASE1_IMPLEMENTATION.md` for historical Phase 1 detail
+5. historical docs only for context
 
 If archived docs conflict with the active runtime plan or current code, the active runtime plan wins unless the task explicitly concerns migration/history.
 
@@ -55,9 +57,9 @@ Use this mental model when navigating the iOS app:
 - `IOS/PortWorld/Runtime/Wake/`
   Wake/sleep detection and speech recognizer-backed wake engine
 - `IOS/PortWorld/Runtime/AudioIO/`
-  Phone microphone/playback bridge
+  Phone and glasses audio bridges
 - `IOS/PortWorld/FutureHardware/`
-  Secondary DAT / wearables / mock-device path
+  DAT / wearables / mock-device capability layer consumed by the active runtime
 - `IOS/Legacy/`
   Historical runtime and compatibility code, not the default implementation surface
 
@@ -164,7 +166,7 @@ Banned:
 
 - add new behavior on top of the cleaned runtime
 - do not reintroduce old generic transport/runtime abstractions without a clear need
-- keep future-hardware code from reshaping the phone-first path until that phase explicitly starts
+- keep future-hardware code as a bounded DAT / glasses capability layer and do not let it reshape the active runtime without a roadmap-backed need
 
 ---
 

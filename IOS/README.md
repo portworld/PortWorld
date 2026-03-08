@@ -5,14 +5,23 @@ This README describes the current iOS app as it exists today.
 The goal is to make the active architecture easy to understand:
 
 - what is active now
-- what is retained for future glasses / DAT work
+- what is active now for both `phone` and `glasses` runtime routes
 - what is historical only
 
 For implementation authority, prefer the docs in `../docs/` and the active code in `IOS/PortWorld/`.
 
 ## Current Status
 
-The active app is an iPhone-first assistant runtime:
+The active app is one assistant runtime with two routes:
+
+- `phone`
+  the stable everyday path
+- `glasses`
+  DAT-gated and mock-friendly, with live HFP audio when available and labeled phone fallback during development
+
+The app is still operationally iPhone-first, but the main runtime now surfaces and owns both routes.
+
+The phone path remains:
 
 1. User taps `Activate Assistant`
 2. App enters armed listening on iPhone
@@ -22,11 +31,11 @@ The active app is an iPhone-first assistant runtime:
 6. Saying `goodbye mario` or ending the turn stops only the active conversation
 7. The app returns to armed listening and can repeat the cycle
 
-This is the current implementation authority for the assistant runtime.
+This is the current implementation authority for the phone route inside the shared assistant runtime.
 
 ## What Works Today
 
-- Phone-first assistant activation from the main app flow
+- Phone assistant activation from the main app flow
 - Wake phrase detection on iPhone
 - Realtime microphone uplink to the backend
 - Assistant playback through iPhone speaker
@@ -35,6 +44,11 @@ This is the current implementation authority for the assistant runtime.
 - Repeated wake -> converse -> sleep cycles
 - Assistant interruption / barge-in handling
 - Local mock-backend validation of the phone runtime
+- DAT configuration and registration from the app shell
+- Glasses route selection and DAT session lifecycle ownership
+- Mock-device-assisted glasses lifecycle validation
+- Live HFP glasses audio when bidirectional Bluetooth HFP is available
+- Labeled phone-audio fallback for mock / non-hardware glasses development
 
 ## Active Source Tree
 
@@ -45,10 +59,10 @@ IOS/PortWorld/
 ├── PortWorldApp.swift
 ├── Views/
 │   ├── MainAppView.swift
-│   ├── PhoneAssistantRuntimeView.swift
+│   ├── AssistantRuntimeView.swift
 │   └── Components/
 ├── ViewModels/
-│   └── PhoneAssistantRuntimeViewModel.swift
+│   └── AssistantRuntimeViewModel.swift
 ├── Runtime/
 │   ├── Assistant/
 │   ├── AudioIO/
@@ -67,14 +81,14 @@ IOS/PortWorld/
 | Area | Current owner |
 |---|---|
 | App entry and top-level routing | `PortWorldApp`, `MainAppView` |
-| Assistant UI state and actions | `PhoneAssistantRuntimeView`, `PhoneAssistantRuntimeViewModel`, `PhoneAssistantRuntimeStatus` |
+| Assistant UI state and actions | `AssistantRuntimeView`, `AssistantRuntimeViewModel`, `AssistantRuntimeStatus` |
 | Runtime orchestration and conversation lifecycle | `Runtime/Assistant/` |
 | Backend websocket transport and wire contract | `Runtime/Transport/` |
 | Assistant playback and route/interruption handling | `Runtime/Playback/` |
 | Wake and sleep detection | `Runtime/Wake/` |
-| Phone microphone / speaker bridge | `Runtime/AudioIO/` |
+| Phone and glasses audio route bridges | `Runtime/AudioIO/` |
 | Shared audio engine and capture support | `Audio/` |
-| Future hardware / DAT path | `FutureHardware/` |
+| DAT integration, glasses lifecycle, and mock workflow | `FutureHardware/` |
 
 ## Architecture Snapshot
 
@@ -87,10 +101,10 @@ The current architecture is easiest to understand in four layers.
 
 This layer owns app startup and entry into the assistant experience.
 
-### 2. Active Phone Runtime
+### 2. Active Assistant Runtime
 
-- `Views/PhoneAssistantRuntimeView.swift`
-- `ViewModels/PhoneAssistantRuntimeViewModel.swift`
+- `Views/AssistantRuntimeView.swift`
+- `ViewModels/AssistantRuntimeViewModel.swift`
 - `Runtime/Assistant/`
 - `Runtime/Transport/`
 - `Runtime/Playback/`
@@ -98,7 +112,7 @@ This layer owns app startup and entry into the assistant experience.
 - `Runtime/AudioIO/`
 - `Audio/`
 
-This is the working assistant runtime and should be treated as the active product architecture.
+This is the working assistant runtime and should be treated as the active product architecture for both routes.
 
 ### 3. Retained Future Hardware Layer
 
@@ -107,7 +121,7 @@ This is the working assistant runtime and should be treated as the active produc
 - `FutureHardware/Views/`
 - DAT SDK integration and mock-device support
 
-This exists because the forward product direction still includes glasses-connected runtime support, but it is not the main assistant path today.
+This exists because DAT integration, glasses lifecycle, and mock-device workflow still live in a bounded slice even though the main assistant runtime now consumes that state.
 
 ### 4. Historical / Legacy Context
 
@@ -133,7 +147,7 @@ The DAT SDK remains in the project because later work will extend the cleaned ph
 
 ### Active Runtime Needs
 
-The active phone runtime depends on:
+The active assistant runtime depends on:
 
 - Microphone permission
 - Speech recognition permission
@@ -143,11 +157,16 @@ The active phone runtime depends on:
   - optional `SON_API_KEY`
   - optional `SON_BEARER_TOKEN`
 
-### Retained Future-Hardware Setup
+### DAT / Glasses Setup
 
-The codebase still contains DAT-related integration surfaces, URL schemes, and hardware-oriented configuration.
+The codebase contains DAT-related integration surfaces, URL schemes, and hardware-oriented configuration because the glasses route is now part of the active runtime.
 
-Those are retained for later glasses work, but they are not required to understand the current phone-first runtime.
+You still do not need physical glasses to understand the main runtime, but the active architecture now includes:
+
+- app-scoped DAT configuration
+- Meta registration / unregistration handling
+- glasses session lifecycle
+- mock-device development workflow
 
 ## Local Validation
 
@@ -172,10 +191,12 @@ Use these docs as the current source of truth:
 
 - [docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md](../docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md)
   high-level sequencing from the cleaned phone runtime toward glasses support
+- [docs/intermediary/PHASE2_IMPLEMENTATION.md](../docs/intermediary/PHASE2_IMPLEMENTATION.md)
+  detailed record of the landed Phase 2 glasses-capable runtime work
 - [docs/intermediary/PHASE1_IMPLEMENTATION.md](../docs/intermediary/PHASE1_IMPLEMENTATION.md)
   detailed historical record of the completed Phase 1 cleanup
 - [docs/Wearables DAT SDK.md](docs/Wearables%20DAT%20SDK.md)
-  DAT SDK usage guidance for future-hardware work
+  DAT SDK usage guidance for active DAT / glasses work
 
 Historical context lives in:
 
@@ -188,8 +209,8 @@ Archived docs are not implementation authority for new assistant work.
 
 When working in the iOS app, assume this ordering:
 
-1. trust the active phone runtime in `IOS/PortWorld/` first
-2. treat future-hardware / DAT code as retained next-phase integration work
+1. trust the active runtime in `IOS/PortWorld/` first
+2. treat `FutureHardware/` as the bounded DAT / glasses capability layer consumed by the main runtime
 3. treat `IOS/Legacy/` and archived docs as historical context only
 
-If a file or flow conflicts with the working phone runtime, the active phone runtime should win unless the task is explicitly about hardware reintegration or migration.
+If a file or flow conflicts with the working assistant runtime, the active runtime should win unless the task is explicitly about legacy migration or historical comparison.

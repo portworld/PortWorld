@@ -21,6 +21,8 @@ Active planning docs:
 
 - `docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md`
   High-level sequencing from the cleaned phone runtime toward glasses support
+- `docs/intermediary/PHASE2_IMPLEMENTATION.md`
+  Detailed record of the landed Phase 2 glasses-capable runtime work
 - `docs/intermediary/PHASE1_IMPLEMENTATION.md`
   Historical execution trace for the completed Phase 1 cleanup
 
@@ -112,7 +114,8 @@ If a preferred tool is unavailable, use the closest substitute and note that in 
 ## Implementation Policy
 
 - For active iOS assistant runtime work, align first with `docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md`.
-- Use `docs/intermediary/PHASE1_IMPLEMENTATION.md` for the detailed record of the completed phone-only cleanup.
+- Use `docs/intermediary/PHASE2_IMPLEMENTATION.md` for the detailed record of the current landed glasses-capable runtime behavior.
+- Use `docs/intermediary/PHASE1_IMPLEMENTATION.md` for the historical record of the completed phone-only cleanup.
 - Use archived docs only for historical context or migration reasoning.
 - If archived docs conflict with active root docs, follow the active root docs unless the user explicitly directs otherwise.
 
