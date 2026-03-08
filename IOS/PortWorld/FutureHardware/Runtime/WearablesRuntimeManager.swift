@@ -50,6 +50,17 @@ final class WearablesRuntimeManager: ObservableObject {
   @Published private(set) var isMockDeviceReady: Bool
   @Published private(set) var isPreparingMockDevice: Bool
 
+  var canActivateGlassesRouteForDebugMock: Bool {
+    #if DEBUG
+      return configurationState == .ready &&
+        mockWorkflowState == .ready &&
+        devices.isEmpty == false &&
+        activeCompatibilityMessage == nil
+    #else
+      return false
+    #endif
+  }
+
   private let configure: () throws -> Void
   private let wearablesProvider: () -> WearablesInterface
   private let mockDeviceController: MockDeviceController
@@ -207,9 +218,9 @@ final class WearablesRuntimeManager: ObservableObject {
       return
     }
 
-    guard registrationState == .registered else {
+    guard registrationState == .registered || canActivateGlassesRouteForDebugMock else {
       glassesSessionErrorMessage = mockWorkflowState == .ready
-        ? "Meta registration is not complete yet. Mock device readiness does not bypass DAT registration."
+        ? "Meta registration is not complete yet, but debug mock activation is available only when the mock device is fully ready."
         : "Meta registration is not complete yet."
       return
     }
@@ -561,7 +572,7 @@ final class WearablesRuntimeManager: ObservableObject {
   private func refreshDevelopmentReadiness() {
     canValidateGlassesRuntimeInDevelopment =
       configurationState == .ready &&
-      registrationState == .registered &&
+      (registrationState == .registered || canActivateGlassesRouteForDebugMock) &&
       hasCompatibleDiscoveredDevice &&
       activeCompatibilityMessage == nil &&
       mockWorkflowState == .ready
@@ -598,8 +609,13 @@ final class WearablesRuntimeManager: ObservableObject {
 
       if registrationState != .registered {
         if mockWorkflowState == .ready {
-          glassesDevelopmentReadinessDetail =
-            "Mock device is ready for development, but Meta registration still must complete before the glasses runtime can activate."
+          #if DEBUG
+            glassesDevelopmentReadinessDetail =
+              "Mock device is ready for development. In debug builds, the glasses runtime can activate without completing Meta registration."
+          #else
+            glassesDevelopmentReadinessDetail =
+              "Mock device is ready for development, but Meta registration still must complete before the glasses runtime can activate."
+          #endif
         } else {
           glassesDevelopmentReadinessDetail =
             "Complete Meta registration before the glasses runtime can activate. Mock mode does not bypass DAT registration."
@@ -648,7 +664,7 @@ final class WearablesRuntimeManager: ObservableObject {
       return
     }
 
-    guard registrationState == .registered else {
+    guard registrationState == .registered || canActivateGlassesRouteForDebugMock else {
       await stopGlassesSession()
       return
     }
@@ -669,7 +685,7 @@ final class WearablesRuntimeManager: ObservableObject {
   private func synchronizeVisionCapture() async {
     guard wantsVisionCapture else { return }
     guard configurationState == .ready else { return }
-    guard registrationState == .registered else { return }
+    guard registrationState == .registered || canActivateGlassesRouteForDebugMock else { return }
     guard isGlassesSessionRequested else { return }
     guard glassesSessionPhase == .running else {
       if visionCaptureStateText != GlassesPhotoCaptureController.Phase.failed.rawValue {
