@@ -126,7 +126,17 @@ Acceptance:
 
 Status:
 
-- planned
+- complete
+
+Implementation notes:
+
+- the backend now boots through one runtime-owned FastAPI lifespan path with `AppRuntime` on `app.state`
+- persistent storage now bootstraps under `BACKEND_DATA_DIR` with `SQLite` plus filesystem artifacts
+- backend-owned configuration now uses `BACKEND_*` and `REALTIME_PROVIDER`
+- the realtime path now has a provider seam, with OpenAI as the only active Step 4A provider
+- session activation/teardown and `/vision/frame` now register persistent session and artifact state
+- `/healthz` now reports productized service identity plus storage/provider/runtime status
+- a minimal `Dockerfile` and root `docker-compose.yml` now provide the canonical Step 4A self-host path
 
 ### Step 4B. Visual Memory MVP
 
