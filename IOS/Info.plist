@@ -55,6 +55,8 @@
 	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Needed to connect to Meta Wearables.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs camera access to test phone-based vision frame uploads to the backend.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>This app needs local network access to connect to the Port:🌍 mock backend.</string>
 	<key>NSMicrophoneUsageDescription</key>

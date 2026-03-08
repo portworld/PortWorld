@@ -81,6 +81,13 @@ struct AssistantRuntimeView: View {
             LabeledContent("HFP route", value: status.hfpRouteText)
             LabeledContent("Mock workflow", value: status.mockWorkflowText)
 
+            if status.selectedRoute == .phone {
+              LabeledContent("Phone vision debug", value: status.debugPhoneVisionModeText)
+              Text(status.debugPhoneVisionDetailText)
+                .font(.system(.caption, design: .rounded).weight(.medium))
+                .foregroundColor(.white.opacity(0.68))
+            }
+
             if status.selectedRoute == .glasses {
               Text(status.glassesDevelopmentDetailText)
                 .font(.system(.caption, design: .rounded).weight(.medium))
@@ -198,6 +205,24 @@ struct AssistantRuntimeView: View {
         .buttonStyle(.plain)
         .background(Color.white.opacity(0.16))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+        #if DEBUG
+          if status.selectedRoute == .phone {
+            Button {
+              viewModel.toggleDebugPhoneVisionMode()
+            } label: {
+              Text(status.debugPhoneVisionToggleTitle)
+                .font(.system(.headline, design: .rounded).weight(.semibold))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+            }
+            .buttonStyle(.plain)
+            .background(status.canToggleDebugPhoneVision ? Color.white.opacity(0.16) : Color.gray.opacity(0.45))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .disabled(status.canToggleDebugPhoneVision == false)
+          }
+        #endif
       }
       .padding(.horizontal, 16)
       .padding(.top, 12)
