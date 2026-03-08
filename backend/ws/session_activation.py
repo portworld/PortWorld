@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import WebSocket
 
 from backend.realtime.client import RealtimeClientError
-from backend.realtime.factory import build_session_bridge
+from backend.realtime.factory import BridgeBinding
 from backend.ws.contracts import IOSEnvelope
 from backend.ws.session_registry import SessionRecord, session_registry
 from backend.ws.session_runtime import (
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 SendControl = Callable[..., Awaitable[None]]
 SendBinary = Callable[[int, int, bytes], Awaitable[None]]
+BuildSessionBridge = Callable[..., BridgeBinding]
 
 
 async def activate_session(
@@ -27,6 +28,7 @@ async def activate_session(
     websocket: WebSocket,
     send_control: SendControl,
     send_server_audio: SendBinary,
+    build_session_bridge: BuildSessionBridge,
 ) -> SessionRecord | None:
     if active_session is not None:
         await deactivate_and_unregister_session(

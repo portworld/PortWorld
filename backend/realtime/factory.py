@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from backend.core.settings import settings
+from backend.core.settings import Settings
 from backend.debug.mock_capture import IOSMockCaptureBridge
 from backend.realtime.bridge import IOSRealtimeBridge
 from backend.realtime.client import OpenAIRealtimeClient
@@ -26,6 +26,7 @@ class BridgeBinding:
 
 def build_session_bridge(
     *,
+    settings: Settings,
     session_id: str,
     send_control: ControlSender,
     send_server_audio: BinarySender,

@@ -9,8 +9,9 @@ from dataclasses import dataclass
 from fastapi import WebSocket
 from pydantic import ValidationError
 
-from backend.core.settings import settings
+from backend.core.settings import Settings
 from backend.realtime.client import RealtimeClientError
+from backend.realtime.factory import BridgeBinding
 from backend.ws.contracts import IOSEnvelope
 from backend.ws.session_activation import activate_session
 from backend.ws.session_registry import SessionRecord
@@ -66,6 +67,8 @@ async def dispatch_control_envelope(
     send_control: SendControl,
     send_server_audio: SendBinary,
     telemetry: SessionTelemetry,
+    settings: Settings,
+    build_session_bridge: Callable[..., BridgeBinding],
 ) -> ControlDispatchResult:
     logger.warning(
         "Inbound control type=%s session=%s seq=%s",
@@ -81,6 +84,7 @@ async def dispatch_control_envelope(
             websocket=websocket,
             send_control=send_control,
             send_server_audio=send_server_audio,
+            build_session_bridge=build_session_bridge,
         )
         return ControlDispatchResult(active_session=next_active_session, handled=True)
 
@@ -146,6 +150,7 @@ async def dispatch_control_envelope(
             active_session=active_session,
             send_control=send_control,
             telemetry=telemetry,
+            settings=settings,
         )
         return ControlDispatchResult(active_session=active_session, handled=True)
 
@@ -167,6 +172,7 @@ async def _handle_text_audio_fallback(
     active_session: SessionRecord | None,
     send_control: SendControl,
     telemetry: SessionTelemetry,
+    settings: Settings,
 ) -> None:
     if active_session is None:
         logger.info("Ignoring client.audio before session.activate")

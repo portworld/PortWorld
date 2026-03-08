@@ -6,7 +6,6 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from backend.core.settings import settings
 from backend.ws.session_registry import SessionRecord, session_registry
 
 EXPECTED_CLIENT_AUDIO_ENCODING = "pcm_s16le"
@@ -139,8 +138,9 @@ def trace_ws_message(
     *,
     active_session: SessionRecord | None,
     connection_id: int,
+    trace_ws_messages_enabled: bool,
 ) -> None:
-    if not settings.openai_debug_trace_ws_messages:
+    if not trace_ws_messages_enabled:
         return
 
     session_id = active_session.session_id if active_session is not None else "unbound"

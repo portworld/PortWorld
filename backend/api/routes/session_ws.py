@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from backend.core.settings import settings
+from backend.core.runtime import get_app_runtime
 from backend.ws.binary_dispatch import dispatch_binary_frame
 from backend.ws.control_dispatch import dispatch_control_envelope, parse_control_envelope
 from backend.ws.contracts import make_envelope
@@ -24,13 +24,14 @@ _connection_ids = itertools.count(1)
 async def ws_session(websocket: WebSocket) -> None:
     await websocket.accept()
     connection_id = next(_connection_ids)
+    runtime = get_app_runtime(websocket.app)
 
     active_session: SessionRecord | None = None
     server_audio_frame_count = 0
     server_audio_total_bytes = 0
     telemetry = SessionTelemetry(
         connection_id=connection_id,
-        uplink_ack_every_n_frames=settings.openai_realtime_uplink_ack_every_n_frames,
+        uplink_ack_every_n_frames=runtime.settings.openai_realtime_uplink_ack_every_n_frames,
     )
 
     async def send_control(
@@ -112,6 +113,7 @@ async def ws_session(websocket: WebSocket) -> None:
                 message,
                 active_session=active_session,
                 connection_id=connection_id,
+                trace_ws_messages_enabled=runtime.settings.openai_debug_trace_ws_messages,
             )
 
             if message_type == "websocket.disconnect":
@@ -150,6 +152,8 @@ async def ws_session(websocket: WebSocket) -> None:
                 send_control=send_control,
                 send_server_audio=send_server_audio,
                 telemetry=telemetry,
+                settings=runtime.settings,
+                build_session_bridge=runtime.make_session_bridge,
             )
             active_session = dispatch_result.active_session
             if not dispatch_result.handled:

@@ -5,15 +5,16 @@ import binascii
 import json
 import logging
 import re
-from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi import HTTPException
+from fastapi import Request
 from pydantic import BaseModel, Field, field_validator
+
+from backend.core.runtime import get_app_runtime
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-VISION_STORAGE_ROOT = Path("backend/var/vision_frames")
 
 
 def _sanitize_path_component(value: str) -> str:
@@ -51,10 +52,14 @@ def _decode_frame_bytes(frame_b64: str) -> bytes:
 
 
 @router.post("/vision/frame")
-async def vision_frame(payload: VisionFramePayload) -> dict[str, str]:
+async def vision_frame(request: Request, payload: VisionFramePayload) -> dict[str, str]:
+    runtime = get_app_runtime(request.app)
     frame_bytes = _decode_frame_bytes(payload.frame_b64)
 
-    session_dir = VISION_STORAGE_ROOT / _sanitize_path_component(payload.session_id)
+    session_dir = (
+        runtime.storage_paths.vision_frames_root
+        / _sanitize_path_component(payload.session_id)
+    )
     session_dir.mkdir(parents=True, exist_ok=True)
 
     file_stem = _sanitize_path_component(payload.frame_id)
