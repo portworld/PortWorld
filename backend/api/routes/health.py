@@ -18,7 +18,7 @@ async def healthz(request: Request) -> dict[str, str]:
         "ws_path": "/ws/session",
         "mock_capture_mode": (
             "enabled"
-            if runtime.settings.openai_debug_mock_capture_mode
+            if runtime.settings.backend_debug_mock_capture_mode
             else "disabled"
         ),
     }

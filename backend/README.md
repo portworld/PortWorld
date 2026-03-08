@@ -39,7 +39,7 @@ It bridges the iOS app's session websocket transport to OpenAI Realtime and stre
 
 ### Mock capture mode
 
-- enabled with `OPENAI_DEBUG_MOCK_CAPTURE_MODE=true`
+- enabled with `BACKEND_DEBUG_MOCK_CAPTURE_MODE=true`
 - does not connect to OpenAI
 - captures and optionally dumps inbound audio only
 - useful for isolating iPhone -> backend transport
@@ -149,6 +149,28 @@ cp .env.example .env
 
 ## Environment
 
+### Backend-owned settings
+
+- `REALTIME_PROVIDER`
+  default: `openai`
+- `BACKEND_DATA_DIR`
+  default: `backend/var`
+- `BACKEND_SQLITE_PATH`
+  default: `<BACKEND_DATA_DIR>/portworld.db`
+- `BACKEND_UPLINK_ACK_EVERY_N_FRAMES`
+  default: `20`, min `1`
+- `BACKEND_ALLOW_TEXT_AUDIO_FALLBACK`
+  default: `false`
+  compatibility-only path; not used by the active iPhone runtime
+- `BACKEND_DEBUG_DUMP_INPUT_AUDIO`
+  default: `false`
+- `BACKEND_DEBUG_DUMP_INPUT_AUDIO_DIR`
+  default: `<BACKEND_DATA_DIR>/debug_audio`
+- `BACKEND_DEBUG_MOCK_CAPTURE_MODE`
+  default: `false`
+- `BACKEND_DEBUG_TRACE_WS_MESSAGES`
+  default: `false`
+
 ### Required for realtime mode
 
 - `OPENAI_API_KEY`
@@ -166,22 +188,6 @@ cp .env.example .env
   default: `true`
 - `OPENAI_REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS`
   default: `900`, min `100`
-- `OPENAI_REALTIME_UPLINK_ACK_EVERY_N_FRAMES`
-  default: `20`, min `1`
-- `OPENAI_REALTIME_ALLOW_TEXT_AUDIO_FALLBACK`
-  default: `false`
-  compatibility-only path; not used by the active iPhone runtime
-
-### Debug / local runtime settings
-
-- `OPENAI_DEBUG_DUMP_INPUT_AUDIO`
-  default: `false`
-- `OPENAI_DEBUG_DUMP_INPUT_AUDIO_DIR`
-  default: `backend/var/debug_audio`
-- `OPENAI_DEBUG_MOCK_CAPTURE_MODE`
-  default: `false`
-- `OPENAI_DEBUG_TRACE_WS_MESSAGES`
-  default: `false`
 
 ### Server settings
 
@@ -206,9 +212,9 @@ uvicorn backend.app:app --host 0.0.0.0 --port 8080 --log-level info --reload
 Typical local realtime run:
 
 ```bash
-export OPENAI_REALTIME_ALLOW_TEXT_AUDIO_FALLBACK=false
-export OPENAI_DEBUG_MOCK_CAPTURE_MODE=false
-export OPENAI_DEBUG_TRACE_WS_MESSAGES=false
+export BACKEND_ALLOW_TEXT_AUDIO_FALLBACK=false
+export BACKEND_DEBUG_MOCK_CAPTURE_MODE=false
+export BACKEND_DEBUG_TRACE_WS_MESSAGES=false
 uvicorn backend.app:app --host 0.0.0.0 --port 8080 --log-level info --reload
 ```
 
@@ -247,8 +253,8 @@ python backend/scripts/ws_probe.py --send-text-fallback
 Enable raw inbound PCM16 WAV dumps:
 
 ```bash
-export OPENAI_DEBUG_DUMP_INPUT_AUDIO=true
-export OPENAI_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/var/debug_audio
+export BACKEND_DEBUG_DUMP_INPUT_AUDIO=true
+export BACKEND_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/var/debug_audio
 ```
 
 ### 2. Mock capture mode
@@ -256,9 +262,9 @@ export OPENAI_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/var/debug_audio
 Use this to isolate iPhone -> backend transport without OpenAI:
 
 ```bash
-export OPENAI_DEBUG_MOCK_CAPTURE_MODE=true
-export OPENAI_DEBUG_DUMP_INPUT_AUDIO=true
-export OPENAI_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/var/debug_audio
+export BACKEND_DEBUG_MOCK_CAPTURE_MODE=true
+export BACKEND_DEBUG_DUMP_INPUT_AUDIO=true
+export BACKEND_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/var/debug_audio
 ```
 
 Behavior in mock mode:

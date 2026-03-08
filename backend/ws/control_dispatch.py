@@ -177,7 +177,7 @@ async def _handle_text_audio_fallback(
     if active_session is None:
         logger.info("Ignoring client.audio before session.activate")
         return
-    if not settings.openai_realtime_allow_text_audio_fallback:
+    if not settings.backend_allow_text_audio_fallback:
         await send_control(
             "error",
             {

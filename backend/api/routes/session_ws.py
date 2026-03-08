@@ -31,7 +31,7 @@ async def ws_session(websocket: WebSocket) -> None:
     server_audio_total_bytes = 0
     telemetry = SessionTelemetry(
         connection_id=connection_id,
-        uplink_ack_every_n_frames=runtime.settings.openai_realtime_uplink_ack_every_n_frames,
+        uplink_ack_every_n_frames=runtime.settings.backend_uplink_ack_every_n_frames,
     )
 
     async def send_control(
@@ -113,7 +113,7 @@ async def ws_session(websocket: WebSocket) -> None:
                 message,
                 active_session=active_session,
                 connection_id=connection_id,
-                trace_ws_messages_enabled=runtime.settings.openai_debug_trace_ws_messages,
+                trace_ws_messages_enabled=runtime.settings.backend_debug_trace_ws_messages,
             )
 
             if message_type == "websocket.disconnect":

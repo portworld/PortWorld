@@ -26,13 +26,12 @@ class AppRuntime:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "AppRuntime":
-        data_root = Path("backend/var")
         return cls(
             settings=settings,
             storage_paths=RuntimeStoragePaths(
-                data_root=data_root,
-                vision_frames_root=data_root / "vision_frames",
-                debug_audio_root=Path(settings.openai_debug_dump_input_audio_dir),
+                data_root=settings.backend_data_dir,
+                vision_frames_root=settings.backend_data_dir / "vision_frames",
+                debug_audio_root=settings.backend_debug_dump_input_audio_dir,
             ),
         )
 

@@ -15,8 +15,16 @@ load_dotenv()
 DEFAULT_INSTRUCTIONS = "You are a concise assistant. Keep answers short, clear, and practical."
 
 
-def _parse_bool_env(name: str, *, default: bool) -> bool:
-    raw = os.getenv(name)
+def _get_env(*names: str) -> str | None:
+    for name in names:
+        raw = os.getenv(name)
+        if raw is not None:
+            return raw
+    return None
+
+
+def _parse_bool_env(*names: str, default: bool) -> bool:
+    raw = _get_env(*names)
     if raw is None:
         return default
     normalized = raw.strip().lower()
@@ -27,8 +35,8 @@ def _parse_bool_env(name: str, *, default: bool) -> bool:
     return default
 
 
-def _parse_int_env(name: str, *, default: int, minimum: int | None = None) -> int:
-    raw = os.getenv(name)
+def _parse_int_env(*names: str, default: int, minimum: int | None = None) -> int:
+    raw = _get_env(*names)
     if raw is None:
         value = default
     else:
@@ -45,18 +53,21 @@ def _parse_int_env(name: str, *, default: int, minimum: int | None = None) -> in
 @dataclass(frozen=True)
 class Settings:
     openai_api_key: str | None
+    realtime_provider: str
     openai_realtime_model: str
     openai_realtime_voice: str
     openai_realtime_instructions: str
     openai_realtime_include_turn_detection: bool
     openai_realtime_enable_manual_turn_fallback: bool
-    openai_realtime_allow_text_audio_fallback: bool
-    openai_realtime_uplink_ack_every_n_frames: int
     openai_realtime_manual_turn_fallback_delay_ms: int
-    openai_debug_dump_input_audio: bool
-    openai_debug_dump_input_audio_dir: str
-    openai_debug_mock_capture_mode: bool
-    openai_debug_trace_ws_messages: bool
+    backend_allow_text_audio_fallback: bool
+    backend_uplink_ack_every_n_frames: int
+    backend_data_dir: Path
+    backend_sqlite_path: Path
+    backend_debug_dump_input_audio: bool
+    backend_debug_dump_input_audio_dir: Path
+    backend_debug_mock_capture_mode: bool
+    backend_debug_trace_ws_messages: bool
     host: str
     port: int
     log_level: str
@@ -64,11 +75,20 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        origins_raw = os.getenv("CORS_ORIGINS", "*")
+        origins_raw = _get_env("CORS_ORIGINS") or "*"
         origins = [origin.strip() for origin in origins_raw.split(",") if origin.strip()]
+        backend_data_dir = Path(_get_env("BACKEND_DATA_DIR") or "backend/var")
+        backend_sqlite_path = Path(
+            _get_env("BACKEND_SQLITE_PATH") or str(backend_data_dir / "portworld.db")
+        )
+        backend_debug_dump_input_audio_dir = Path(
+            _get_env("BACKEND_DEBUG_DUMP_INPUT_AUDIO_DIR")
+            or str(backend_data_dir / "debug_audio")
+        )
 
         return cls(
             openai_api_key=os.getenv("OPENAI_API_KEY"),
+            realtime_provider=(_get_env("REALTIME_PROVIDER") or "openai").strip().lower(),
             openai_realtime_model=os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime"),
             openai_realtime_voice=os.getenv("OPENAI_REALTIME_VOICE", "ash"),
             openai_realtime_instructions=os.getenv(
@@ -82,39 +102,38 @@ class Settings:
                 "OPENAI_REALTIME_ENABLE_MANUAL_TURN_FALLBACK",
                 default=True,
             ),
-            openai_realtime_allow_text_audio_fallback=_parse_bool_env(
-                "OPENAI_REALTIME_ALLOW_TEXT_AUDIO_FALLBACK",
-                default=False,
-            ),
-            openai_realtime_uplink_ack_every_n_frames=_parse_int_env(
-                "OPENAI_REALTIME_UPLINK_ACK_EVERY_N_FRAMES",
-                default=20,
-                minimum=1,
-            ),
             openai_realtime_manual_turn_fallback_delay_ms=_parse_int_env(
                 "OPENAI_REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS",
                 default=900,
                 minimum=100,
             ),
-            openai_debug_dump_input_audio=_parse_bool_env(
-                "OPENAI_DEBUG_DUMP_INPUT_AUDIO",
+            backend_allow_text_audio_fallback=_parse_bool_env(
+                "BACKEND_ALLOW_TEXT_AUDIO_FALLBACK",
                 default=False,
             ),
-            openai_debug_dump_input_audio_dir=os.getenv(
-                "OPENAI_DEBUG_DUMP_INPUT_AUDIO_DIR",
-                "backend/var/debug_audio",
+            backend_uplink_ack_every_n_frames=_parse_int_env(
+                "BACKEND_UPLINK_ACK_EVERY_N_FRAMES",
+                default=20,
+                minimum=1,
             ),
-            openai_debug_mock_capture_mode=_parse_bool_env(
-                "OPENAI_DEBUG_MOCK_CAPTURE_MODE",
+            backend_data_dir=backend_data_dir,
+            backend_sqlite_path=backend_sqlite_path,
+            backend_debug_dump_input_audio=_parse_bool_env(
+                "BACKEND_DEBUG_DUMP_INPUT_AUDIO",
                 default=False,
             ),
-            openai_debug_trace_ws_messages=_parse_bool_env(
-                "OPENAI_DEBUG_TRACE_WS_MESSAGES",
+            backend_debug_dump_input_audio_dir=backend_debug_dump_input_audio_dir,
+            backend_debug_mock_capture_mode=_parse_bool_env(
+                "BACKEND_DEBUG_MOCK_CAPTURE_MODE",
                 default=False,
             ),
-            host=os.getenv("HOST", "0.0.0.0"),
+            backend_debug_trace_ws_messages=_parse_bool_env(
+                "BACKEND_DEBUG_TRACE_WS_MESSAGES",
+                default=False,
+            ),
+            host=_get_env("HOST") or "0.0.0.0",
             port=_parse_int_env("PORT", default=8080),
-            log_level=os.getenv("LOG_LEVEL", "INFO"),
+            log_level=_get_env("LOG_LEVEL") or "INFO",
             cors_origins=origins or ["*"],
         )
 
