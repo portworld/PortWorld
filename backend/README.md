@@ -1,48 +1,66 @@
-# Backend
+# PortWorld Backend
 
-FastAPI backend for the active iPhone-first assistant runtime.
+FastAPI backend for the active PortWorld iPhone-first runtime.
 
-It bridges the iOS app's session websocket transport to OpenAI Realtime and streams assistant audio back to the phone.
+The backend is still centered on a realtime session bridge plus a bounded vision upload path, but Step 4A turns it into a cleaner self-hostable service with explicit runtime ownership, persistent storage bootstrap, and a provider seam that later phases can build on.
 
-## Current Behavior
+## Scope
 
-- single websocket endpoint: `WS /ws/session`
-- session-oriented control flow:
-  - `session.activate`
-  - `wakeword.detected`
-  - `session.end_turn`
-  - `session.deactivate`
-- mixed transport model:
-  - JSON control envelopes for lifecycle / status / playback control
-  - binary PCM audio frames for uplink and downlink audio
-- active assistant audio path:
-  - iPhone microphone PCM -> backend -> OpenAI Realtime
-  - OpenAI Realtime output audio -> backend -> iPhone speaker
-- interruption behavior:
-  - upstream OpenAI session uses `server_vad`
-  - `interrupt_response=true` is enabled
-  - when upstream speech starts during assistant playback, the bridge sends:
-    - upstream `response.cancel`
-    - downstream `assistant.playback.control { command: "cancel_response" }`
-  - expected `response_cancel_not_active` races are treated as benign and are not surfaced as client-breaking errors
-- direct audio forwarding:
-  - assistant audio is streamed back directly
-  - the earlier backend pacing experiment was removed because it degraded playback quality
+Current scope:
 
-## Runtime Modes
+- single-user self-hosted backend
+- PortWorld-specific wire contract
+- OpenAI as the only active realtime provider
+- bounded image upload through `POST /vision/frame`
+- persistent backend state under `BACKEND_DATA_DIR`
+
+Not in scope for Step 4A:
+
+- multi-user hosting
+- visual memory generation
+- web search or MCP execution
+- async long-running jobs
+- alternate realtime providers
+
+## API Surface
+
+The active backend surface is:
+
+- `GET /healthz`
+- `POST /vision/frame`
+- `WS /ws/session`
+
+Step 4A keeps the existing websocket and vision wire contract stable while cleaning up backend internals.
+
+## Runtime Lifecycle
+
+The backend now boots through one runtime-owned lifecycle:
+
+1. FastAPI startup creates `AppRuntime`
+2. startup bootstraps storage under `BACKEND_DATA_DIR`
+3. routes and websocket handlers resolve dependencies from `app.state.runtime`
+4. live session coordination stays in memory for active websocket sessions
+5. persistent indexing is written to SQLite and filesystem artifacts
+
+This keeps startup, storage, and provider selection under one explicit owner instead of spreading them across import-time globals.
+
+## Realtime Modes
 
 ### Default realtime mode
 
-- creates an OpenAI Realtime websocket session per active iPhone session
-- forwards client audio upstream
-- relays assistant playback control + assistant PCM downstream
+- enabled with `REALTIME_PROVIDER=openai`
+- creates one OpenAI Realtime upstream session per active PortWorld session
+- forwards uplink audio from the phone to OpenAI
+- relays assistant playback control and assistant audio back to the phone
 
 ### Mock capture mode
 
 - enabled with `BACKEND_DEBUG_MOCK_CAPTURE_MODE=true`
 - does not connect to OpenAI
-- captures and optionally dumps inbound audio only
-- useful for isolating iPhone -> backend transport
+- captures inbound audio only
+- useful for isolating iPhone -> backend transport issues
+
+Mock capture is a backend debug mode, not a separate realtime provider.
 
 ## WebSocket Contract
 
@@ -83,71 +101,81 @@ Expected active audio format:
 1. iPhone opens `WS /ws/session`
 2. iPhone sends `session.activate`
 3. backend validates the declared audio format if provided
-4. backend creates a per-session bridge
+4. backend creates a per-session bridge through the configured realtime provider
 5. backend emits `session.state { state: "active" }`
 6. iPhone sends `wakeword.detected`
 7. iPhone streams binary audio uplink frames
 8. backend acknowledges uplink periodically via `transport.uplink.ack`
 9. backend relays assistant playback control and assistant audio back to the iPhone
-10. on sleep, end-turn, deactivate, or disconnect, the backend tears the session down
+10. on sleep, end-turn, deactivate, or disconnect, the backend tears the session down and marks the session as ended in persistent storage
 
-## Structure
+## Storage Model
 
-### App and routes
+`BACKEND_DATA_DIR` is the single root for persistent backend artifacts.
 
-- app entrypoint: `backend/app.py`
-- app factory: `backend/api/app.py`
-- websocket route: `backend/api/routes/session_ws.py`
-- health route: `backend/api/routes/health.py`
+Default layout:
 
-### Core config
+- `backend/var/portworld.db`
+- `backend/var/user/user_profile.md`
+- `backend/var/user/user_profile.json`
+- `backend/var/session/<session_id>/session_memory.md`
+- `backend/var/session/<session_id>/session_memory.json`
+- `backend/var/vision_frames/...`
+- `backend/var/debug_audio/...`
 
-- runtime settings: `backend/core/settings.py`
+### SQLite foundation
 
-### WebSocket/session layer
+The backend bootstraps an idempotent SQLite schema on startup using stdlib `sqlite3`.
 
-- control parsing + dispatch: `backend/ws/control_dispatch.py`
-- binary frame dispatch: `backend/ws/binary_dispatch.py`
-- envelope contracts: `backend/ws/contracts.py`
-- binary frame codec: `backend/ws/frame_codec.py`
-- session activation: `backend/ws/session_activation.py`
-- session registry: `backend/ws/session_registry.py`
-- session lifecycle helpers: `backend/ws/session_runtime.py`
-- session telemetry and transport diagnostics: `backend/ws/telemetry.py`
+Current tables:
 
-### Realtime bridge
+- `schema_meta`
+- `session_index`
+- `artifact_index`
 
-- OpenAI Realtime client: `backend/realtime/client.py`
-- iOS session bridge: `backend/realtime/bridge.py`
-- bridge factory / mode selection: `backend/realtime/factory.py`
+What is persisted today:
 
-### Debug helpers
+- session lifecycle status (`active`, `ended`)
+- stored artifact metadata and relative paths
+- user/session placeholder memory files for later phases
 
-- inbound WAV dump utilities: `backend/debug/audio_dump.py`
-- mock capture bridge: `backend/debug/mock_capture.py`
-- local probe script: `backend/scripts/ws_probe.py`
+What is not persisted yet:
 
-## API Surface
+- visual summaries
+- derived short-term context
+- extracted profile facts from conversation
 
-- `GET /healthz`
-- `POST /vision/frame`
-- `WS /ws/session`
+### Vision uploads
 
-`/vision/frame` still exists, but the active assistant runtime is currently centered on the audio-only websocket conversation loop.
+`POST /vision/frame` still writes the uploaded JPEG plus a JSON sidecar and now also registers both artifacts in `artifact_index`.
 
-## Setup
+### Session placeholders
 
-From repo root:
+When a session activates successfully, the backend ensures:
 
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-```
+- `session/<session_id>/session_memory.md`
+- `session/<session_id>/session_memory.json`
 
-## Environment
+Those files are placeholders for Step 4B and later work. Step 4A does not generate memory content yet.
+
+## Health
+
+`GET /healthz` returns a compact productized payload:
+
+- `status`
+- `service`
+- `realtime_provider`
+- `realtime_model`
+- `storage`
+- `ws_path`
+- `vision_path`
+- `mock_capture_mode`
+
+`service` is `portworld-backend`.
+
+`storage` reports `ready` only after startup storage bootstrap succeeds.
+
+## Configuration
 
 ### Backend-owned settings
 
@@ -158,10 +186,10 @@ cp .env.example .env
 - `BACKEND_SQLITE_PATH`
   default: `<BACKEND_DATA_DIR>/portworld.db`
 - `BACKEND_UPLINK_ACK_EVERY_N_FRAMES`
-  default: `20`, min `1`
+  default: `20`, minimum: `1`
 - `BACKEND_ALLOW_TEXT_AUDIO_FALLBACK`
   default: `false`
-  compatibility-only path; not used by the active iPhone runtime
+  compatibility path only; not used by the active iPhone runtime
 - `BACKEND_DEBUG_DUMP_INPUT_AUDIO`
   default: `false`
 - `BACKEND_DEBUG_DUMP_INPUT_AUDIO_DIR`
@@ -171,12 +199,11 @@ cp .env.example .env
 - `BACKEND_DEBUG_TRACE_WS_MESSAGES`
   default: `false`
 
-### Required for realtime mode
+### Realtime provider settings
+
+These are still OpenAI-specific in Step 4A:
 
 - `OPENAI_API_KEY`
-
-### Main realtime settings
-
 - `OPENAI_REALTIME_MODEL`
   default: `gpt-realtime`
 - `OPENAI_REALTIME_VOICE`
@@ -187,7 +214,7 @@ cp .env.example .env
 - `OPENAI_REALTIME_ENABLE_MANUAL_TURN_FALLBACK`
   default: `true`
 - `OPENAI_REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS`
-  default: `900`, min `100`
+  default: `900`, minimum: `100`
 
 ### Server settings
 
@@ -200,7 +227,38 @@ cp .env.example .env
 - `CORS_ORIGINS`
   default: `*`
 
-## Run
+## Local Setup
+
+From repo root:
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+Typical local `.env` shape:
+
+```dotenv
+REALTIME_PROVIDER=openai
+BACKEND_DATA_DIR=backend/var
+BACKEND_DEBUG_DUMP_INPUT_AUDIO=false
+BACKEND_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/var/debug_audio
+
+OPENAI_API_KEY=...
+OPENAI_REALTIME_MODEL=gpt-realtime
+OPENAI_REALTIME_VOICE=ash
+OPENAI_REALTIME_INSTRUCTIONS=You are a concise assistant. Keep answers short, clear, and practical.
+
+HOST=0.0.0.0
+PORT=8080
+LOG_LEVEL=INFO
+CORS_ORIGINS=*
+```
+
+## Local Run
 
 From repo root:
 
@@ -209,35 +267,38 @@ source backend/.venv/bin/activate
 uvicorn backend.app:app --host 0.0.0.0 --port 8080 --log-level info --reload
 ```
 
-Typical local realtime run:
-
-```bash
-export BACKEND_ALLOW_TEXT_AUDIO_FALLBACK=false
-export BACKEND_DEBUG_MOCK_CAPTURE_MODE=false
-export BACKEND_DEBUG_TRACE_WS_MESSAGES=false
-uvicorn backend.app:app --host 0.0.0.0 --port 8080 --log-level info --reload
-```
-
-Quick check:
+Quick health check:
 
 ```bash
 curl http://127.0.0.1:8080/healthz
 ```
 
-Expected health fields:
+## Docker Compose
 
-- `status`
-- `service`
-- `realtime_provider`
-- `realtime_model`
-- `storage`
-- `ws_path`
-- `vision_path`
-- `mock_capture_mode`
+A minimal self-host path is available through the repo root `docker-compose.yml`.
 
-## Probe Script
+It currently:
 
-Use the local probe script to validate the control + binary framing contract:
+- builds one backend service from `backend/Dockerfile`
+- loads env from `backend/.env`
+- exposes `8080`
+- mounts a named volume to `/app/backend/var`
+- runs the backend with `uvicorn`
+- health-checks `/healthz`
+
+Run:
+
+```bash
+docker compose up --build
+```
+
+This is the canonical Step 4A self-host path. More polished operator guidance stays in later roadmap work.
+
+## Validation
+
+### Probe script
+
+Use the local websocket probe to validate the control and binary framing contract:
 
 ```bash
 source backend/.venv/bin/activate
@@ -257,48 +318,15 @@ Deprecated text fallback probe:
 python backend/scripts/ws_probe.py --send-text-fallback
 ```
 
-## Debug Modes
-
-### 1. Input audio dump
-
-Enable raw inbound PCM16 WAV dumps:
+### Compile check
 
 ```bash
-export BACKEND_DEBUG_DUMP_INPUT_AUDIO=true
-export BACKEND_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/var/debug_audio
+python3 -m compileall backend
 ```
-
-### 2. Mock capture mode
-
-Use this to isolate iPhone -> backend transport without OpenAI:
-
-```bash
-export BACKEND_DEBUG_MOCK_CAPTURE_MODE=true
-export BACKEND_DEBUG_DUMP_INPUT_AUDIO=true
-export BACKEND_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/var/debug_audio
-```
-
-Behavior in mock mode:
-
-- `session.activate` works without `OPENAI_API_KEY`
-- inbound client audio is accepted, acknowledged, and optionally dumped
-- no upstream OpenAI websocket is created
 
 ## Notes
 
-- activate the session before sending binary audio frames; pre-activation binary audio is ignored
-- empty audio payloads generate an error envelope
-- text/base64 audio envelopes are supported only behind the text-fallback flag and are not part of the preferred active runtime path
-- the backend is intentionally shaped around the current iPhone assistant runtime contract, not around a generic reusable realtime platform
-
-## TLS Diagnostics (macOS)
-
-If OpenAI calls fail with `CERTIFICATE_VERIFY_FAILED`:
-
-```bash
-source backend/.venv/bin/activate
-python -c "import certifi; print(certifi.where())"
-export SSL_CERT_FILE="$(python -c 'import certifi; print(certifi.where())')"
-```
-
-If needed for python.org builds, run `Install Certificates.command` once for that Python version.
+- Missing `OPENAI_API_KEY` does not fail backend startup by itself. It fails when a realtime session actually needs OpenAI.
+- Unsupported `REALTIME_PROVIDER` values fail runtime construction and startup.
+- Step 4A intentionally keeps the live session registry in memory. SQLite is persistent indexing, not live coordination.
+- Product roadmap and later multimodal/backend milestones live under `docs/`, not in this README.
