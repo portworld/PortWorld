@@ -224,6 +224,17 @@ Quick check:
 curl http://127.0.0.1:8080/healthz
 ```
 
+Expected health fields:
+
+- `status`
+- `service`
+- `realtime_provider`
+- `realtime_model`
+- `storage`
+- `ws_path`
+- `vision_path`
+- `mock_capture_mode`
+
 ## Probe Script
 
 Use the local probe script to validate the control + binary framing contract:

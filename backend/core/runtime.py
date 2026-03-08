@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +30,12 @@ class AppRuntime:
     storage_paths: RuntimeStoragePaths
     storage: BackendStorage
     realtime_provider: RealtimeProviderFactory
+    storage_bootstrap_result: StorageBootstrapResult | None = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     @classmethod
     def from_env(cls) -> "AppRuntime":
@@ -66,7 +72,9 @@ class AppRuntime:
         )
 
     def bootstrap_storage(self) -> StorageBootstrapResult:
-        return self.storage.bootstrap()
+        result = self.storage.bootstrap()
+        object.__setattr__(self, "storage_bootstrap_result", result)
+        return result
 
     def make_session_bridge(
         self,

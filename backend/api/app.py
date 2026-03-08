@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api.routes.health import router as health_router
 from backend.api.routes.session_ws import router as session_ws_router
 from backend.api.routes.vision import router as vision_router
+from backend.core.constants import SERVICE_NAME
 from backend.core.settings import Settings
 from backend.core.runtime import AppRuntime
 
@@ -26,7 +27,7 @@ def _make_lifespan(settings: Settings) -> Callable[[FastAPI], AsyncIterator[None
 
 def create_app() -> FastAPI:
     settings = Settings.from_env()
-    app = FastAPI(title="loopa-mock-backend", lifespan=_make_lifespan(settings))
+    app = FastAPI(title=SERVICE_NAME, lifespan=_make_lifespan(settings))
 
     allow_all = settings.cors_origins == ["*"]
     app.add_middleware(
