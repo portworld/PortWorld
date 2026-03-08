@@ -16,7 +16,9 @@ from backend.core.runtime import AppRuntime
 def _make_lifespan(settings: Settings) -> Callable[[FastAPI], AsyncIterator[None]]:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        app.state.runtime = AppRuntime.from_settings(settings)
+        runtime = AppRuntime.from_settings(settings)
+        runtime.bootstrap_storage()
+        app.state.runtime = runtime
         yield
 
     return lifespan
