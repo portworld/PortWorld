@@ -135,6 +135,8 @@ Expected result:
 
 - a cleaner backend framework that matches the final app architecture and can be open-sourced confidently
 
+Execution detail for this step lives in `docs/BACKEND_PRODUCTIZATION_ROADMAP.md`.
+
 ## Code Quality Rules For The Next Phase
 
 - prefer small files with one clear responsibility
