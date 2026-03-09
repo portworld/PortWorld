@@ -56,6 +56,7 @@ def _decode_frame_bytes(frame_b64: str) -> bytes:
 async def vision_frame(request: Request, payload: VisionFramePayload) -> dict[str, str]:
     runtime = get_app_runtime(request.app)
     frame_bytes = _decode_frame_bytes(payload.frame_b64)
+    runtime.storage.ensure_session_storage(session_id=payload.session_id)
 
     session_dir = (
         runtime.storage_paths.vision_frames_root
@@ -104,6 +105,13 @@ async def vision_frame(request: Request, payload: VisionFramePayload) -> dict[st
         artifact_path=metadata_path,
         content_type="application/json",
         metadata=artifact_metadata,
+    )
+    runtime.storage.record_vision_frame_ingest(
+        session_id=payload.session_id,
+        frame_id=payload.frame_id,
+        capture_ts_ms=payload.capture_ts_ms,
+        width=payload.width,
+        height=payload.height,
     )
 
     logger.info(

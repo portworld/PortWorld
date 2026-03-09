@@ -55,24 +55,25 @@ class AppRuntime:
             user_profile_markdown_path=settings.backend_data_dir / "user" / "user_profile.md",
             user_profile_json_path=settings.backend_data_dir / "user" / "user_profile.json",
         )
+        storage = BackendStorage(
+            paths=StoragePaths(
+                data_root=storage_paths.data_root,
+                user_root=storage_paths.user_root,
+                session_root=storage_paths.session_root,
+                vision_frames_root=storage_paths.vision_frames_root,
+                debug_audio_root=storage_paths.debug_audio_root,
+                sqlite_path=storage_paths.sqlite_path,
+                user_profile_markdown_path=storage_paths.user_profile_markdown_path,
+                user_profile_json_path=storage_paths.user_profile_json_path,
+            )
+        )
         vision_memory_runtime = None
         if settings.vision_memory_enabled:
-            vision_memory_runtime = VisionMemoryRuntime.from_settings(settings)
+            vision_memory_runtime = VisionMemoryRuntime.from_settings(settings, storage=storage)
         return cls(
             settings=settings,
             storage_paths=storage_paths,
-            storage=BackendStorage(
-                paths=StoragePaths(
-                    data_root=storage_paths.data_root,
-                    user_root=storage_paths.user_root,
-                    session_root=storage_paths.session_root,
-                    vision_frames_root=storage_paths.vision_frames_root,
-                    debug_audio_root=storage_paths.debug_audio_root,
-                    sqlite_path=storage_paths.sqlite_path,
-                    user_profile_markdown_path=storage_paths.user_profile_markdown_path,
-                    user_profile_json_path=storage_paths.user_profile_json_path,
-                )
-            ),
+            storage=storage,
             realtime_provider=RealtimeProviderFactory(settings=settings),
             vision_memory_runtime=vision_memory_runtime,
         )

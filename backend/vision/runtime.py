@@ -6,9 +6,10 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from backend.core.settings import Settings
+from backend.core.storage import BackendStorage, now_ms
 from backend.vision.contracts import VisionAnalyzer, VisionFrameContext, VisionObservation
 from backend.vision.factory import build_vision_analyzer
-from backend.vision.gating import AcceptedFrameReference, GateDecision, VisionGateError, evaluate_frame_gate
+from backend.vision.gating import AcceptedFrameReference, VisionGateError, evaluate_frame_gate
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class SessionVisionWorker:
 @dataclass(slots=True)
 class VisionMemoryRuntime:
     settings: Settings
+    storage: BackendStorage
     analyzer: VisionAnalyzer
     started: bool = field(default=False, init=False, repr=False, compare=False)
     _workers: dict[str, SessionVisionWorker] = field(default_factory=dict, init=False, repr=False)
@@ -51,8 +53,12 @@ class VisionMemoryRuntime:
     _shutdown_requested: bool = field(default=False, init=False, repr=False)
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "VisionMemoryRuntime":
-        return cls(settings=settings, analyzer=build_vision_analyzer(settings=settings))
+    def from_settings(cls, settings: Settings, *, storage: BackendStorage) -> "VisionMemoryRuntime":
+        return cls(
+            settings=settings,
+            storage=storage,
+            analyzer=build_vision_analyzer(settings=settings),
+        )
 
     async def startup(self) -> None:
         await self.analyzer.startup()
@@ -111,6 +117,16 @@ class VisionMemoryRuntime:
             worker.pending_frame = pending_frame
             worker.condition.notify_all()
         if dropped_frame_id is not None:
+            self.storage.update_vision_frame_processing(
+                session_id=frame_context.session_id,
+                frame_id=dropped_frame_id,
+                processing_status="superseded",
+                gate_status="skipped",
+                gate_reason="replaced_by_newer_pending_frame",
+                provider=self.provider_name,
+                model=self.model_name,
+                error_code=None,
+            )
             logger.info(
                 "VISION_PENDING_FRAME_REPLACED session=%s dropped_frame=%s new_frame=%s",
                 frame_context.session_id,
@@ -179,6 +195,17 @@ class VisionMemoryRuntime:
                 scene_change_hamming_threshold=self.settings.vision_scene_change_hamming_threshold,
             )
         except VisionGateError:
+            self.storage.update_vision_frame_processing(
+                session_id=pending_frame.frame_context.session_id,
+                frame_id=pending_frame.frame_context.frame_id,
+                processing_status="gate_failed",
+                gate_status="error",
+                gate_reason="image_decode_failed",
+                provider=self.provider_name,
+                model=self.model_name,
+                analyzed_at_ms=now_ms(),
+                error_code="VISION_GATE_FAILED",
+            )
             logger.exception(
                 "VISION_GATE_FAILED session=%s frame=%s",
                 pending_frame.frame_context.session_id,
@@ -205,7 +232,28 @@ class VisionMemoryRuntime:
             gate_decision.dhash_hex,
         )
         if not gate_decision.accepted:
+            self.storage.update_vision_frame_processing(
+                session_id=pending_frame.frame_context.session_id,
+                frame_id=pending_frame.frame_context.frame_id,
+                processing_status="gated_rejected",
+                gate_status="rejected",
+                gate_reason=gate_decision.reason,
+                phash=gate_decision.dhash_hex,
+                provider=self.provider_name,
+                model=self.model_name,
+            )
             return
+
+        self.storage.update_vision_frame_processing(
+            session_id=pending_frame.frame_context.session_id,
+            frame_id=pending_frame.frame_context.frame_id,
+            processing_status="analyzing",
+            gate_status="accepted",
+            gate_reason=gate_decision.reason,
+            phash=gate_decision.dhash_hex,
+            provider=self.provider_name,
+            model=self.model_name,
+        )
 
         try:
             observation = await self.analyzer.analyze_frame(
@@ -214,6 +262,18 @@ class VisionMemoryRuntime:
                 image_media_type=pending_frame.image_media_type,
             )
         except Exception:
+            self.storage.update_vision_frame_processing(
+                session_id=pending_frame.frame_context.session_id,
+                frame_id=pending_frame.frame_context.frame_id,
+                processing_status="analysis_failed",
+                gate_status="accepted",
+                gate_reason=gate_decision.reason,
+                phash=gate_decision.dhash_hex,
+                provider=self.provider_name,
+                model=self.model_name,
+                analyzed_at_ms=now_ms(),
+                error_code="VISION_ANALYSIS_FAILED",
+            )
             logger.exception(
                 "VISION_ANALYSIS_FAILED session=%s frame=%s provider=%s model=%s",
                 pending_frame.frame_context.session_id,
@@ -228,6 +288,18 @@ class VisionMemoryRuntime:
             dhash_hex=gate_decision.dhash_hex,
         )
         worker.last_observation = observation
+        self.storage.update_vision_frame_processing(
+            session_id=observation.session_id,
+            frame_id=observation.frame_id,
+            processing_status="analyzed",
+            gate_status="accepted",
+            gate_reason=gate_decision.reason,
+            phash=gate_decision.dhash_hex,
+            provider=self.provider_name,
+            model=self.model_name,
+            analyzed_at_ms=now_ms(),
+            summary_snippet=observation.scene_summary[:240],
+        )
         logger.info(
             "VISION_ANALYSIS_ACCEPTED session=%s frame=%s provider=%s model=%s scene_summary=%s",
             observation.session_id,
