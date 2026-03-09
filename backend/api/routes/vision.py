@@ -12,6 +12,7 @@ from fastapi import Request
 from pydantic import BaseModel, Field, field_validator
 
 from backend.core.runtime import get_app_runtime
+from backend.vision.contracts import VisionFrameContext
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -113,5 +114,17 @@ async def vision_frame(request: Request, payload: VisionFramePayload) -> dict[st
         payload.width,
         payload.height,
     )
+    if runtime.vision_memory_runtime is not None:
+        await runtime.vision_memory_runtime.submit_frame(
+            image_bytes=frame_bytes,
+            frame_context=VisionFrameContext(
+                frame_id=payload.frame_id,
+                session_id=payload.session_id,
+                capture_ts_ms=payload.capture_ts_ms,
+                width=payload.width,
+                height=payload.height,
+            ),
+            image_media_type="image/jpeg",
+        )
 
     return {"status": "ok", "frame_id": payload.frame_id}
