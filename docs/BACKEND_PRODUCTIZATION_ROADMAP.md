@@ -221,7 +221,21 @@ Acceptance:
 
 Status:
 
-- planned
+- complete
+
+Implementation notes:
+
+- realtime tooling now runs as an opt-in backend-owned subsystem with explicit runtime lifecycle and config
+- the backend now owns a narrow tool catalog for realtime:
+  - `get_short_term_visual_context`
+  - `get_session_visual_context`
+  - `web_search`
+- short-term and session visual context are now exposed to the realtime model through read-only JSON tools instead of turn-by-turn context injection
+- Tavily now powers `web_search` behind a backend-owned search-provider seam and remains optional by config
+- the OpenAI realtime session now advertises tools during `session.update` when tooling is enabled
+- the OpenAI bridge now handles function-call events, executes backend tools, returns `function_call_output`, and resumes generation with `response.create`
+- realtime instructions now include explicit tool-usage guidance plus compact profile injection from supported `user_profile.json` fields
+- tool failures, malformed arguments, and timeouts now return structured tool-error output rather than breaking the live session
 
 ### Step 4D. Profile Capture And Memory Lifecycle
 
