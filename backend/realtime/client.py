@@ -255,11 +255,13 @@ class OpenAIRealtimeClient:
         *,
         instructions: Optional[str] = None,
         voice: Optional[str] = None,
+        tools: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         """Initialize realtime session, preferring current schema."""
         event = self._build_session_update_event(
             instructions=instructions,
             voice=voice,
+            tools=tools,
             schema_mode=self._session_init_schema_mode,
         )
         await self.send_json(event)
@@ -269,6 +271,7 @@ class OpenAIRealtimeClient:
         *,
         instructions: Optional[str] = None,
         voice: Optional[str] = None,
+        tools: Optional[list[dict[str, Any]]] = None,
     ) -> bool:
         """Retry session initialization once with legacy session schema."""
         if self._legacy_schema_retry_attempted:
@@ -276,7 +279,11 @@ class OpenAIRealtimeClient:
 
         self._legacy_schema_retry_attempted = True
         self._session_init_schema_mode = "legacy"
-        await self.initialize_session(instructions=instructions, voice=voice)
+        await self.initialize_session(
+            instructions=instructions,
+            voice=voice,
+            tools=tools,
+        )
         return True
 
     def _build_session_update_event(
@@ -284,6 +291,7 @@ class OpenAIRealtimeClient:
         *,
         instructions: Optional[str],
         voice: Optional[str],
+        tools: Optional[list[dict[str, Any]]],
         schema_mode: str,
     ) -> dict[str, Any]:
         resolved_instructions = (
@@ -333,6 +341,8 @@ class OpenAIRealtimeClient:
                 "create_response": True,
                 "interrupt_response": True,
             }
+        if tools:
+            session["tools"] = tools
 
         return {
             "type": "session.update",

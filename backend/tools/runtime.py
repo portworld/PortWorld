@@ -1,18 +1,21 @@
 from __future__ import annotations
 
+import asyncio
+from json import JSONDecodeError
 from dataclasses import dataclass
 
 from backend.core.settings import Settings
 from backend.core.storage import BackendStorage
-from backend.tools.contracts import ToolDefinition
+from backend.tools.contracts import ToolCall, ToolDefinition, ToolResult
 from backend.tools.memory import MemoryToolExecutor
 from backend.tools.providers.tavily import TavilySearchProvider
-from backend.tools.registry import RealtimeToolRegistry
+from backend.tools.registry import RealtimeToolRegistry, ToolRegistryError, UnknownToolError
 from backend.tools.search import SearchProvider
 from backend.tools.web_search import WebSearchToolExecutor
 
 
 SUPPORTED_WEB_SEARCH_PROVIDERS = {"tavily"}
+SUPPORTED_PROFILE_FIELDS = ("name", "job", "company", "preferences", "projects")
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +146,93 @@ class RealtimeToolingRuntime:
 
     def to_openai_tools(self) -> list[dict[str, object]]:
         return self.registry.to_openai_tools()
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        try:
+            return await asyncio.wait_for(
+                self.registry.execute(call),
+                timeout=max(0.1, self.tool_timeout_ms / 1000.0),
+            )
+        except asyncio.TimeoutError:
+            return ToolResult(
+                ok=False,
+                name=call.name,
+                call_id=call.call_id,
+                payload={"session_id": call.session_id},
+                error_code="TOOL_TIMEOUT",
+                error_message=f"Tool execution timed out after {self.tool_timeout_ms}ms",
+            )
+        except UnknownToolError as exc:
+            return ToolResult(
+                ok=False,
+                name=call.name,
+                call_id=call.call_id,
+                payload={"session_id": call.session_id},
+                error_code="UNKNOWN_TOOL",
+                error_message=str(exc),
+            )
+        except ToolRegistryError as exc:
+            return ToolResult(
+                ok=False,
+                name=call.name,
+                call_id=call.call_id,
+                payload={"session_id": call.session_id},
+                error_code="TOOL_EXECUTION_FAILED",
+                error_message=str(exc),
+            )
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            return ToolResult(
+                ok=False,
+                name=call.name,
+                call_id=call.call_id,
+                payload={"session_id": call.session_id},
+                error_code="TOOL_EXECUTION_FAILED",
+                error_message=str(exc),
+            )
+
+    def build_session_instructions(self, *, base_instructions: str) -> str:
+        try:
+            profile = self.storage.read_user_profile()
+        except (JSONDecodeError, OSError):
+            return base_instructions
+
+        profile_lines = self._build_profile_lines(profile)
+        if not profile_lines:
+            return base_instructions
+        profile_block = "\n".join(
+            [
+                "",
+                "Stable user profile context:",
+                *profile_lines,
+            ]
+        )
+        return base_instructions.rstrip() + "\n" + profile_block + "\n"
+
+    @staticmethod
+    def _build_profile_lines(profile: dict[str, object]) -> list[str]:
+        lines: list[str] = []
+        for field_name in SUPPORTED_PROFILE_FIELDS:
+            value = profile.get(field_name)
+            rendered = RealtimeToolingRuntime._render_profile_value(value)
+            if not rendered:
+                continue
+            label = field_name.replace("_", " ").title()
+            lines.append(f"- {label}: {rendered}")
+        return lines
+
+    @staticmethod
+    def _render_profile_value(value: object) -> str:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized
+        if isinstance(value, list):
+            rendered_items = [
+                item.strip()
+                for item in value
+                if isinstance(item, str) and item.strip()
+            ]
+            return ", ".join(rendered_items)
+        return ""
 
     async def startup(self) -> None:
         if self.search_provider is not None:

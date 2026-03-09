@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -13,6 +14,8 @@ from backend.realtime.client import (
     OpenAIRealtimeClient,
     RealtimeClientError,
 )
+from backend.tools.contracts import ToolCall
+from backend.tools.runtime import RealtimeToolingRuntime
 from backend.ws.contracts import now_ms
 from backend.ws.frame_codec import SERVER_AUDIO_FRAME_TYPE
 
@@ -39,6 +42,7 @@ class IOSRealtimeBridge:
         client_audio_queue_maxsize: int = 32,
         dump_input_audio_enabled: bool = False,
         dump_input_audio_dir: str = "backend/var/debug_audio",
+        tooling_runtime: RealtimeToolingRuntime | None = None,
     ) -> None:
         self._session_id = session_id
         self._upstream_client = upstream_client
@@ -68,6 +72,7 @@ class IOSRealtimeBridge:
         self._current_turn_started_at_monotonic: float | None = None
         self._server_vad_speaking = False
         self._dump_input_audio_enabled = dump_input_audio_enabled
+        self._tooling_runtime = tooling_runtime
         self._closed = False
         self._session_ready_confirmed = False
         self._session_ready_event = asyncio.Event()
@@ -92,7 +97,10 @@ class IOSRealtimeBridge:
             name=f"upstream_loop:{self._session_id}",
         )
         logger.warning("Initializing upstream realtime session=%s", self._session_id)
-        await self._upstream_client.initialize_session()
+        tools = None
+        if self._tooling_runtime is not None:
+            tools = self._tooling_runtime.to_openai_tools()
+        await self._upstream_client.initialize_session(tools=tools)
         logger.warning(
             "Waiting for upstream session readiness session=%s",
             self._session_id,
@@ -338,6 +346,16 @@ class IOSRealtimeBridge:
             self._current_turn_response_started = True
             return
 
+        if event_type == "response.function_call_arguments.done":
+            await self._on_tool_call_event(event)
+            return
+
+        if event_type == "response.output_item.done":
+            item = event.get("item")
+            if isinstance(item, dict) and item.get("type") == "function_call":
+                await self._on_tool_call_event(event)
+                return
+
         if event_type in SESSION_READY_EVENT_TYPES:
             logger.warning("Upstream %s session=%s", event_type, self._session_id)
             self._mark_session_ready()
@@ -355,6 +373,134 @@ class IOSRealtimeBridge:
             return
 
         logger.debug("Unhandled upstream event type=%s", event_type)
+
+    async def _on_tool_call_event(self, event: dict[str, Any]) -> None:
+        if self._tooling_runtime is None:
+            logger.warning(
+                "Ignoring tool call event without tooling runtime session=%s type=%s",
+                self._session_id,
+                event.get("type"),
+            )
+            return
+
+        tool_call_or_error = self._extract_tool_call_or_error(event)
+        if isinstance(tool_call_or_error, dict):
+            await self._send_tool_error_output(
+                call_id=tool_call_or_error["call_id"],
+                tool_name=tool_call_or_error["tool_name"],
+                error_code=tool_call_or_error["error_code"],
+                error_message=tool_call_or_error["error_message"],
+            )
+            return
+
+        tool_result = await self._tooling_runtime.execute(tool_call_or_error)
+        await self._upstream_client.send_json(
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": tool_result.call_id,
+                    "output": tool_result.to_output_json(),
+                },
+            }
+        )
+        await self._upstream_client.send_json({"type": "response.create"})
+
+    def _extract_tool_call_or_error(
+        self,
+        event: dict[str, Any],
+    ) -> ToolCall | dict[str, str]:
+        item = event.get("item")
+        container = item if isinstance(item, dict) else event
+
+        tool_name = self._extract_non_empty_string(container, "name")
+        call_id = self._extract_non_empty_string(container, "call_id")
+        if call_id is None:
+            call_id = self._extract_non_empty_string(event, "call_id")
+        if tool_name is None:
+            tool_name = self._extract_non_empty_string(event, "name")
+
+        if call_id is None or tool_name is None:
+            return {
+                "call_id": call_id or f"tool_call_{now_ms()}",
+                "tool_name": tool_name or "unknown_tool",
+                "error_code": "INVALID_TOOL_CALL",
+                "error_message": "Missing tool name or call_id in upstream function call event",
+            }
+
+        parsed_arguments = self._parse_tool_arguments(
+            container.get("arguments", event.get("arguments"))
+        )
+        if isinstance(parsed_arguments, str):
+            return {
+                "call_id": call_id,
+                "tool_name": tool_name,
+                "error_code": "INVALID_TOOL_ARGUMENTS",
+                "error_message": parsed_arguments,
+            }
+
+        return ToolCall(
+            name=tool_name,
+            call_id=call_id,
+            session_id=self._session_id,
+            arguments=parsed_arguments,
+        )
+
+    @staticmethod
+    def _extract_non_empty_string(payload: dict[str, Any], key: str) -> str | None:
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+        return None
+
+    @staticmethod
+    def _parse_tool_arguments(raw_arguments: Any) -> dict[str, Any] | str:
+        if raw_arguments is None:
+            return {}
+        if isinstance(raw_arguments, dict):
+            return raw_arguments
+        if isinstance(raw_arguments, str):
+            stripped = raw_arguments.strip()
+            if not stripped:
+                return {}
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                return "Tool arguments were not valid JSON"
+            if not isinstance(parsed, dict):
+                return "Tool arguments must decode to a JSON object"
+            return parsed
+        return "Tool arguments must be a JSON object or JSON string"
+
+    async def _send_tool_error_output(
+        self,
+        *,
+        call_id: str,
+        tool_name: str,
+        error_code: str,
+        error_message: str,
+    ) -> None:
+        await self._upstream_client.send_json(
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(
+                        {
+                            "ok": False,
+                            "tool_name": tool_name,
+                            "session_id": self._session_id,
+                            "error_code": error_code,
+                            "error_message": error_message,
+                        },
+                        ensure_ascii=True,
+                        sort_keys=True,
+                    ),
+                },
+            }
+        )
+        await self._upstream_client.send_json({"type": "response.create"})
 
     async def _on_audio_delta(self, event: dict[str, Any]) -> None:
         delta_b64 = event.get("delta")
@@ -521,7 +667,10 @@ class IOSRealtimeBridge:
             return False
 
         try:
-            did_retry = await retry_method()
+            tools = None
+            if self._tooling_runtime is not None:
+                tools = self._tooling_runtime.to_openai_tools()
+            did_retry = await retry_method(tools=tools)
         except RealtimeClientError:
             return False
         except Exception:  # pragma: no cover - defensive fallback

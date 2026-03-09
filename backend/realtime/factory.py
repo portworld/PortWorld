@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from backend.core.settings import Settings
+from backend.tools.runtime import RealtimeToolingRuntime
 from backend.ws.session_registry import SessionBridge, SessionRecord
 
 ControlSender = Callable[..., Awaitable[None]]
@@ -60,6 +61,7 @@ class RealtimeProviderFactory:
         session_id: str,
         send_control: ControlSender,
         send_server_audio: BinarySender,
+        realtime_tooling_runtime: RealtimeToolingRuntime | None = None,
     ) -> BridgeBinding:
         if self.provider_name == "openai":
             from backend.realtime.providers.openai import build_openai_session_bridge
@@ -69,5 +71,6 @@ class RealtimeProviderFactory:
                 session_id=session_id,
                 send_control=send_control,
                 send_server_audio=send_server_audio,
+                realtime_tooling_runtime=realtime_tooling_runtime,
             )
         raise RuntimeError(f"Unsupported realtime provider: {self.provider_name}")

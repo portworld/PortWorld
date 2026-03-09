@@ -4,6 +4,7 @@ from backend.core.settings import Settings
 from backend.realtime.bridge import IOSRealtimeBridge
 from backend.realtime.client import OpenAIRealtimeClient
 from backend.realtime.factory import BinarySender, BridgeBinding, ControlSender
+from backend.tools.runtime import RealtimeToolingRuntime
 from backend.ws.session_registry import SessionRecord
 
 
@@ -13,14 +14,20 @@ def build_openai_session_bridge(
     session_id: str,
     send_control: ControlSender,
     send_server_audio: BinarySender,
+    realtime_tooling_runtime: RealtimeToolingRuntime | None = None,
 ) -> BridgeBinding:
     record_ref: dict[str, SessionRecord | None] = {"record": None}
     api_key = settings.require_openai_api_key()
+    effective_instructions = settings.openai_realtime_instructions
+    if realtime_tooling_runtime is not None:
+        effective_instructions = realtime_tooling_runtime.build_session_instructions(
+            base_instructions=effective_instructions,
+        )
     client = OpenAIRealtimeClient(
         api_key=api_key,
         model=settings.openai_realtime_model,
         voice=settings.openai_realtime_voice,
-        instructions=settings.openai_realtime_instructions,
+        instructions=effective_instructions,
         include_turn_detection=settings.openai_realtime_include_turn_detection,
         trace_events=settings.backend_debug_trace_ws_messages,
     )
@@ -39,5 +46,6 @@ def build_openai_session_bridge(
         manual_turn_fallback_delay_ms=settings.openai_realtime_manual_turn_fallback_delay_ms,
         dump_input_audio_enabled=settings.backend_debug_dump_input_audio,
         dump_input_audio_dir=str(settings.backend_debug_dump_input_audio_dir),
+        tooling_runtime=realtime_tooling_runtime,
     )
     return BridgeBinding(bridge=bridge, _record_ref=record_ref)

@@ -121,6 +121,7 @@ class AppRuntime:
             session_id=session_id,
             send_control=send_control,
             send_server_audio=send_server_audio,
+            realtime_tooling_runtime=self.realtime_tooling_runtime,
         )
 
 
