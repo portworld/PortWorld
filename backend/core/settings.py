@@ -55,6 +55,8 @@ class Settings:
     openai_api_key: str | None
     mistral_api_key: str | None
     mistral_base_url: str | None
+    tavily_api_key: str | None
+    tavily_base_url: str | None
     realtime_provider: str
     openai_realtime_model: str
     openai_realtime_voice: str
@@ -79,6 +81,10 @@ class Settings:
     vision_session_rollup_interval_seconds: int
     vision_session_rollup_min_accepted_events: int
     vision_debug_retain_raw_frames: bool
+    realtime_tooling_enabled: bool
+    realtime_tool_timeout_ms: int
+    realtime_web_search_provider: str
+    realtime_web_search_max_results: int
     host: str
     port: int
     log_level: str
@@ -101,6 +107,8 @@ class Settings:
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             mistral_api_key=os.getenv("MISTRAL_API_KEY"),
             mistral_base_url=_get_env("MISTRAL_BASE_URL"),
+            tavily_api_key=os.getenv("TAVILY_API_KEY"),
+            tavily_base_url=_get_env("TAVILY_BASE_URL"),
             realtime_provider=(_get_env("REALTIME_PROVIDER") or "openai").strip().lower(),
             openai_realtime_model=os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime"),
             openai_realtime_voice=os.getenv("OPENAI_REALTIME_VOICE", "ash"),
@@ -183,6 +191,23 @@ class Settings:
                 "VISION_DEBUG_RETAIN_RAW_FRAMES",
                 default=False,
             ),
+            realtime_tooling_enabled=_parse_bool_env(
+                "REALTIME_TOOLING_ENABLED",
+                default=False,
+            ),
+            realtime_tool_timeout_ms=_parse_int_env(
+                "REALTIME_TOOL_TIMEOUT_MS",
+                default=4000,
+                minimum=100,
+            ),
+            realtime_web_search_provider=(
+                _get_env("REALTIME_WEB_SEARCH_PROVIDER") or "tavily"
+            ).strip().lower(),
+            realtime_web_search_max_results=_parse_int_env(
+                "REALTIME_WEB_SEARCH_MAX_RESULTS",
+                default=3,
+                minimum=1,
+            ),
             host=_get_env("HOST") or "0.0.0.0",
             port=_parse_int_env("PORT", default=8080),
             log_level=_get_env("LOG_LEVEL") or "INFO",
@@ -200,6 +225,9 @@ class Settings:
         if not key:
             raise RuntimeError("MISTRAL_API_KEY is required when VISION_MEMORY_ENABLED=true")
         return key
+
+    def has_tavily_api_key(self) -> bool:
+        return bool((self.tavily_api_key or "").strip())
 
 
 settings = Settings.from_env()

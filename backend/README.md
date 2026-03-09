@@ -266,6 +266,14 @@ The backend still creates `user/user_profile.md` and `user/user_profile.json`, b
   default: `5`
 - `VISION_DEBUG_RETAIN_RAW_FRAMES`
   default: `false`
+- `REALTIME_TOOLING_ENABLED`
+  default: `false`
+- `REALTIME_TOOL_TIMEOUT_MS`
+  default: `4000`, minimum: `100`
+- `REALTIME_WEB_SEARCH_PROVIDER`
+  default: `tavily`
+- `REALTIME_WEB_SEARCH_MAX_RESULTS`
+  default: `3`
 
 ### Realtime provider settings
 
@@ -292,6 +300,15 @@ These are used only when `VISION_MEMORY_ENABLED=true`:
 - `MISTRAL_BASE_URL`
 
 If `VISION_MEMORY_ENABLED=true` and `MISTRAL_API_KEY` is missing, startup fails clearly. When visual memory is disabled, missing Mistral config does not matter.
+
+### Realtime-tooling provider settings
+
+These are used only when `REALTIME_TOOLING_ENABLED=true`:
+
+- `TAVILY_API_KEY`
+- `TAVILY_BASE_URL`
+
+Step `4C.1` only adds the runtime-owned tooling foundation. Missing Tavily config does not fail startup. It only means the future `web_search` tool is not available once Step `4C` is implemented further.
 
 ### Server settings
 
@@ -332,6 +349,10 @@ VISION_SCENE_CHANGE_HAMMING_THRESHOLD=12
 VISION_SESSION_ROLLUP_INTERVAL_SECONDS=10
 VISION_SESSION_ROLLUP_MIN_ACCEPTED_EVENTS=5
 VISION_DEBUG_RETAIN_RAW_FRAMES=false
+REALTIME_TOOLING_ENABLED=false
+REALTIME_TOOL_TIMEOUT_MS=4000
+REALTIME_WEB_SEARCH_PROVIDER=tavily
+REALTIME_WEB_SEARCH_MAX_RESULTS=3
 
 OPENAI_API_KEY=...
 OPENAI_REALTIME_MODEL=gpt-realtime
@@ -339,6 +360,7 @@ OPENAI_REALTIME_VOICE=ash
 OPENAI_REALTIME_INSTRUCTIONS=You are a concise assistant. Keep answers short, clear, and practical.
 
 MISTRAL_API_KEY=...
+TAVILY_API_KEY=
 
 HOST=0.0.0.0
 PORT=8080

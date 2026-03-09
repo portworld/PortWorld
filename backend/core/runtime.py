@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from backend.core.settings import Settings
 from backend.core.storage import BackendStorage, StorageBootstrapResult, StoragePaths
 from backend.realtime.factory import RealtimeProviderFactory, build_debug_mock_capture_bridge
+from backend.tools.runtime import RealtimeToolingRuntime
 from backend.vision.runtime import VisionMemoryRuntime
 
 if TYPE_CHECKING:
@@ -32,6 +33,7 @@ class AppRuntime:
     storage: BackendStorage
     realtime_provider: RealtimeProviderFactory
     vision_memory_runtime: VisionMemoryRuntime | None
+    realtime_tooling_runtime: RealtimeToolingRuntime | None
     storage_bootstrap_result: StorageBootstrapResult | None = field(
         default=None,
         init=False,
@@ -70,12 +72,19 @@ class AppRuntime:
         vision_memory_runtime = None
         if settings.vision_memory_enabled:
             vision_memory_runtime = VisionMemoryRuntime.from_settings(settings, storage=storage)
+        realtime_tooling_runtime = None
+        if settings.realtime_tooling_enabled:
+            realtime_tooling_runtime = RealtimeToolingRuntime.from_settings(
+                settings,
+                storage=storage,
+            )
         return cls(
             settings=settings,
             storage_paths=storage_paths,
             storage=storage,
             realtime_provider=RealtimeProviderFactory(settings=settings),
             vision_memory_runtime=vision_memory_runtime,
+            realtime_tooling_runtime=realtime_tooling_runtime,
         )
 
     def bootstrap_storage(self) -> StorageBootstrapResult:
@@ -87,8 +96,12 @@ class AppRuntime:
         self.bootstrap_storage()
         if self.vision_memory_runtime is not None:
             await self.vision_memory_runtime.startup()
+        if self.realtime_tooling_runtime is not None:
+            await self.realtime_tooling_runtime.startup()
 
     async def shutdown(self) -> None:
+        if self.realtime_tooling_runtime is not None:
+            await self.realtime_tooling_runtime.shutdown()
         if self.vision_memory_runtime is not None:
             await self.vision_memory_runtime.shutdown()
 
