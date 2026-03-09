@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import WebSocket
 
 from backend.core.storage import BackendStorage
+from backend.vision.runtime import VisionMemoryRuntime
 from backend.ws.session_registry import SessionRecord, session_registry
 
 EXPECTED_CLIENT_AUDIO_ENCODING = "pcm_s16le"
@@ -81,6 +82,7 @@ async def deactivate_session(
     active_session: SessionRecord,
     send_control: Callable[..., Awaitable[None]],
     storage: BackendStorage,
+    vision_memory_runtime: VisionMemoryRuntime | None = None,
 ) -> None:
     capture_summary = capture_summary_payload(active_session)
     if capture_summary is not None:
@@ -96,6 +98,8 @@ async def deactivate_session(
         target=active_session,
     )
     await active_session.bridge.close()
+    if vision_memory_runtime is not None:
+        await vision_memory_runtime.finalize_session(session_id=active_session.session_id)
     storage.upsert_session_status(
         session_id=active_session.session_id,
         status="ended",
@@ -108,6 +112,7 @@ async def deactivate_and_unregister_session(
     websocket: WebSocket,
     send_control: Callable[..., Awaitable[None]],
     storage: BackendStorage,
+    vision_memory_runtime: VisionMemoryRuntime | None = None,
     emit_session_state: bool = True,
 ) -> None:
     if emit_session_state:
@@ -115,9 +120,12 @@ async def deactivate_and_unregister_session(
             active_session=active_session,
             send_control=send_control,
             storage=storage,
+            vision_memory_runtime=vision_memory_runtime,
         )
     else:
         await active_session.bridge.close()
+        if vision_memory_runtime is not None:
+            await vision_memory_runtime.finalize_session(session_id=active_session.session_id)
         storage.upsert_session_status(
             session_id=active_session.session_id,
             status="ended",

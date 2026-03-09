@@ -314,6 +314,14 @@ class BackendStorage:
             encoding="utf-8",
         )
 
+    def delete_vision_ingest_artifacts(self, *, session_id: str, frame_id: str) -> None:
+        session_component = self._sanitize_session_id(session_id)
+        frame_component = self._sanitize_session_id(frame_id)
+        for suffix in (".jpg", ".json"):
+            artifact_path = self.paths.vision_frames_root / session_component / f"{frame_component}{suffix}"
+            if artifact_path.exists():
+                artifact_path.unlink()
+
     def update_vision_frame_processing(
         self,
         *,

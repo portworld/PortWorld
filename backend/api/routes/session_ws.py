@@ -155,6 +155,7 @@ async def ws_session(websocket: WebSocket) -> None:
                 settings=runtime.settings,
                 build_session_bridge=runtime.make_session_bridge,
                 storage=runtime.storage,
+                vision_memory_runtime=runtime.vision_memory_runtime,
             )
             active_session = dispatch_result.active_session
             if not dispatch_result.handled:
@@ -173,5 +174,6 @@ async def ws_session(websocket: WebSocket) -> None:
                 websocket=websocket,
                 send_control=send_control,
                 storage=runtime.storage,
+                vision_memory_runtime=runtime.vision_memory_runtime,
                 emit_session_state=False,
             )

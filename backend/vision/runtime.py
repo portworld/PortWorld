@@ -46,6 +46,7 @@ class SessionVisionWorker:
     last_observation: VisionObservation | None = None
     pending_session_events: list[dict[str, object]] = field(default_factory=list)
     last_session_rollup_at_ms: int | None = None
+    close_requested: bool = False
     task: asyncio.Task[None] | None = None
     condition: asyncio.Condition = field(default_factory=asyncio.Condition)
 
@@ -74,21 +75,11 @@ class VisionMemoryRuntime:
         self.started = True
 
     async def shutdown(self) -> None:
-        self._shutdown_requested = True
         async with self._workers_lock:
-            workers = list(self._workers.values())
-            self._workers.clear()
-        for worker in workers:
-            async with worker.condition:
-                worker.pending_frame = None
-                worker.condition.notify_all()
-            if worker.task is not None:
-                worker.task.cancel()
-        if workers:
-            await asyncio.gather(
-                *(worker.task for worker in workers if worker.task is not None),
-                return_exceptions=True,
-            )
+            session_ids = list(self._workers.keys())
+        for session_id in session_ids:
+            await self.finalize_session(session_id=session_id)
+        self._shutdown_requested = True
         await self.analyzer.shutdown()
         self.started = False
 
@@ -121,6 +112,13 @@ class VisionMemoryRuntime:
             image_media_type=image_media_type,
         )
         async with worker.condition:
+            if worker.close_requested:
+                logger.info(
+                    "VISION_SUBMIT_IGNORED_CLOSING session=%s frame=%s",
+                    frame_context.session_id,
+                    frame_context.frame_id,
+                )
+                return
             dropped_frame_id = worker.pending_frame.frame_context.frame_id if worker.pending_frame else None
             worker.pending_frame = pending_frame
             worker.condition.notify_all()
@@ -141,6 +139,10 @@ class VisionMemoryRuntime:
                 dropped_frame_id,
                 frame_context.frame_id,
             )
+            self._cleanup_ingest_artifacts(
+                session_id=frame_context.session_id,
+                frame_id=dropped_frame_id,
+            )
 
     async def analyze_frame(
         self,
@@ -154,6 +156,25 @@ class VisionMemoryRuntime:
             frame_context=frame_context,
             image_media_type=image_media_type,
         )
+
+    async def finalize_session(self, *, session_id: str) -> None:
+        async with self._workers_lock:
+            worker = self._workers.pop(session_id, None)
+        if worker is None:
+            return
+
+        async with worker.condition:
+            worker.close_requested = True
+            worker.condition.notify_all()
+
+        if worker.task is not None:
+            try:
+                await worker.task
+            except asyncio.CancelledError:
+                pass
+
+        if worker.pending_session_events:
+            self._materialize_session_memory(worker)
 
     async def _ensure_worker(self, *, session_id: str) -> SessionVisionWorker:
         async with self._workers_lock:
@@ -180,7 +201,7 @@ class VisionMemoryRuntime:
             while not self._shutdown_requested:
                 pending_frame = await self._wait_for_pending_frame(worker)
                 if pending_frame is None:
-                    if self._shutdown_requested:
+                    if self._shutdown_requested or worker.close_requested:
                         break
                     continue
                 await self._process_pending_frame(worker, pending_frame)
@@ -191,7 +212,11 @@ class VisionMemoryRuntime:
 
     async def _wait_for_pending_frame(self, worker: SessionVisionWorker) -> PendingVisionFrame | None:
         async with worker.condition:
-            while worker.pending_frame is None and not self._shutdown_requested:
+            while (
+                worker.pending_frame is None
+                and not self._shutdown_requested
+                and not worker.close_requested
+            ):
                 await worker.condition.wait()
             pending_frame = worker.pending_frame
             worker.pending_frame = None
@@ -227,6 +252,10 @@ class VisionMemoryRuntime:
                 pending_frame.frame_context.session_id,
                 pending_frame.frame_context.frame_id,
             )
+            self._cleanup_ingest_artifacts(
+                session_id=pending_frame.frame_context.session_id,
+                frame_id=pending_frame.frame_context.frame_id,
+            )
             return
 
         gate_record = GateRecord(
@@ -257,6 +286,10 @@ class VisionMemoryRuntime:
                 phash=gate_decision.dhash_hex,
                 provider=self.provider_name,
                 model=self.model_name,
+            )
+            self._cleanup_ingest_artifacts(
+                session_id=pending_frame.frame_context.session_id,
+                frame_id=pending_frame.frame_context.frame_id,
             )
             return
 
@@ -296,6 +329,10 @@ class VisionMemoryRuntime:
                 pending_frame.frame_context.frame_id,
                 self.provider_name,
                 self.model_name,
+            )
+            self._cleanup_ingest_artifacts(
+                session_id=pending_frame.frame_context.session_id,
+                frame_id=pending_frame.frame_context.frame_id,
             )
             return
 
@@ -337,6 +374,10 @@ class VisionMemoryRuntime:
             self.model_name,
             observation.scene_summary,
         )
+        self._cleanup_ingest_artifacts(
+            session_id=observation.session_id,
+            frame_id=observation.frame_id,
+        )
 
     def _materialize_short_term_memory(self, worker: SessionVisionWorker) -> None:
         accepted_events = self.storage.read_vision_events(session_id=worker.session_id)
@@ -375,6 +416,14 @@ class VisionMemoryRuntime:
         )
         worker.pending_session_events.clear()
         worker.last_session_rollup_at_ms = int(payload["updated_at_ms"])
+
+    def _cleanup_ingest_artifacts(self, *, session_id: str, frame_id: str) -> None:
+        if self.settings.vision_debug_retain_raw_frames:
+            return
+        self.storage.delete_vision_ingest_artifacts(
+            session_id=session_id,
+            frame_id=frame_id,
+        )
 
 
 def _coerce_optional_int(value: object) -> int | None:
