@@ -119,6 +119,20 @@ class SessionMemoryResetResult:
     removed_vision_frames_dir: bool
 
 
+@dataclass(frozen=True, slots=True)
+class RealtimeReadOnlyStorageView:
+    _storage: "BackendStorage"
+
+    def read_short_term_memory(self, *, session_id: str) -> dict[str, Any]:
+        return self._storage.read_short_term_memory(session_id=session_id)
+
+    def read_session_memory(self, *, session_id: str) -> dict[str, Any]:
+        return self._storage.read_session_memory(session_id=session_id)
+
+    def read_user_profile(self) -> dict[str, Any]:
+        return self._storage.read_user_profile()
+
+
 class BackendStorage:
     def __init__(self, *, paths: StoragePaths) -> None:
         self.paths = paths
@@ -356,6 +370,9 @@ class BackendStorage:
 
     def read_user_profile_markdown(self) -> str:
         return self.paths.user_profile_markdown_path.read_text(encoding="utf-8")
+
+    def realtime_read_only_view(self) -> RealtimeReadOnlyStorageView:
+        return RealtimeReadOnlyStorageView(self)
 
     def write_user_profile(
         self,

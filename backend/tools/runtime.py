@@ -5,7 +5,7 @@ from json import JSONDecodeError
 from dataclasses import dataclass
 
 from backend.core.settings import Settings
-from backend.core.storage import BackendStorage
+from backend.core.storage import BackendStorage, RealtimeReadOnlyStorageView
 from backend.memory.lifecycle import PROFILE_ALLOWLISTED_FIELDS
 from backend.tools.contracts import ToolCall, ToolDefinition, ToolResult
 from backend.tools.memory import MemoryToolExecutor
@@ -21,7 +21,7 @@ SUPPORTED_WEB_SEARCH_PROVIDERS = {"tavily"}
 @dataclass(frozen=True, slots=True)
 class RealtimeToolingRuntime:
     settings: Settings
-    storage: BackendStorage
+    storage: RealtimeReadOnlyStorageView
     web_search_enabled: bool
     web_search_provider: str | None
     search_provider: SearchProvider | None
@@ -36,6 +36,7 @@ class RealtimeToolingRuntime:
         *,
         storage: BackendStorage,
     ) -> "RealtimeToolingRuntime":
+        read_only_storage = storage.realtime_read_only_view()
         provider = settings.realtime_web_search_provider
         if provider not in SUPPORTED_WEB_SEARCH_PROVIDERS:
             raise RuntimeError(
@@ -53,7 +54,7 @@ class RealtimeToolingRuntime:
                 base_url=settings.tavily_base_url,
             )
         registry = cls._build_registry(
-            storage=storage,
+            storage=read_only_storage,
             search_provider=search_provider,
             web_search_enabled=web_search_enabled,
             web_search_provider=web_search_provider,
@@ -61,7 +62,7 @@ class RealtimeToolingRuntime:
         )
         return cls(
             settings=settings,
-            storage=storage,
+            storage=read_only_storage,
             web_search_enabled=web_search_enabled,
             web_search_provider=web_search_provider,
             search_provider=search_provider,
@@ -73,7 +74,7 @@ class RealtimeToolingRuntime:
     @staticmethod
     def _build_registry(
         *,
-        storage: BackendStorage,
+        storage: RealtimeReadOnlyStorageView,
         search_provider: SearchProvider | None,
         web_search_enabled: bool,
         web_search_provider: str | None,

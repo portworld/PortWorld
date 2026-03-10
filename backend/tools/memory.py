@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from json import JSONDecodeError
 
-from backend.core.storage import BackendStorage
+from backend.core.storage import RealtimeReadOnlyStorageView
 from backend.tools.contracts import ToolCall, ToolResult
 
 
 @dataclass(frozen=True, slots=True)
 class MemoryToolExecutor:
-    storage: BackendStorage
+    storage: RealtimeReadOnlyStorageView
     memory_scope: str
 
     async def __call__(self, call: ToolCall) -> ToolResult:
