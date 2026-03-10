@@ -90,6 +90,7 @@ async def dispatch_control_envelope(
             send_server_audio=send_server_audio,
             build_session_bridge=build_session_bridge,
             storage=storage,
+            session_memory_retention_days=settings.backend_session_memory_retention_days,
             vision_memory_runtime=vision_memory_runtime,
         )
         return ControlDispatchResult(active_session=next_active_session, handled=True)
@@ -102,6 +103,7 @@ async def dispatch_control_envelope(
             websocket=websocket,
             send_control=send_control,
             storage=storage,
+            session_memory_retention_days=settings.backend_session_memory_retention_days,
             vision_memory_runtime=vision_memory_runtime,
         )
         return ControlDispatchResult(active_session=None, handled=True)

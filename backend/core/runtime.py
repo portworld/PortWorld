@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -12,6 +13,9 @@ from backend.vision.runtime import VisionMemoryRuntime
 
 if TYPE_CHECKING:
     from backend.realtime.factory import BridgeBinding
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +98,7 @@ class AppRuntime:
 
     async def startup(self) -> None:
         self.bootstrap_storage()
+        self._sweep_expired_session_memory_at_startup()
         if self.vision_memory_runtime is not None:
             await self.vision_memory_runtime.startup()
         if self.realtime_tooling_runtime is not None:
@@ -123,6 +128,25 @@ class AppRuntime:
             send_server_audio=send_server_audio,
             realtime_tooling_runtime=self.realtime_tooling_runtime,
         )
+
+    def _sweep_expired_session_memory_at_startup(self) -> None:
+        try:
+            expired_sessions = self.storage.sweep_expired_session_memory(
+                retention_days=self.settings.backend_session_memory_retention_days,
+            )
+        except Exception:
+            logger.exception(
+                "Failed sweeping expired session memory at startup retention_days=%s",
+                self.settings.backend_session_memory_retention_days,
+            )
+            return
+
+        if expired_sessions:
+            logger.info(
+                "Expired session memory swept at startup count=%s sessions=%s",
+                len(expired_sessions),
+                [result.session_id for result in expired_sessions],
+            )
 
 
 def get_app_runtime(app: Any) -> AppRuntime:

@@ -178,6 +178,7 @@ async def ws_session(websocket: WebSocket) -> None:
                 websocket=websocket,
                 send_control=send_control,
                 storage=runtime.storage,
+                session_memory_retention_days=runtime.settings.backend_session_memory_retention_days,
                 vision_memory_runtime=runtime.vision_memory_runtime,
                 emit_session_state=False,
             )

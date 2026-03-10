@@ -82,6 +82,7 @@ async def deactivate_session(
     active_session: SessionRecord,
     send_control: Callable[..., Awaitable[None]],
     storage: BackendStorage,
+    session_memory_retention_days: int,
     vision_memory_runtime: VisionMemoryRuntime | None = None,
 ) -> None:
     capture_summary = capture_summary_payload(active_session)
@@ -104,6 +105,10 @@ async def deactivate_session(
         session_id=active_session.session_id,
         status="ended",
     )
+    _sweep_expired_session_memory_after_finalization(
+        storage=storage,
+        retention_days=session_memory_retention_days,
+    )
 
 
 async def deactivate_and_unregister_session(
@@ -112,6 +117,7 @@ async def deactivate_and_unregister_session(
     websocket: WebSocket,
     send_control: Callable[..., Awaitable[None]],
     storage: BackendStorage,
+    session_memory_retention_days: int,
     vision_memory_runtime: VisionMemoryRuntime | None = None,
     emit_session_state: bool = True,
 ) -> None:
@@ -120,6 +126,7 @@ async def deactivate_and_unregister_session(
             active_session=active_session,
             send_control=send_control,
             storage=storage,
+            session_memory_retention_days=session_memory_retention_days,
             vision_memory_runtime=vision_memory_runtime,
         )
     else:
@@ -130,10 +137,38 @@ async def deactivate_and_unregister_session(
             session_id=active_session.session_id,
             status="ended",
         )
+        _sweep_expired_session_memory_after_finalization(
+            storage=storage,
+            retention_days=session_memory_retention_days,
+        )
     await session_registry.unregister(
         active_session.session_id,
         websocket=websocket,
     )
+
+
+def _sweep_expired_session_memory_after_finalization(
+    *,
+    storage: BackendStorage,
+    retention_days: int,
+) -> None:
+    try:
+        expired_sessions = storage.sweep_expired_session_memory(
+            retention_days=retention_days,
+        )
+    except Exception:
+        logger.exception(
+            "Failed sweeping expired session memory after finalization retention_days=%s",
+            retention_days,
+        )
+        return
+
+    if expired_sessions:
+        logger.info(
+            "Expired session memory swept after finalization count=%s sessions=%s",
+            len(expired_sessions),
+            [result.session_id for result in expired_sessions],
+        )
 
 
 def capture_summary_payload(active_session: SessionRecord) -> dict[str, Any] | None:

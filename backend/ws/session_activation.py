@@ -32,6 +32,7 @@ async def activate_session(
     send_server_audio: SendBinary,
     build_session_bridge: BuildSessionBridge,
     storage: BackendStorage,
+    session_memory_retention_days: int,
     vision_memory_runtime: VisionMemoryRuntime | None,
 ) -> SessionRecord | None:
     if active_session is not None:
@@ -40,6 +41,7 @@ async def activate_session(
             websocket=websocket,
             send_control=send_control,
             storage=storage,
+            session_memory_retention_days=session_memory_retention_days,
             vision_memory_runtime=vision_memory_runtime,
         )
 
