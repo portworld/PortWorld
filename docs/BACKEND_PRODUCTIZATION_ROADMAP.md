@@ -303,19 +303,19 @@ Goal:
 
 Work:
 
-- make `Docker Compose` the canonical deployment story
+- keep `Docker Compose` as the canonical self-host path for this stage
 - document env-based configuration for:
   - OpenAI realtime
   - Mistral vision / memory
   - Tavily search
 - keep setup focused on a small number of required secrets and runtime settings
-- document lightweight operator workflows for:
+- document one compact operator reference for:
   - first launch
   - provider configuration
   - memory export
   - memory reset
   - debug-mode raw-frame retention
-- treat AWS as the first documented cloud deployment follow-on, but keep the runtime shape container-first rather than AWS-specific
+- keep future deployment positioning to a brief portability note only
 
 Expected result:
 
@@ -326,11 +326,28 @@ Acceptance:
 - the self-host deployment path is clear and practical
 - required secrets and provider settings are explicit
 - the backend can be open-sourced in this shape without architectural apology
-- AWS guidance can build on the same container shape instead of requiring a second architecture
+- future deployment portability is acknowledged without turning this step into cloud-deployment guidance
 
 Status:
 
-- planned
+- complete
+
+Implementation notes:
+
+- the root `docker-compose.yml` now acts as the explicit self-host entrypoint for one backend service with one env file and one persistent data volume
+- the repo now uses a repo-root `.dockerignore` so the actual Docker build context excludes local runtime artifacts and non-backend trees
+- `backend/.env.example` now presents the supported runtime modes directly and distinguishes:
+  - backend-owned settings
+  - operator/security settings
+  - provider-specific settings
+  - debug-only settings
+- `docs/BACKEND_SELF_HOSTING.md` now acts as the canonical Step `4E` self-host guide for:
+  - first launch
+  - supported env modes
+  - persistence behavior
+  - compact operator route reference
+- `backend/README.md` now stays focused on backend architecture, API surface, storage, and high-signal configuration while delegating setup and operator workflow detail to the self-host guide
+- future deployment reuse beyond local self-host is acknowledged only as a portability note; no provider- or platform-specific cloud deployment guide is part of Step `4E`
 
 ## Deferred Next
 

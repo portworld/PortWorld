@@ -504,337 +504,35 @@ Missing Tavily config does not fail startup. It only means `web_search` is omitt
   default: `*`
   local-dev default only; production should set explicit allowed origins
 
-## Local Setup
+## Self-Hosting
 
-From repo root:
+For setup, supported env modes, Compose usage, persistence behavior, and the compact operator reference, see `docs/BACKEND_SELF_HOSTING.md`.
 
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-```
+High-signal self-host summary:
 
-Typical local `.env` shape:
+- copy `backend/.env.example` to `backend/.env`
+- set `OPENAI_API_KEY`
+- optionally enable:
+  - `VISION_MEMORY_ENABLED=true` with `VISION_PROVIDER_API_KEY` or `MISTRAL_API_KEY`
+  - `REALTIME_TOOLING_ENABLED=true` with optional `TAVILY_API_KEY`
+- start with `docker compose up --build`
+- verify `GET /healthz`
 
-```dotenv
-REALTIME_PROVIDER=openai
-BACKEND_DATA_DIR=backend/var
-BACKEND_SESSION_MEMORY_RETENTION_DAYS=30
-BACKEND_BEARER_TOKEN=
-BACKEND_MAX_VISION_REQUEST_BYTES=4000000
-BACKEND_MAX_VISION_FRAME_BYTES=2500000
-BACKEND_DEBUG_DUMP_INPUT_AUDIO=false
-BACKEND_DEBUG_DUMP_INPUT_AUDIO_DIR=backend/var/debug_audio
-VISION_MEMORY_ENABLED=false
-VISION_MEMORY_PROVIDER=mistral
-VISION_MEMORY_MODEL=ministral-3b-2512
-VISION_PROVIDER_API_KEY=
-VISION_PROVIDER_BASE_URL=
-VISION_SHORT_TERM_WINDOW_SECONDS=30
-VISION_MIN_ANALYSIS_GAP_SECONDS=3
-VISION_SCENE_CHANGE_HAMMING_THRESHOLD=12
-VISION_PROVIDER_MAX_RPS=1
-VISION_ANALYSIS_HEARTBEAT_SECONDS=15
-VISION_PROVIDER_BACKOFF_INITIAL_SECONDS=5
-VISION_PROVIDER_BACKOFF_MAX_SECONDS=60
-VISION_DEFERRED_CANDIDATE_TTL_SECONDS=10
-VISION_SESSION_ROLLUP_INTERVAL_SECONDS=10
-VISION_SESSION_ROLLUP_MIN_ACCEPTED_EVENTS=5
-VISION_DEBUG_RETAIN_RAW_FRAMES=false
-REALTIME_TOOLING_ENABLED=false
-REALTIME_TOOL_TIMEOUT_MS=4000
-REALTIME_WEB_SEARCH_PROVIDER=tavily
-REALTIME_WEB_SEARCH_MAX_RESULTS=3
-
-OPENAI_API_KEY=...
-OPENAI_REALTIME_MODEL=gpt-realtime
-OPENAI_REALTIME_VOICE=ash
-OPENAI_REALTIME_INSTRUCTIONS=You are a concise assistant. Keep answers short, clear, and practical.
-
-# Optional; set only when VISION_MEMORY_ENABLED=true.
-VISION_PROVIDER_API_KEY=
-VISION_PROVIDER_BASE_URL=
-
-# Legacy fallback aliases for the default Mistral path.
-MISTRAL_API_KEY=
-MISTRAL_BASE_URL=
-
-# Optional; set only when REALTIME_TOOLING_ENABLED=true and web_search should be enabled.
-TAVILY_API_KEY=
-
-HOST=0.0.0.0
-PORT=8080
-LOG_LEVEL=INFO
-CORS_ORIGINS=*
-```
-
-Typical NVIDIA NIM override for the same provider path:
-
-```dotenv
-VISION_MEMORY_ENABLED=true
-VISION_MEMORY_PROVIDER=mistral
-VISION_MEMORY_MODEL=mistralai/ministral-14b-instruct-2512
-VISION_PROVIDER_API_KEY=...
-VISION_PROVIDER_BASE_URL=https://integrate.api.nvidia.com
-```
-
-## Local Run
-
-From repo root:
-
-```bash
-source backend/.venv/bin/activate
-python -m uvicorn backend.app:app --host 0.0.0.0 --port 8080 --log-level info --reload
-```
-
-Quick health check:
-
-```bash
-curl http://127.0.0.1:8080/healthz
-```
-
-## Docker Compose
-
-A minimal self-host path is available through the repo root `docker-compose.yml`.
-
-For the canonical Step 4E self-host guide, see `docs/BACKEND_SELF_HOSTING.md`.
-
-Compose is the supported self-host path for this stage. The same container-first runtime may later be reused on cloud VMs or managed container platforms, but those deployment paths are outside the current backend docs.
-
-It currently:
-
-- builds one backend service from `backend/Dockerfile`
-- loads env from `backend/.env`
-- exposes `8080`
-- mounts a named volume to `/app/backend/var`
-- runs the backend with `uvicorn`
-- health-checks `/healthz`
-
-The repo-root Docker build context excludes local runtime artifacts through `.dockerignore`, including:
-
-- `backend/var/`
-- `backend/.env`
-- `backend/.venv/`
-- `__pycache__/`
-- other non-backend repo trees not needed for the backend image build
-
-Run:
-
-```bash
-docker compose up --build
-```
+The repo-root `docker-compose.yml` remains the supported self-host entrypoint for this backend slice.
 
 ## Validation
 
-### Startup and configuration
+For full operator-facing setup and route workflows, use `docs/BACKEND_SELF_HOSTING.md`.
 
-Base backend / visual-memory check:
+Useful backend sanity checks:
 
 ```bash
+docker compose config
 curl http://127.0.0.1:8080/healthz
+python3 -m compileall backend
 ```
 
-Expected:
-
-- backend starts normally with `VISION_MEMORY_ENABLED=false`
-- `/healthz` reports `service=portworld-backend`
-- `/healthz` reports `status=ok`
-
-Auth off:
-
-- `/ws/session`, `/vision/frame`, `/profile`, and `/memory/*` keep current local-dev behavior
-
-Auth on:
-
-- when `BACKEND_BEARER_TOKEN` is set, `/ws/session`, `/vision/frame`, `/profile`, and `/memory/*` require `Authorization: Bearer <token>`
-
-Visual memory enabled but misconfigured:
-
-```bash
-VISION_MEMORY_ENABLED=true uvicorn backend.app:app --host 127.0.0.1 --port 8080
-```
-
-Expected:
-
-- startup fails clearly if neither `VISION_PROVIDER_API_KEY` nor `MISTRAL_API_KEY` is set
-
-Realtime tooling disabled:
-
-- backend behavior stays the same as the Step `4B` visual-memory slice
-
-Realtime tooling enabled with no Tavily key:
-
-- memory tools are still available
-- `web_search` is omitted
-- startup still succeeds
-
-Realtime tooling enabled with Tavily configured:
-
-- all three tools are available
-- profile injection is enabled if supported fields exist in `user_profile.json`
-
-### Visual-memory validation
-
-Use a backend config with:
-
-- `VISION_MEMORY_ENABLED=true`
-- `VISION_PROVIDER_API_KEY=...` or `MISTRAL_API_KEY=...`
-- `VISION_DEBUG_RETAIN_RAW_FRAMES=false`
-
-Then post repeated frames to `/vision/frame` and inspect:
-
-- `session/<session_id>/vision_events.jsonl`
-- `session/<session_id>/vision_routing_events.jsonl`
-- `session/<session_id>/short_term_memory.json`
-- `session/<session_id>/short_term_memory.md`
-- `session/<session_id>/session_memory.json`
-- `session/<session_id>/session_memory.md`
-
-Useful checks:
-
-- requests above `BACKEND_MAX_VISION_REQUEST_BYTES` are rejected with `413`
-- decoded JPEGs above `BACKEND_MAX_VISION_FRAME_BYTES` are rejected with `413`
-- repeated near-identical frames inside the analysis gap should route to `drop_redundant`
-- heavy-analysis-worthy frames should route to `analyze_now` when budget is available
-- heavy-analysis-worthy frames should route to `defer_candidate` when provider budget/cooldown is unavailable
-- every processed frame should append one routing event in `vision_routing_events.jsonl`
-- only successful heavy-analysis frames should append one event to `vision_events.jsonl`
-- only successful heavy-analysis frames should rebuild `short_term_memory` and feed session rollups
-- `429` should persist as `analysis_rate_limited` and start cooldown
-
-To inspect frame-processing state:
-
-```bash
-sqlite3 backend/var/portworld.db "select session_id, frame_id, processing_status, gate_status, gate_reason, routing_status, routing_reason, routing_score from vision_frame_index order by ingest_ts_ms desc limit 20;"
-```
-
-Expected statuses include:
-
-- `queued`
-- `superseded`
-- `gated_rejected`
-- `stored_only`
-- `deferred`
-- `analysis_rate_limited`
-- `analysis_failed`
-- `analyzed`
-
-### Adaptive routing and cooldown validation
-
-Manual checks for adaptive behavior:
-
-1. Routing outcomes
-   - inspect `vision_frame_index.routing_status`, `routing_reason`, `routing_score`, and `routing_metadata_json`
-   - inspect `session/<session_id>/vision_routing_events.jsonl` for signal, route decision, provider state, and analysis outcome
-2. Deferred candidate behavior
-   - during cooldown, upload multiple heavy-analysis-worthy frames
-   - verify only one best deferred candidate remains per session
-   - verify weaker deferred candidates downgrade to `store_only`
-   - verify deferred candidates eventually analyze after cooldown or downgrade after TTL expiry
-3. `429` cooldown behavior
-   - trigger or simulate provider `429`
-   - verify no immediate retry for the same frame
-   - verify later frames are still routed while cooldown is active
-   - verify heavy-analysis attempts pause until cooldown expires
-4. Semantic-memory stability
-   - verify `vision_events.jsonl`, `short_term_memory`, and `session_memory` change only after successful heavy-analysis results
-
-### Raw-frame cleanup
-
-With `VISION_DEBUG_RETAIN_RAW_FRAMES=false`, raw ingest files under `vision_frames/` should be deleted after terminal processing while derived memory artifacts remain.
-
-With `VISION_DEBUG_RETAIN_RAW_FRAMES=true`, raw ingest files should remain on disk for inspection.
-
-### Realtime-tooling validation
-
-With `REALTIME_TOOLING_ENABLED=true`, validate:
-
-- `get_short_term_visual_context`
-  - returns `available: false` with empty context when no short-term memory has been materialized
-  - returns the current `short_term_memory.json` payload once visual memory exists
-- `get_session_visual_context`
-  - returns `available: false` with empty context when no session memory has been materialized
-  - returns the current `session_memory.json` payload once session memory exists
-- `web_search`
-  - appears only when `TAVILY_API_KEY` is configured
-  - returns snippets-only results with:
-    - `title`
-    - `url`
-    - `snippet`
-  - returns structured tool errors on invalid input, timeout, or provider failure
-
-Bridge-level checks:
-
-- OpenAI session initialization includes tool descriptors when tooling is enabled
-- profile instructions include the tool-usage policy block
-- supported profile fields from `user_profile.json` are appended when present
-- `response.function_call_arguments.done` is handled correctly
-- `response.output_item.done` for function calls is handled correctly
-- each tool call produces:
-  - one `function_call_output`
-  - followed by one `response.create`
-- malformed tool arguments do not break the live session
-- live tooling reads profile context but cannot write or reset persistent profile memory directly
-
-### Profile lifecycle validation
-
-Validate:
-
-- `GET /profile`
-  - returns:
-    - `profile`
-    - `is_onboarded`
-    - `missing_fields`
-    - `metadata`
-  - reports empty scaffold state as not onboarded
-- `PUT /profile`
-  - accepts only:
-    - `name`
-    - `job`
-    - `company`
-    - `preferences`
-    - `projects`
-  - rejects unknown fields
-  - rewrites both:
-    - `user/user_profile.json`
-    - `user/user_profile.md`
-- `POST /profile/reset`
-  - clears only persistent profile memory
-  - does not touch any session-memory artifacts
-
-### Memory export and reset validation
-
-Validate:
-
-- `GET /memory/export`
-  - returns `application/zip`
-  - includes:
-    - `user/user_profile.md`
-    - `user/user_profile.json`
-    - bounded derived session-memory artifacts
-    - `manifest.json`
-  - excludes:
-    - `vision_frames/`
-    - `debug_audio/`
-- `POST /memory/session/{session_id}/reset`
-  - returns `200` for ended sessions with persisted memory
-  - returns `409` for active sessions
-  - returns `404` when the session memory set is missing
-
-### Retention validation
-
-Validate:
-
-- ended sessions older than `BACKEND_SESSION_MEMORY_RETENTION_DAYS` are removed at startup
-- ended sessions older than `BACKEND_SESSION_MEMORY_RETENTION_DAYS` are removed after later session finalization
-- active sessions remain present
-- persistent user-profile artifacts remain present
-
-### Probe script
-
-Use the local websocket probe to validate the control and binary framing contract:
+When debugging websocket transport from the terminal, use:
 
 ```bash
 source backend/.venv/bin/activate
@@ -847,26 +545,6 @@ python backend/scripts/ws_probe.py \
   --frame-interval-ms 85 \
   --expect-ack-count 2
 ```
-
-Deprecated text fallback probe:
-
-```bash
-python backend/scripts/ws_probe.py --send-text-fallback
-```
-
-### Compile check
-
-```bash
-python3 -m compileall backend
-```
-
-### Session finalization
-
-After a websocket session ends, verify that:
-
-- pending accepted events have been flushed into `session_memory`
-- `session/<session_id>/vision_events.jsonl` remains on disk
-- the final `session_memory.json` reflects the last accepted observations
 
 ## Notes
 
