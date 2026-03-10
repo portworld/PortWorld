@@ -70,7 +70,7 @@
 	<key>SON_BACKEND_BASE_URL</key>
 	<string>$(BACKEND_BASE_URL)</string>
 	<key>SON_BEARER_TOKEN</key>
-	<string></string>
+	<string>$(BACKEND_BEARER_TOKEN)</string>
 	<key>SON_PHOTO_FPS</key>
 	<real>1</real>
 	<key>SON_QUERY_PATH</key>
