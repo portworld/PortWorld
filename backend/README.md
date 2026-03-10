@@ -31,12 +31,17 @@ Not in scope for the current backend slice:
 The active backend surface is:
 
 - `GET /healthz`
+- `GET /profile`
+- `PUT /profile`
+- `POST /profile/reset`
+- `GET /memory/export`
+- `POST /memory/session/{session_id}/reset`
 - `POST /vision/frame`
 - `WS /ws/session`
 
 Auth behavior:
 
-- when `BACKEND_BEARER_TOKEN` is set, `/ws/session` and `/vision/frame` require `Authorization: Bearer <token>`
+- when `BACKEND_BEARER_TOKEN` is set, `/ws/session`, `/vision/frame`, `/profile`, and `/memory/*` require `Authorization: Bearer <token>`
 - when `BACKEND_BEARER_TOKEN` is unset, the backend keeps the current local-dev behavior and does not require auth
 
 Step 4A keeps the existing websocket and vision wire contract stable while cleaning up backend internals.
@@ -47,9 +52,10 @@ The backend now boots through one runtime-owned lifecycle:
 
 1. FastAPI startup creates `AppRuntime`
 2. startup bootstraps storage under `BACKEND_DATA_DIR`
-3. routes and websocket handlers resolve dependencies from `app.state.runtime`
-4. live session coordination stays in memory for active websocket sessions
-5. persistent indexing is written to SQLite and filesystem artifacts
+3. startup sweeps expired ended session-memory sets using `BACKEND_SESSION_MEMORY_RETENTION_DAYS`
+4. routes and websocket handlers resolve dependencies from `app.state.runtime`
+5. live session coordination stays in memory for active websocket sessions
+6. persistent indexing is written to SQLite and filesystem artifacts
 
 This keeps startup, storage, and provider selection under one explicit owner instead of spreading them across import-time globals.
 
@@ -160,7 +166,7 @@ What is persisted today:
 
 What is not persisted yet:
 
-- user-profile facts promoted from conversations
+- automatic user-profile facts promoted from conversations
 - cross-session semantic memory beyond the profile scaffold
 
 ### Vision uploads and derived memory
@@ -247,7 +253,61 @@ Additional terminal routing status:
 
 ### Profile scaffold
 
-The backend still creates `user/user_profile.md` and `user/user_profile.json`, but Step `4B` does not automatically promote new profile facts into them yet. That remains later work.
+The backend now exposes explicit profile lifecycle behavior:
+
+- `GET /profile` reads the current allowlisted persistent profile facts
+- `PUT /profile` writes the allowlisted onboarding fields and rewrites both `user_profile.json` and `user_profile.md`
+- `POST /profile/reset` resets only persistent profile memory back to the scaffold state
+
+Current persisted allowlisted profile fields are:
+
+- `name`
+- `job`
+- `company`
+- `preferences`
+- `projects`
+
+`user_profile.json` may also contain additive lifecycle metadata under `profile_metadata`, but Step `4C` prompt injection still reads only the top-level allowlisted fields.
+
+The backend still does not automatically promote new profile facts from conversations or vision into the persistent profile store. That remains later work.
+
+### Session-memory lifecycle
+
+Per-session derived memory artifacts have a separate lifecycle from the persistent user profile.
+
+The backend now provides:
+
+- `GET /memory/export`
+  returns a bounded zip archive containing:
+  - `user_profile.md`
+  - `user_profile.json`
+  - session derived-memory artifacts
+  - `manifest.json`
+- `POST /memory/session/{session_id}/reset`
+  resets one persisted session-memory set only
+  - returns `409` for active sessions
+  - returns `404` when that session has no persisted memory set
+
+The export surface intentionally excludes:
+
+- raw vision frames
+- debug audio dumps
+- unrelated backend runtime state
+
+### Retention
+
+Ended session-memory sets are retained for a bounded period controlled by:
+
+- `BACKEND_SESSION_MEMORY_RETENTION_DAYS`
+  default: `30`
+
+Retention behavior:
+
+- expired ended sessions are swept once at backend startup
+- expired ended sessions are swept again after session finalization
+- active sessions are never removed by retention
+- persistent `user_profile.md/json` is never removed by retention
+- retention reuses the same deletion path as explicit session reset
 
 ### Semantic-memory stability contract
 
@@ -322,13 +382,16 @@ Detailed provider/runtime/storage state is intentionally not exposed through thi
   default: `20`, minimum: `1`
 - `BACKEND_BEARER_TOKEN`
   default: unset
-  when set, requires `Authorization: Bearer <token>` on `/ws/session` and `/vision/frame`
+  when set, requires `Authorization: Bearer <token>` on `/ws/session`, `/vision/frame`, `/profile`, and `/memory/*`
 - `BACKEND_MAX_VISION_REQUEST_BYTES`
   default: `4000000`
   rejects oversized `/vision/frame` requests using `Content-Length` when present
 - `BACKEND_MAX_VISION_FRAME_BYTES`
   default: `2500000`
   rejects oversized decoded JPEG payloads before write
+- `BACKEND_SESSION_MEMORY_RETENTION_DAYS`
+  default: `30`, minimum: `1`
+  removes expired ended session-memory sets at startup and after later session finalization
 - `BACKEND_ALLOW_TEXT_AUDIO_FALLBACK`
   default: `false`
   compatibility path only; not used by the active iPhone runtime
@@ -441,6 +504,7 @@ Typical local `.env` shape:
 ```dotenv
 REALTIME_PROVIDER=openai
 BACKEND_DATA_DIR=backend/var
+BACKEND_SESSION_MEMORY_RETENTION_DAYS=30
 BACKEND_BEARER_TOKEN=
 BACKEND_MAX_VISION_REQUEST_BYTES=4000000
 BACKEND_MAX_VISION_FRAME_BYTES=2500000
@@ -539,11 +603,11 @@ Expected:
 
 Auth off:
 
-- `/ws/session` and `/vision/frame` keep current local-dev behavior
+- `/ws/session`, `/vision/frame`, `/profile`, and `/memory/*` keep current local-dev behavior
 
 Auth on:
 
-- when `BACKEND_BEARER_TOKEN` is set, `/ws/session` and `/vision/frame` require `Authorization: Bearer <token>`
+- when `BACKEND_BEARER_TOKEN` is set, `/ws/session`, `/vision/frame`, `/profile`, and `/memory/*` require `Authorization: Bearer <token>`
 
 Visual memory enabled but misconfigured:
 
@@ -671,6 +735,61 @@ Bridge-level checks:
   - one `function_call_output`
   - followed by one `response.create`
 - malformed tool arguments do not break the live session
+- live tooling reads profile context but cannot write or reset persistent profile memory directly
+
+### Profile lifecycle validation
+
+Validate:
+
+- `GET /profile`
+  - returns:
+    - `profile`
+    - `is_onboarded`
+    - `missing_fields`
+    - `metadata`
+  - reports empty scaffold state as not onboarded
+- `PUT /profile`
+  - accepts only:
+    - `name`
+    - `job`
+    - `company`
+    - `preferences`
+    - `projects`
+  - rejects unknown fields
+  - rewrites both:
+    - `user/user_profile.json`
+    - `user/user_profile.md`
+- `POST /profile/reset`
+  - clears only persistent profile memory
+  - does not touch any session-memory artifacts
+
+### Memory export and reset validation
+
+Validate:
+
+- `GET /memory/export`
+  - returns `application/zip`
+  - includes:
+    - `user/user_profile.md`
+    - `user/user_profile.json`
+    - bounded derived session-memory artifacts
+    - `manifest.json`
+  - excludes:
+    - `vision_frames/`
+    - `debug_audio/`
+- `POST /memory/session/{session_id}/reset`
+  - returns `200` for ended sessions with persisted memory
+  - returns `409` for active sessions
+  - returns `404` when the session memory set is missing
+
+### Retention validation
+
+Validate:
+
+- ended sessions older than `BACKEND_SESSION_MEMORY_RETENTION_DAYS` are removed at startup
+- ended sessions older than `BACKEND_SESSION_MEMORY_RETENTION_DAYS` are removed after later session finalization
+- active sessions remain present
+- persistent user-profile artifacts remain present
 
 ### Probe script
 
@@ -716,6 +835,8 @@ After a websocket session ends, verify that:
 - Accepted visual observations are stored as derived events. Raw frames are deleted by default after processing.
 - Realtime tooling is opt-in. It is enabled only when `REALTIME_TOOLING_ENABLED=true`.
 - `web_search` is optional and only appears when Tavily is configured.
+- Persistent profile onboarding, memory export, session reset, and retention are now backend-owned HTTP flows.
+- Automatic profile promotion from conversations or vision is still not active in the current backend slice.
 - MCP-backed tools are not active yet in the current backend slice.
 - Step 4A intentionally keeps the live session registry in memory. SQLite is persistent indexing, not live coordination.
 - Product roadmap and later multimodal/backend milestones live under `docs/`, not in this README.
