@@ -474,6 +474,15 @@ The active adapter uses a non-streaming OpenAI-compatible `/v1/chat/completions`
 
 If `VISION_MEMORY_ENABLED=true` and neither `VISION_PROVIDER_API_KEY` nor `MISTRAL_API_KEY` is set, startup fails clearly. When visual memory is disabled, missing provider config does not matter.
 
+### Minimum supported env modes
+
+- realtime-only self-host
+  set `OPENAI_API_KEY`; keep `VISION_MEMORY_ENABLED=false` and `REALTIME_TOOLING_ENABLED=false`
+- realtime plus visual memory
+  set `OPENAI_API_KEY`; set `VISION_MEMORY_ENABLED=true`; prefer `VISION_PROVIDER_API_KEY` and optionally `VISION_PROVIDER_BASE_URL`; `MISTRAL_API_KEY` and `MISTRAL_BASE_URL` remain supported as fallback aliases
+- realtime plus tooling
+  set `OPENAI_API_KEY`; set `REALTIME_TOOLING_ENABLED=true`; set `TAVILY_API_KEY` only if `web_search` should be available
+
 ### Realtime-tooling provider settings
 
 These are used only when `REALTIME_TOOLING_ENABLED=true`:
@@ -544,7 +553,15 @@ OPENAI_REALTIME_MODEL=gpt-realtime
 OPENAI_REALTIME_VOICE=ash
 OPENAI_REALTIME_INSTRUCTIONS=You are a concise assistant. Keep answers short, clear, and practical.
 
-MISTRAL_API_KEY=...
+# Optional; set only when VISION_MEMORY_ENABLED=true.
+VISION_PROVIDER_API_KEY=
+VISION_PROVIDER_BASE_URL=
+
+# Legacy fallback aliases for the default Mistral path.
+MISTRAL_API_KEY=
+MISTRAL_BASE_URL=
+
+# Optional; set only when REALTIME_TOOLING_ENABLED=true and web_search should be enabled.
 TAVILY_API_KEY=
 
 HOST=0.0.0.0
@@ -639,7 +656,7 @@ VISION_MEMORY_ENABLED=true uvicorn backend.app:app --host 127.0.0.1 --port 8080
 
 Expected:
 
-- startup fails clearly if `MISTRAL_API_KEY` is missing
+- startup fails clearly if neither `VISION_PROVIDER_API_KEY` nor `MISTRAL_API_KEY` is set
 
 Realtime tooling disabled:
 
@@ -661,7 +678,7 @@ Realtime tooling enabled with Tavily configured:
 Use a backend config with:
 
 - `VISION_MEMORY_ENABLED=true`
-- `MISTRAL_API_KEY=...`
+- `VISION_PROVIDER_API_KEY=...` or `MISTRAL_API_KEY=...`
 - `VISION_DEBUG_RETAIN_RAW_FRAMES=false`
 
 Then post repeated frames to `/vision/frame` and inspect:
