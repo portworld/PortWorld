@@ -4,6 +4,8 @@ FastAPI backend for the active PortWorld iPhone-first runtime.
 
 The backend is centered on a realtime session bridge plus a bounded vision upload path. Steps `4A` and `4B` turn it into a cleaner self-hostable service with explicit runtime ownership, persistent storage bootstrap, and an opt-in visual-memory pipeline built around accepted image observations.
 
+Adaptive routing is active in the visual-memory pipeline. This is still a semantic-memory lane, not a navigation-grade fast-perception lane.
+
 ## Scope
 
 Current scope:
@@ -125,6 +127,7 @@ Default layout:
 - `backend/var/session/<session_id>/session_memory.md`
 - `backend/var/session/<session_id>/session_memory.json`
 - `backend/var/session/<session_id>/vision_events.jsonl`
+- `backend/var/session/<session_id>/vision_routing_events.jsonl`
 - `backend/var/vision_frames/...`
 - `backend/var/debug_audio/...`
 
@@ -144,9 +147,11 @@ What is persisted today:
 - session lifecycle status (`active`, `ended`)
 - stored artifact metadata and relative paths
 - vision ingest and processing status
+- vision routing status, reason, score, and metadata
 - derived short-term memory artifacts
 - derived per-session memory artifacts
 - accepted visual observations in `vision_events.jsonl`
+- per-frame routing audit events in `vision_routing_events.jsonl`
 
 What is not persisted yet:
 
@@ -161,16 +166,46 @@ What is not persisted yet:
 2. registers ingest artifacts in `artifact_index`
 3. records frame status in `vision_frame_index`
 4. enqueues the frame into one sequential per-session worker
-5. applies cheap gating before any provider call
-6. sends accepted frames to the configured vision provider
-7. updates:
+5. computes cheap frame signals and routes each frame to one action:
+   - `drop_redundant`
+   - `store_only`
+   - `defer_candidate`
+   - `analyze_now`
+6. enforces provider-wide budget and cooldown state
+7. calls the heavy provider only for `analyze_now` frames
+8. records one routing audit event per processed frame in `vision_routing_events.jsonl`
+9. treats provider `429` as explicit rate-limited outcomes:
+   - parses `Retry-After` when present
+   - otherwise uses exponential cooldown backoff
+   - marks the frame as `analysis_rate_limited` (distinct from ordinary analysis failure)
+   - does not immediately retry the same frame
+10. updates semantic-memory artifacts only from successful heavy-analysis results
+11. updates:
    - `vision_events.jsonl`
    - `short_term_memory.md`
    - `short_term_memory.json`
    - `session_memory.md`
    - `session_memory.json`
 
-When `VISION_DEBUG_RETAIN_RAW_FRAMES=false`, raw ingest files are deleted after terminal processing. The derived memory artifacts remain on disk.
+When `VISION_DEBUG_RETAIN_RAW_FRAMES=false`, raw ingest files are deleted after terminal processing. Derived memory and routing audit artifacts remain on disk.
+
+### Adaptive routing semantics
+
+The adaptive route actions are:
+
+- `drop_redundant`
+  frame is too similar and not needed for freshness
+- `store_only`
+  frame is indexed but intentionally not analyzed
+- `defer_candidate`
+  frame is analysis-worthy but provider budget is unavailable; one best deferred candidate is retained per session
+- `analyze_now`
+  frame is analysis-worthy and provider budget is available
+
+Additional terminal routing status:
+
+- `analysis_rate_limited`
+  heavy-analysis attempt hit provider `429`; cooldown is active and the frame is not immediately retried
 
 ### Short-term memory
 
@@ -208,6 +243,16 @@ When `VISION_DEBUG_RETAIN_RAW_FRAMES=false`, raw ingest files are deleted after 
 ### Profile scaffold
 
 The backend still creates `user/user_profile.md` and `user/user_profile.json`, but Step `4B` does not automatically promote new profile facts into them yet. That remains later work.
+
+### Semantic-memory stability contract
+
+The Step `4B` semantic-memory outputs and shapes remain unchanged:
+
+- `vision_events.jsonl`
+- `short_term_memory.md/json`
+- `session_memory.md/json`
+
+Only successful heavy-analysis results append to `vision_events.jsonl` and can mutate short-term/session memory. Routed `drop_redundant`, `store_only`, unresolved `defer_candidate`, and `analysis_rate_limited` frames do not mutate semantic memory.
 
 ## Realtime Tooling
 
@@ -297,6 +342,16 @@ Current supported injected profile fields:
   default: `3`
 - `VISION_SCENE_CHANGE_HAMMING_THRESHOLD`
   default: `12`
+- `VISION_PROVIDER_MAX_RPS`
+  default: `1`
+- `VISION_ANALYSIS_HEARTBEAT_SECONDS`
+  default: `15`
+- `VISION_PROVIDER_BACKOFF_INITIAL_SECONDS`
+  default: `5`
+- `VISION_PROVIDER_BACKOFF_MAX_SECONDS`
+  default: `60`
+- `VISION_DEFERRED_CANDIDATE_TTL_SECONDS`
+  default: `10`
 - `VISION_SESSION_ROLLUP_INTERVAL_SECONDS`
   default: `10`
 - `VISION_SESSION_ROLLUP_MIN_ACCEPTED_EVENTS`
@@ -383,6 +438,11 @@ VISION_MEMORY_MODEL=ministral-3b-2512
 VISION_SHORT_TERM_WINDOW_SECONDS=30
 VISION_MIN_ANALYSIS_GAP_SECONDS=3
 VISION_SCENE_CHANGE_HAMMING_THRESHOLD=12
+VISION_PROVIDER_MAX_RPS=1
+VISION_ANALYSIS_HEARTBEAT_SECONDS=15
+VISION_PROVIDER_BACKOFF_INITIAL_SECONDS=5
+VISION_PROVIDER_BACKOFF_MAX_SECONDS=60
+VISION_DEFERRED_CANDIDATE_TTL_SECONDS=10
 VISION_SESSION_ROLLUP_INTERVAL_SECONDS=10
 VISION_SESSION_ROLLUP_MIN_ACCEPTED_EVENTS=5
 VISION_DEBUG_RETAIN_RAW_FRAMES=false
@@ -493,6 +553,7 @@ Use a backend config with:
 Then post repeated frames to `/vision/frame` and inspect:
 
 - `session/<session_id>/vision_events.jsonl`
+- `session/<session_id>/vision_routing_events.jsonl`
 - `session/<session_id>/short_term_memory.json`
 - `session/<session_id>/short_term_memory.md`
 - `session/<session_id>/session_memory.json`
@@ -500,15 +561,18 @@ Then post repeated frames to `/vision/frame` and inspect:
 
 Useful checks:
 
-- repeated near-identical frames inside the analysis gap should be gated and not all analyzed
-- accepted frames should append one event to `vision_events.jsonl`
-- accepted frames should rebuild `short_term_memory`
-- session rollups should update `session_memory` on the configured cadence
+- repeated near-identical frames inside the analysis gap should route to `drop_redundant`
+- heavy-analysis-worthy frames should route to `analyze_now` when budget is available
+- heavy-analysis-worthy frames should route to `defer_candidate` when provider budget/cooldown is unavailable
+- every processed frame should append one routing event in `vision_routing_events.jsonl`
+- only successful heavy-analysis frames should append one event to `vision_events.jsonl`
+- only successful heavy-analysis frames should rebuild `short_term_memory` and feed session rollups
+- `429` should persist as `analysis_rate_limited` and start cooldown
 
 To inspect frame-processing state:
 
 ```bash
-sqlite3 backend/var/portworld.db "select session_id, frame_id, processing_status, gate_status, gate_reason from vision_frame_index order by ingest_ts_ms desc limit 20;"
+sqlite3 backend/var/portworld.db "select session_id, frame_id, processing_status, gate_status, gate_reason, routing_status, routing_reason, routing_score from vision_frame_index order by ingest_ts_ms desc limit 20;"
 ```
 
 Expected statuses include:
@@ -516,8 +580,31 @@ Expected statuses include:
 - `queued`
 - `superseded`
 - `gated_rejected`
+- `stored_only`
+- `deferred`
+- `analysis_rate_limited`
 - `analysis_failed`
 - `analyzed`
+
+### Adaptive routing and cooldown validation
+
+Manual checks for adaptive behavior:
+
+1. Routing outcomes
+   - inspect `vision_frame_index.routing_status`, `routing_reason`, `routing_score`, and `routing_metadata_json`
+   - inspect `session/<session_id>/vision_routing_events.jsonl` for signal, route decision, provider state, and analysis outcome
+2. Deferred candidate behavior
+   - during cooldown, upload multiple heavy-analysis-worthy frames
+   - verify only one best deferred candidate remains per session
+   - verify weaker deferred candidates downgrade to `store_only`
+   - verify deferred candidates eventually analyze after cooldown or downgrade after TTL expiry
+3. `429` cooldown behavior
+   - trigger or simulate provider `429`
+   - verify no immediate retry for the same frame
+   - verify later frames are still routed while cooldown is active
+   - verify heavy-analysis attempts pause until cooldown expires
+4. Semantic-memory stability
+   - verify `vision_events.jsonl`, `short_term_memory`, and `session_memory` change only after successful heavy-analysis results
 
 ### Raw-frame cleanup
 

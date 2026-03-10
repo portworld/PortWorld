@@ -13,7 +13,12 @@ from backend.memory.materializer import (
     build_session_memory_rollup,
     build_short_term_memory,
 )
-from backend.vision.contracts import VisionAnalyzer, VisionFrameContext, VisionObservation
+from backend.vision.contracts import (
+    VisionAnalyzer,
+    VisionFrameContext,
+    VisionObservation,
+    VisionRateLimitError,
+)
 from backend.vision.factory import build_vision_analyzer
 from backend.vision.gating import (
     AcceptedFrameReference,
@@ -69,6 +74,7 @@ class SessionVisionWorker:
     last_analysis_failed: bool = False
     short_term_memory_last_updated_at_ms: int | None = None
     session_memory_last_updated_at_ms: int | None = None
+    session_memory_exists: bool = False
     pending_session_events: list[dict[str, object]] = field(default_factory=list)
     last_session_rollup_at_ms: int | None = None
     close_requested: bool = False
@@ -308,6 +314,8 @@ class VisionMemoryRuntime:
             self._mark_store_only(
                 pending_frame=deferred.pending_frame,
                 signal=deferred.signal,
+                route=deferred.route,
+                provider_budget_state=build_budget_state_from_signal(deferred.signal),
                 reason="session_finalized_before_analysis",
             )
             worker.best_deferred_candidate = None
@@ -330,7 +338,8 @@ class VisionMemoryRuntime:
                     session_storage=session_storage,
                     last_successful_analysis_at_ms=short_term_updated_at_ms,
                     short_term_memory_last_updated_at_ms=short_term_updated_at_ms,
-                    session_memory_last_updated_at_ms=session_updated_at_ms,
+                    session_memory_last_updated_at_ms=short_term_updated_at_ms,
+                    session_memory_exists=bool(previous_session_memory),
                     last_session_rollup_at_ms=session_updated_at_ms,
                 )
                 worker.task = asyncio.create_task(
@@ -402,6 +411,24 @@ class VisionMemoryRuntime:
                 provider_budget_state=budget_state,
             )
         except VisionGateError:
+            fallback_signal = VisionSignalSnapshot(
+                session_id=pending_frame.frame_context.session_id,
+                frame_id=pending_frame.frame_context.frame_id,
+                capture_ts_ms=pending_frame.frame_context.capture_ts_ms,
+                is_first_frame=worker.last_accepted_frame is None,
+                capture_gap_ms=None,
+                dhash_hex="",
+                hamming_distance=None,
+                has_short_term_memory=worker.short_term_memory_last_updated_at_ms is not None,
+                has_session_memory=worker.session_memory_last_updated_at_ms is not None,
+                short_term_memory_age_ms=None,
+                session_memory_age_ms=None,
+                last_successful_analysis_at_ms=worker.last_successful_analysis_at_ms,
+                last_analysis_failed=worker.last_analysis_failed,
+                provider_available_now=budget_state.available_now,
+                provider_cooldown_until_ms=budget_state.cooldown_until_ms,
+                provider_budget_reason=budget_state.reason,
+            )
             self.storage.update_vision_frame_processing(
                 session_id=pending_frame.frame_context.session_id,
                 frame_id=pending_frame.frame_context.frame_id,
@@ -412,6 +439,25 @@ class VisionMemoryRuntime:
                 model=self.model_name,
                 analyzed_at_ms=now_ms(),
                 error_code="VISION_GATE_FAILED",
+                routing_status="store_only",
+                routing_reason="image_decode_failed",
+                routing_score=0.0,
+                routing_metadata={
+                    "analysis_outcome": "gate_failed",
+                    "provider_available_now": budget_state.available_now,
+                    "provider_available_at_ms": budget_state.available_at_ms,
+                    "provider_cooldown_until_ms": budget_state.cooldown_until_ms,
+                    "provider_budget_reason": budget_state.reason,
+                },
+            )
+            self._append_routing_event(
+                signal=fallback_signal,
+                route=None,
+                provider_budget_state=budget_state,
+                did_attempt_analysis=False,
+                analysis_outcome="gate_failed",
+                fallback_action="store_only",
+                fallback_reason="image_decode_failed",
             )
             worker.last_analysis_failed = True
             logger.exception(
@@ -460,6 +506,8 @@ class VisionMemoryRuntime:
             self._mark_drop_redundant(
                 pending_frame=pending_frame,
                 signal=signal,
+                route=route,
+                provider_budget_state=budget_state,
                 reason=route.reason,
             )
             return
@@ -467,6 +515,8 @@ class VisionMemoryRuntime:
             self._mark_store_only(
                 pending_frame=pending_frame,
                 signal=signal,
+                route=route,
+                provider_budget_state=budget_state,
                 reason=route.reason,
             )
             return
@@ -476,6 +526,7 @@ class VisionMemoryRuntime:
                 pending_frame=pending_frame,
                 signal=signal,
                 route=route,
+                provider_budget_state=budget_state,
             )
             return
         await self._analyze_now(
@@ -492,6 +543,7 @@ class VisionMemoryRuntime:
     ) -> None:
         if worker.best_deferred_candidate is not deferred:
             return
+        budget_state = await self.provider_budget.get_state()
         deferred_ttl_ms = self.settings.vision_deferred_candidate_ttl_seconds * 1000
         now_ts_ms = now_ms()
         expires_at_ms = deferred.deferred_at_ms + deferred_ttl_ms
@@ -499,12 +551,13 @@ class VisionMemoryRuntime:
             self._mark_store_only(
                 pending_frame=deferred.pending_frame,
                 signal=deferred.signal,
+                route=deferred.route,
+                provider_budget_state=budget_state,
                 reason="deferred_candidate_expired",
             )
             worker.best_deferred_candidate = None
             return
 
-        budget_state = await self.provider_budget.get_state()
         try:
             signal = self._build_signal_snapshot(
                 worker=worker,
@@ -512,6 +565,24 @@ class VisionMemoryRuntime:
                 provider_budget_state=budget_state,
             )
         except VisionGateError:
+            fallback_signal = VisionSignalSnapshot(
+                session_id=deferred.pending_frame.frame_context.session_id,
+                frame_id=deferred.pending_frame.frame_context.frame_id,
+                capture_ts_ms=deferred.pending_frame.frame_context.capture_ts_ms,
+                is_first_frame=worker.last_accepted_frame is None,
+                capture_gap_ms=None,
+                dhash_hex="",
+                hamming_distance=None,
+                has_short_term_memory=worker.short_term_memory_last_updated_at_ms is not None,
+                has_session_memory=worker.session_memory_last_updated_at_ms is not None,
+                short_term_memory_age_ms=None,
+                session_memory_age_ms=None,
+                last_successful_analysis_at_ms=worker.last_successful_analysis_at_ms,
+                last_analysis_failed=worker.last_analysis_failed,
+                provider_available_now=budget_state.available_now,
+                provider_cooldown_until_ms=budget_state.cooldown_until_ms,
+                provider_budget_reason=budget_state.reason,
+            )
             self.storage.update_vision_frame_processing(
                 session_id=deferred.pending_frame.frame_context.session_id,
                 frame_id=deferred.pending_frame.frame_context.frame_id,
@@ -522,6 +593,25 @@ class VisionMemoryRuntime:
                 model=self.model_name,
                 analyzed_at_ms=now_ms(),
                 error_code="VISION_GATE_FAILED",
+                routing_status="store_only",
+                routing_reason="image_decode_failed",
+                routing_score=0.0,
+                routing_metadata={
+                    "analysis_outcome": "gate_failed",
+                    "provider_available_now": budget_state.available_now,
+                    "provider_available_at_ms": budget_state.available_at_ms,
+                    "provider_cooldown_until_ms": budget_state.cooldown_until_ms,
+                    "provider_budget_reason": budget_state.reason,
+                },
+            )
+            self._append_routing_event(
+                signal=fallback_signal,
+                route=None,
+                provider_budget_state=budget_state,
+                did_attempt_analysis=False,
+                analysis_outcome="gate_failed",
+                fallback_action="store_only",
+                fallback_reason="image_decode_failed",
             )
             worker.best_deferred_candidate = None
             worker.last_analysis_failed = True
@@ -538,12 +628,40 @@ class VisionMemoryRuntime:
             analysis_heartbeat_seconds=self.settings.vision_analysis_heartbeat_seconds,
         )
         if route.action == "defer_candidate":
+            self.storage.update_vision_frame_processing(
+                session_id=deferred.pending_frame.frame_context.session_id,
+                frame_id=deferred.pending_frame.frame_context.frame_id,
+                processing_status="deferred",
+                gate_status="accepted",
+                gate_reason=route.reason,
+                phash=signal.dhash_hex,
+                provider=self.provider_name,
+                model=self.model_name,
+                routing_status=route.action,
+                routing_reason=route.reason,
+                routing_score=route.priority_score,
+                routing_metadata=self._build_routing_metadata(
+                    signal=signal,
+                    route=route,
+                    provider_budget_state=budget_state,
+                    analysis_outcome="deferred_candidate_retained",
+                ),
+            )
+            self._append_routing_event(
+                signal=signal,
+                route=route,
+                provider_budget_state=budget_state,
+                did_attempt_analysis=False,
+                analysis_outcome="deferred_candidate_retained",
+            )
             return
         worker.best_deferred_candidate = None
         if route.action == "drop_redundant":
             self._mark_drop_redundant(
                 pending_frame=deferred.pending_frame,
                 signal=signal,
+                route=route,
+                provider_budget_state=budget_state,
                 reason=route.reason,
             )
             return
@@ -551,6 +669,8 @@ class VisionMemoryRuntime:
             self._mark_store_only(
                 pending_frame=deferred.pending_frame,
                 signal=signal,
+                route=route,
+                provider_budget_state=budget_state,
                 reason=route.reason,
             )
             return
@@ -581,13 +701,127 @@ class VisionMemoryRuntime:
             frame_context=pending_frame.frame_context,
             last_accepted_frame=worker.last_accepted_frame,
             has_short_term_memory=worker.short_term_memory_last_updated_at_ms is not None,
-            has_session_memory=worker.session_memory_last_updated_at_ms is not None,
+            has_session_memory=worker.session_memory_exists,
             short_term_memory_age_ms=short_term_age_ms,
             session_memory_age_ms=session_age_ms,
             last_successful_analysis_at_ms=worker.last_successful_analysis_at_ms,
             last_analysis_failed=worker.last_analysis_failed,
             provider_budget_state=provider_budget_state,
         )
+
+    def _build_routing_metadata(
+        self,
+        *,
+        signal: VisionSignalSnapshot,
+        route: VisionRouteDecision | None,
+        provider_budget_state: VisionProviderBudgetState,
+        analysis_outcome: str,
+        retry_after_seconds: float | None = None,
+    ) -> dict[str, object]:
+        metadata: dict[str, object] = {
+            "capture_gap_ms": signal.capture_gap_ms,
+            "dhash_hex": signal.dhash_hex,
+            "hamming_distance": signal.hamming_distance,
+            "novelty_score": route.novelty_score if route is not None else None,
+            "freshness_score": route.freshness_score if route is not None else None,
+            "memory_bootstrap_required": route.memory_bootstrap_required if route is not None else None,
+            "provider_available_now": provider_budget_state.available_now,
+            "provider_available_at_ms": provider_budget_state.available_at_ms,
+            "provider_cooldown_until_ms": provider_budget_state.cooldown_until_ms,
+            "provider_budget_reason": provider_budget_state.reason,
+            "provider_rate_limit_streak": provider_budget_state.consecutive_rate_limit_count,
+            "analysis_outcome": analysis_outcome,
+        }
+        if retry_after_seconds is not None:
+            metadata["retry_after_seconds"] = retry_after_seconds
+        return metadata
+
+    def _build_route_decision_payload(
+        self,
+        *,
+        signal: VisionSignalSnapshot,
+        route: VisionRouteDecision | None,
+        fallback_action: str,
+        fallback_reason: str,
+    ) -> dict[str, object]:
+        if route is None:
+            return {
+                "session_id": signal.session_id,
+                "frame_id": signal.frame_id,
+                "action": fallback_action,
+                "reason": fallback_reason,
+                "priority_score": None,
+                "novelty_score": None,
+                "freshness_score": None,
+                "memory_bootstrap_required": None,
+                "provider_budget_available": signal.provider_available_now,
+                "provider_cooldown_until_ms": signal.provider_cooldown_until_ms,
+            }
+        return {
+            "session_id": route.session_id,
+            "frame_id": route.frame_id,
+            "action": route.action,
+            "reason": route.reason,
+            "priority_score": route.priority_score,
+            "novelty_score": route.novelty_score,
+            "freshness_score": route.freshness_score,
+            "memory_bootstrap_required": route.memory_bootstrap_required,
+            "provider_budget_available": route.provider_budget_available,
+            "provider_cooldown_until_ms": route.provider_cooldown_until_ms,
+        }
+
+    def _append_routing_event(
+        self,
+        *,
+        signal: VisionSignalSnapshot,
+        route: VisionRouteDecision | None,
+        provider_budget_state: VisionProviderBudgetState,
+        did_attempt_analysis: bool,
+        analysis_outcome: str,
+        retry_after_seconds: float | None = None,
+        fallback_action: str = "store_only",
+        fallback_reason: str = "route_unavailable",
+    ) -> None:
+        event = {
+            "frame_id": signal.frame_id,
+            "capture_ts_ms": signal.capture_ts_ms,
+            "signal_snapshot": {
+                "session_id": signal.session_id,
+                "frame_id": signal.frame_id,
+                "capture_ts_ms": signal.capture_ts_ms,
+                "is_first_frame": signal.is_first_frame,
+                "capture_gap_ms": signal.capture_gap_ms,
+                "dhash_hex": signal.dhash_hex,
+                "hamming_distance": signal.hamming_distance,
+                "has_short_term_memory": signal.has_short_term_memory,
+                "has_session_memory": signal.has_session_memory,
+                "short_term_memory_age_ms": signal.short_term_memory_age_ms,
+                "session_memory_age_ms": signal.session_memory_age_ms,
+                "last_successful_analysis_at_ms": signal.last_successful_analysis_at_ms,
+                "last_analysis_failed": signal.last_analysis_failed,
+                "provider_available_now": signal.provider_available_now,
+                "provider_cooldown_until_ms": signal.provider_cooldown_until_ms,
+                "provider_budget_reason": signal.provider_budget_reason,
+            },
+            "route_decision": self._build_route_decision_payload(
+                signal=signal,
+                route=route,
+                fallback_action=fallback_action,
+                fallback_reason=fallback_reason,
+            ),
+            "provider_budget_state": {
+                "available_now": provider_budget_state.available_now,
+                "available_at_ms": provider_budget_state.available_at_ms,
+                "cooldown_until_ms": provider_budget_state.cooldown_until_ms,
+                "consecutive_rate_limit_count": provider_budget_state.consecutive_rate_limit_count,
+                "reason": provider_budget_state.reason,
+            },
+            "did_attempt_analysis": did_attempt_analysis,
+            "analysis_outcome": analysis_outcome,
+        }
+        if retry_after_seconds is not None:
+            event["retry_after_seconds"] = retry_after_seconds
+        self.storage.append_vision_routing_event(session_id=signal.session_id, event=event)
 
     async def _defer_candidate(
         self,
@@ -596,6 +830,7 @@ class VisionMemoryRuntime:
         pending_frame: PendingVisionFrame,
         signal: VisionSignalSnapshot,
         route: VisionRouteDecision,
+        provider_budget_state: VisionProviderBudgetState,
     ) -> None:
         incoming = DeferredVisionCandidate(
             pending_frame=pending_frame,
@@ -615,6 +850,22 @@ class VisionMemoryRuntime:
                 phash=signal.dhash_hex,
                 provider=self.provider_name,
                 model=self.model_name,
+                routing_status=route.action,
+                routing_reason=route.reason,
+                routing_score=route.priority_score,
+                routing_metadata=self._build_routing_metadata(
+                    signal=signal,
+                    route=route,
+                    provider_budget_state=provider_budget_state,
+                    analysis_outcome="deferred_candidate_selected",
+                ),
+            )
+            self._append_routing_event(
+                signal=signal,
+                route=route,
+                provider_budget_state=provider_budget_state,
+                did_attempt_analysis=False,
+                analysis_outcome="deferred_candidate_selected",
             )
             async with worker.condition:
                 worker.condition.notify_all()
@@ -630,11 +881,29 @@ class VisionMemoryRuntime:
                 phash=signal.dhash_hex,
                 provider=self.provider_name,
                 model=self.model_name,
+                routing_status=route.action,
+                routing_reason=route.reason,
+                routing_score=route.priority_score,
+                routing_metadata=self._build_routing_metadata(
+                    signal=signal,
+                    route=route,
+                    provider_budget_state=provider_budget_state,
+                    analysis_outcome="deferred_candidate_selected",
+                ),
             )
             self._mark_store_only(
                 pending_frame=existing.pending_frame,
                 signal=existing.signal,
+                route=existing.route,
+                provider_budget_state=provider_budget_state,
                 reason="deferred_replaced_by_higher_priority_candidate",
+            )
+            self._append_routing_event(
+                signal=signal,
+                route=route,
+                provider_budget_state=provider_budget_state,
+                did_attempt_analysis=False,
+                analysis_outcome="deferred_candidate_selected",
             )
             async with worker.condition:
                 worker.condition.notify_all()
@@ -642,6 +911,8 @@ class VisionMemoryRuntime:
         self._mark_store_only(
             pending_frame=pending_frame,
             signal=signal,
+            route=route,
+            provider_budget_state=provider_budget_state,
             reason="deferred_not_selected_lower_priority",
         )
 
@@ -655,22 +926,24 @@ class VisionMemoryRuntime:
     ) -> None:
         slot_state = await self.provider_budget.acquire_analysis_slot()
         if not slot_state.available_now:
+            deferred_route = VisionRouteDecision(
+                session_id=route.session_id,
+                frame_id=route.frame_id,
+                action="defer_candidate",
+                reason="provider_budget_unavailable_after_acquire",
+                priority_score=route.priority_score,
+                novelty_score=route.novelty_score,
+                freshness_score=route.freshness_score,
+                memory_bootstrap_required=route.memory_bootstrap_required,
+                provider_budget_available=False,
+                provider_cooldown_until_ms=slot_state.cooldown_until_ms,
+            )
             await self._defer_candidate(
                 worker=worker,
                 pending_frame=pending_frame,
                 signal=signal,
-                route=VisionRouteDecision(
-                    session_id=route.session_id,
-                    frame_id=route.frame_id,
-                    action="defer_candidate",
-                    reason="provider_budget_unavailable_after_acquire",
-                    priority_score=route.priority_score,
-                    novelty_score=route.novelty_score,
-                    freshness_score=route.freshness_score,
-                    memory_bootstrap_required=route.memory_bootstrap_required,
-                    provider_budget_available=False,
-                    provider_cooldown_until_ms=slot_state.cooldown_until_ms,
-                ),
+                route=deferred_route,
+                provider_budget_state=slot_state,
             )
             return
 
@@ -683,6 +956,15 @@ class VisionMemoryRuntime:
             phash=signal.dhash_hex,
             provider=self.provider_name,
             model=self.model_name,
+            routing_status=route.action,
+            routing_reason=route.reason,
+            routing_score=route.priority_score,
+            routing_metadata=self._build_routing_metadata(
+                signal=signal,
+                route=route,
+                provider_budget_state=slot_state,
+                analysis_outcome="analyzing",
+            ),
         )
         try:
             observation = await self.analyzer.analyze_frame(
@@ -690,6 +972,54 @@ class VisionMemoryRuntime:
                 frame_context=pending_frame.frame_context,
                 image_media_type=pending_frame.image_media_type,
             )
+        except VisionRateLimitError as exc:
+            await self.provider_budget.record_rate_limit(exc.retry_after_seconds)
+            cooldown_state = await self.provider_budget.get_state()
+            self.storage.update_vision_frame_processing(
+                session_id=pending_frame.frame_context.session_id,
+                frame_id=pending_frame.frame_context.frame_id,
+                processing_status="analysis_rate_limited",
+                gate_status="accepted",
+                gate_reason=route.reason,
+                phash=signal.dhash_hex,
+                provider=self.provider_name,
+                model=self.model_name,
+                analyzed_at_ms=now_ms(),
+                error_code="VISION_ANALYSIS_RATE_LIMITED",
+                routing_status="analysis_rate_limited",
+                routing_reason="provider_rate_limited",
+                routing_score=route.priority_score,
+                routing_metadata=self._build_routing_metadata(
+                    signal=signal,
+                    route=route,
+                    provider_budget_state=cooldown_state,
+                    analysis_outcome="analysis_rate_limited",
+                    retry_after_seconds=exc.retry_after_seconds,
+                ),
+            )
+            self._append_routing_event(
+                signal=signal,
+                route=route,
+                provider_budget_state=cooldown_state,
+                did_attempt_analysis=True,
+                analysis_outcome="analysis_rate_limited",
+                retry_after_seconds=exc.retry_after_seconds,
+            )
+            worker.last_analysis_failed = True
+            logger.warning(
+                "VISION_ANALYSIS_RATE_LIMITED session=%s frame=%s provider=%s model=%s cooldown_until_ms=%s retry_after_seconds=%s",
+                pending_frame.frame_context.session_id,
+                pending_frame.frame_context.frame_id,
+                self.provider_name,
+                self.model_name,
+                cooldown_state.cooldown_until_ms,
+                exc.retry_after_seconds,
+            )
+            self._cleanup_ingest_artifacts(
+                session_id=pending_frame.frame_context.session_id,
+                frame_id=pending_frame.frame_context.frame_id,
+            )
+            return
         except Exception:
             await self.provider_budget.record_non_rate_limit_failure()
             self.storage.update_vision_frame_processing(
@@ -703,6 +1033,22 @@ class VisionMemoryRuntime:
                 model=self.model_name,
                 analyzed_at_ms=now_ms(),
                 error_code="VISION_ANALYSIS_FAILED",
+                routing_status=route.action,
+                routing_reason=route.reason,
+                routing_score=route.priority_score,
+                routing_metadata=self._build_routing_metadata(
+                    signal=signal,
+                    route=route,
+                    provider_budget_state=slot_state,
+                    analysis_outcome="analysis_failed",
+                ),
+            )
+            self._append_routing_event(
+                signal=signal,
+                route=route,
+                provider_budget_state=slot_state,
+                did_attempt_analysis=True,
+                analysis_outcome="analysis_failed",
             )
             worker.last_analysis_failed = True
             logger.exception(
@@ -750,6 +1096,22 @@ class VisionMemoryRuntime:
             model=self.model_name,
             analyzed_at_ms=now_ms(),
             summary_snippet=observation.scene_summary[:240],
+            routing_status=route.action,
+            routing_reason=route.reason,
+            routing_score=route.priority_score,
+            routing_metadata=self._build_routing_metadata(
+                signal=signal,
+                route=route,
+                provider_budget_state=slot_state,
+                analysis_outcome="analyzed",
+            ),
+        )
+        self._append_routing_event(
+            signal=signal,
+            route=route,
+            provider_budget_state=slot_state,
+            did_attempt_analysis=True,
+            analysis_outcome="analyzed",
         )
         logger.info(
             "VISION_ANALYSIS_ACCEPTED session=%s frame=%s provider=%s model=%s scene_summary=%s",
@@ -769,6 +1131,8 @@ class VisionMemoryRuntime:
         *,
         pending_frame: PendingVisionFrame,
         signal: VisionSignalSnapshot,
+        route: VisionRouteDecision | None,
+        provider_budget_state: VisionProviderBudgetState,
         reason: str,
     ) -> None:
         self.storage.update_vision_frame_processing(
@@ -780,6 +1144,24 @@ class VisionMemoryRuntime:
             phash=signal.dhash_hex,
             provider=self.provider_name,
             model=self.model_name,
+            routing_status="drop_redundant",
+            routing_reason=reason,
+            routing_score=route.priority_score if route is not None else None,
+            routing_metadata=self._build_routing_metadata(
+                signal=signal,
+                route=route,
+                provider_budget_state=provider_budget_state,
+                analysis_outcome="dropped_redundant",
+            ),
+        )
+        self._append_routing_event(
+            signal=signal,
+            route=route,
+            provider_budget_state=provider_budget_state,
+            did_attempt_analysis=False,
+            analysis_outcome="dropped_redundant",
+            fallback_action="drop_redundant",
+            fallback_reason=reason,
         )
         self._cleanup_ingest_artifacts(
             session_id=pending_frame.frame_context.session_id,
@@ -791,6 +1173,8 @@ class VisionMemoryRuntime:
         *,
         pending_frame: PendingVisionFrame,
         signal: VisionSignalSnapshot,
+        route: VisionRouteDecision | None,
+        provider_budget_state: VisionProviderBudgetState,
         reason: str,
     ) -> None:
         self.storage.update_vision_frame_processing(
@@ -802,6 +1186,24 @@ class VisionMemoryRuntime:
             phash=signal.dhash_hex,
             provider=self.provider_name,
             model=self.model_name,
+            routing_status="store_only",
+            routing_reason=reason,
+            routing_score=route.priority_score if route is not None else None,
+            routing_metadata=self._build_routing_metadata(
+                signal=signal,
+                route=route,
+                provider_budget_state=provider_budget_state,
+                analysis_outcome="stored_only",
+            ),
+        )
+        self._append_routing_event(
+            signal=signal,
+            route=route,
+            provider_budget_state=provider_budget_state,
+            did_attempt_analysis=False,
+            analysis_outcome="stored_only",
+            fallback_action="store_only",
+            fallback_reason=reason,
         )
         self._cleanup_ingest_artifacts(
             session_id=pending_frame.frame_context.session_id,
@@ -844,9 +1246,12 @@ class VisionMemoryRuntime:
             payload=payload,
             markdown_text=markdown_text,
         )
+        latest_capture_ts_ms = _latest_capture_ts_from_events(worker.pending_session_events)
         worker.pending_session_events.clear()
         worker.last_session_rollup_at_ms = int(payload["updated_at_ms"])
-        worker.session_memory_last_updated_at_ms = int(payload["updated_at_ms"])
+        if latest_capture_ts_ms is not None:
+            worker.session_memory_last_updated_at_ms = latest_capture_ts_ms
+        worker.session_memory_exists = True
 
     def _cleanup_ingest_artifacts(self, *, session_id: str, frame_id: str) -> None:
         if self.settings.vision_debug_retain_raw_frames:
@@ -865,6 +1270,17 @@ def _compute_age_ms(*, current_capture_ts_ms: int, memory_ts_ms: int | None) -> 
     return current_capture_ts_ms - memory_ts_ms
 
 
+def _latest_capture_ts_from_events(events: list[dict[str, object]]) -> int | None:
+    latest: int | None = None
+    for event in events:
+        capture_ts_ms = _coerce_optional_int(event.get("capture_ts_ms"))
+        if capture_ts_ms is None:
+            continue
+        if latest is None or capture_ts_ms > latest:
+            latest = capture_ts_ms
+    return latest
+
+
 def _is_candidate_stronger(
     incoming: DeferredVisionCandidate,
     existing: DeferredVisionCandidate,
@@ -876,6 +1292,19 @@ def _is_candidate_stronger(
     return (
         incoming.pending_frame.frame_context.capture_ts_ms
         > existing.pending_frame.frame_context.capture_ts_ms
+    )
+
+
+def build_budget_state_from_signal(signal: VisionSignalSnapshot) -> VisionProviderBudgetState:
+    available_at_ms = signal.capture_ts_ms
+    if signal.provider_cooldown_until_ms is not None:
+        available_at_ms = signal.provider_cooldown_until_ms
+    return VisionProviderBudgetState(
+        available_now=signal.provider_available_now,
+        available_at_ms=available_at_ms,
+        cooldown_until_ms=signal.provider_cooldown_until_ms,
+        consecutive_rate_limit_count=0,
+        reason=signal.provider_budget_reason,
     )
 
 

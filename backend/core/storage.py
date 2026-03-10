@@ -8,7 +8,7 @@ from pathlib import Path
 from time import time_ns
 from typing import Any, Iterator
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 
 def now_ms() -> int:
@@ -43,6 +43,7 @@ class SessionStorageResult:
     session_memory_markdown_path: Path
     session_memory_json_path: Path
     vision_events_log_path: Path
+    vision_routing_events_log_path: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +74,10 @@ class VisionFrameIndexRecord:
     analyzed_at_ms: int | None
     error_code: str | None
     summary_snippet: str | None
+    routing_status: str | None
+    routing_reason: str | None
+    routing_score: float | None
+    routing_metadata_json: str | None
 
 
 class BackendStorage:
@@ -98,6 +103,7 @@ class BackendStorage:
         session_memory_markdown_path = session_dir / "session_memory.md"
         session_memory_json_path = session_dir / "session_memory.json"
         vision_events_log_path = session_dir / "vision_events.jsonl"
+        vision_routing_events_log_path = session_dir / "vision_routing_events.jsonl"
 
         self._ensure_text_file(
             short_term_memory_markdown_path,
@@ -110,6 +116,7 @@ class BackendStorage:
         )
         self._ensure_json_file(session_memory_json_path, {})
         self._ensure_text_file(vision_events_log_path, "")
+        self._ensure_text_file(vision_routing_events_log_path, "")
 
         artifact_metadata = {"session_id": session_id, "artifact_role": "derived_memory"}
         self.register_artifact(
@@ -152,6 +159,14 @@ class BackendStorage:
             content_type="application/x-ndjson",
             metadata=artifact_metadata,
         )
+        self.register_artifact(
+            artifact_id=f"{session_id}:vision_routing_event_log",
+            session_id=session_id,
+            artifact_kind="vision_routing_event_log",
+            artifact_path=vision_routing_events_log_path,
+            content_type="application/x-ndjson",
+            metadata=artifact_metadata,
+        )
 
         return SessionStorageResult(
             session_dir=session_dir,
@@ -160,6 +175,7 @@ class BackendStorage:
             session_memory_markdown_path=session_memory_markdown_path,
             session_memory_json_path=session_memory_json_path,
             vision_events_log_path=vision_events_log_path,
+            vision_routing_events_log_path=vision_routing_events_log_path,
         )
 
     def upsert_session_status(self, *, session_id: str, status: str) -> None:
@@ -258,6 +274,10 @@ class BackendStorage:
             analyzed_at_ms=None,
             error_code=None,
             summary_snippet=None,
+            routing_status=None,
+            routing_reason=None,
+            routing_score=None,
+            routing_metadata_json=None,
         )
         self._upsert_vision_frame_index(record)
         return record
@@ -265,6 +285,11 @@ class BackendStorage:
     def append_vision_event(self, *, session_id: str, event: dict[str, Any]) -> None:
         session_storage = self.ensure_session_storage(session_id=session_id)
         with session_storage.vision_events_log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=True, sort_keys=True) + "\n")
+
+    def append_vision_routing_event(self, *, session_id: str, event: dict[str, Any]) -> None:
+        session_storage = self.ensure_session_storage(session_id=session_id)
+        with session_storage.vision_routing_events_log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, ensure_ascii=True, sort_keys=True) + "\n")
 
     def read_vision_events(self, *, session_id: str) -> list[dict[str, Any]]:
@@ -343,6 +368,10 @@ class BackendStorage:
         analyzed_at_ms: int | None = None,
         error_code: str | None = None,
         summary_snippet: str | None = None,
+        routing_status: str | None = None,
+        routing_reason: str | None = None,
+        routing_score: float | None = None,
+        routing_metadata: dict[str, Any] | None = None,
     ) -> None:
         with self.connect() as connection:
             existing = connection.execute(
@@ -373,6 +402,14 @@ class BackendStorage:
                 analyzed_at_ms=analyzed_at_ms,
                 error_code=error_code,
                 summary_snippet=summary_snippet,
+                routing_status=routing_status,
+                routing_reason=routing_reason,
+                routing_score=routing_score,
+                routing_metadata_json=(
+                    json.dumps(routing_metadata, ensure_ascii=True, sort_keys=True)
+                    if routing_metadata is not None
+                    else None
+                ),
             )
             self._upsert_vision_frame_index(record, connection=connection)
             connection.commit()
@@ -405,9 +442,13 @@ class BackendStorage:
                     model,
                     analyzed_at_ms,
                     error_code,
-                    summary_snippet
+                    summary_snippet,
+                    routing_status,
+                    routing_reason,
+                    routing_score,
+                    routing_metadata_json
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id, frame_id) DO UPDATE SET
                     capture_ts_ms=excluded.capture_ts_ms,
                     ingest_ts_ms=excluded.ingest_ts_ms,
@@ -421,7 +462,11 @@ class BackendStorage:
                     model=excluded.model,
                     analyzed_at_ms=excluded.analyzed_at_ms,
                     error_code=excluded.error_code,
-                    summary_snippet=excluded.summary_snippet
+                    summary_snippet=excluded.summary_snippet,
+                    routing_status=excluded.routing_status,
+                    routing_reason=excluded.routing_reason,
+                    routing_score=excluded.routing_score,
+                    routing_metadata_json=excluded.routing_metadata_json
                 """,
                 (
                     record.session_id,
@@ -439,6 +484,10 @@ class BackendStorage:
                     record.analyzed_at_ms,
                     record.error_code,
                     record.summary_snippet,
+                    record.routing_status,
+                    record.routing_reason,
+                    record.routing_score,
+                    record.routing_metadata_json,
                 ),
             )
             if owns_connection:
@@ -506,10 +555,15 @@ class BackendStorage:
                     analyzed_at_ms INTEGER,
                     error_code TEXT,
                     summary_snippet TEXT,
+                    routing_status TEXT,
+                    routing_reason TEXT,
+                    routing_score REAL,
+                    routing_metadata_json TEXT,
                     PRIMARY KEY(session_id, frame_id)
                 );
                 """
             )
+            self._ensure_vision_frame_index_columns(connection)
             connection.execute(
                 """
                 INSERT INTO schema_meta(key, value)
@@ -519,6 +573,24 @@ class BackendStorage:
                 ("schema_version", SCHEMA_VERSION),
             )
             connection.commit()
+
+    def _ensure_vision_frame_index_columns(self, connection: sqlite3.Connection) -> None:
+        existing_columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(vision_frame_index)").fetchall()
+        }
+        required_columns = (
+            ("routing_status", "TEXT"),
+            ("routing_reason", "TEXT"),
+            ("routing_score", "REAL"),
+            ("routing_metadata_json", "TEXT"),
+        )
+        for column_name, column_type in required_columns:
+            if column_name in existing_columns:
+                continue
+            connection.execute(
+                f"ALTER TABLE vision_frame_index ADD COLUMN {column_name} {column_type}"
+            )
 
     def _ensure_text_file(self, path: Path, default_text: str) -> None:
         if not path.exists():

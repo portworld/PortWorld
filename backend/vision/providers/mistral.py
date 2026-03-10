@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import datetime as dt
+import email.utils
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -10,6 +12,7 @@ from backend.vision.contracts import (
     ProviderObservationPayload,
     VisionFrameContext,
     VisionObservation,
+    VisionRateLimitError,
     parse_provider_observation_payload,
 )
 
@@ -66,7 +69,14 @@ class MistralVisionAnalyzer:
                 image_media_type=image_media_type,
             ),
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
+                raise VisionRateLimitError(
+                    retry_after_seconds=_parse_retry_after_seconds(exc.response),
+                ) from exc
+            raise
         payload = self._extract_provider_payload(response.json())
         return self._normalize_observation(payload=payload, frame_context=frame_context)
 
@@ -174,3 +184,28 @@ class MistralVisionAnalyzer:
                 **payload.model_dump(),
             }
         )
+
+
+def _parse_retry_after_seconds(response: httpx.Response) -> float | None:
+    retry_after_raw = response.headers.get("Retry-After")
+    if not retry_after_raw:
+        return None
+    candidate = retry_after_raw.strip()
+    if not candidate:
+        return None
+    try:
+        value = float(candidate)
+        return value if value > 0 else None
+    except ValueError:
+        pass
+    try:
+        parsed_dt = email.utils.parsedate_to_datetime(candidate)
+    except (TypeError, ValueError):
+        return None
+    if parsed_dt is None:
+        return None
+    if parsed_dt.tzinfo is None:
+        parsed_dt = parsed_dt.replace(tzinfo=dt.timezone.utc)
+    now = dt.datetime.now(tz=dt.timezone.utc)
+    delta_seconds = (parsed_dt - now).total_seconds()
+    return delta_seconds if delta_seconds > 0 else None

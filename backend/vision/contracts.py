@@ -131,3 +131,9 @@ class VisionAnalyzer(Protocol):
         frame_context: VisionFrameContext,
         image_media_type: str = "image/jpeg",
     ) -> VisionObservation: ...
+
+
+class VisionRateLimitError(RuntimeError):
+    def __init__(self, *, retry_after_seconds: float | None = None) -> None:
+        super().__init__("Vision provider returned rate-limited response")
+        self.retry_after_seconds = retry_after_seconds
