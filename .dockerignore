@@ -1,0 +1,14 @@
+.git/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Backend local-only inputs and runtime artifacts.
+backend/.env
+backend/.venv/
+backend/.pytest_cache/
+backend/var/
+
+# Non-backend repo trees are not needed for the backend image build.
+IOS/
+docs/

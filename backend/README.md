@@ -591,11 +591,13 @@ It currently:
 - runs the backend with `uvicorn`
 - health-checks `/healthz`
 
-The backend Docker context excludes runtime artifacts through `backend/.dockerignore`, including:
+The repo-root Docker build context excludes local runtime artifacts through `.dockerignore`, including:
 
 - `backend/var/`
+- `backend/.env`
+- `backend/.venv/`
 - `__pycache__/`
-- local env/debug artifacts
+- other non-backend repo trees not needed for the backend image build
 
 Run:
 

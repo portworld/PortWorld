@@ -3,6 +3,8 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+# Keep the runtime rooted at /app so BACKEND_DATA_DIR=backend/var resolves
+# consistently for both local Compose and later container-hosted installs.
 WORKDIR /app
 
 COPY backend/requirements.txt ./backend/requirements.txt

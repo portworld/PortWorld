@@ -1,3 +1,4 @@
+# Canonical Step 4E self-host path for one PortWorld backend instance.
 services:
   backend:
     build:
@@ -5,11 +6,16 @@ services:
       dockerfile: backend/Dockerfile
     env_file:
       - backend/.env
+    restart: unless-stopped
+    init: true
     environment:
+      # Use the certifi CA bundle inside the slim image for outbound HTTPS calls.
       SSL_CERT_FILE: /usr/local/lib/python3.11/site-packages/certifi/cacert.pem
     ports:
+      # Single HTTP entrypoint for health, REST routes, and websocket sessions.
       - "8080:8080"
     volumes:
+      # Persist SQLite and filesystem-backed memory artifacts across restarts.
       - portworld_backend_var:/app/backend/var
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz').read()"]
