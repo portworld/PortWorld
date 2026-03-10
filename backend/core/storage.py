@@ -1,12 +1,30 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from time import time_ns
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
+
+from backend.memory.lifecycle import (
+    EXPORTABLE_SESSION_ARTIFACT_KINDS,
+    PROFILE_ARTIFACT_FILE_NAMES,
+    SESSION_MEMORY_ARTIFACT_FILE_NAMES,
+    ProfileRecord,
+    SessionMemoryResetEligibility,
+    SessionMemoryRetentionEligibility,
+)
+from backend.memory.profile import (
+    build_profile_payload,
+    build_profile_record,
+    empty_profile_markdown,
+    empty_profile_payload,
+    parse_profile_record,
+    render_profile_markdown,
+)
 
 SCHEMA_VERSION = "3"
 
@@ -78,6 +96,27 @@ class VisionFrameIndexRecord:
     routing_reason: str | None
     routing_score: float | None
     routing_metadata_json: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryExportArtifact:
+    artifact_id: str | None
+    session_id: str | None
+    artifact_kind: str
+    relative_path: str
+    absolute_path: Path
+    content_type: str
+    created_at_ms: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class SessionMemoryResetResult:
+    session_id: str
+    deleted_artifact_rows: int
+    deleted_vision_frame_rows: int
+    deleted_session_rows: int
+    removed_session_dir: bool
+    removed_vision_frames_dir: bool
 
 
 class BackendStorage:
@@ -312,6 +351,252 @@ class BackendStorage:
     def read_user_profile(self) -> dict[str, Any]:
         return json.loads(self.paths.user_profile_json_path.read_text(encoding="utf-8"))
 
+    def read_user_profile_record(self) -> ProfileRecord:
+        return parse_profile_record(self.read_user_profile())
+
+    def read_user_profile_markdown(self) -> str:
+        return self.paths.user_profile_markdown_path.read_text(encoding="utf-8")
+
+    def write_user_profile(
+        self,
+        *,
+        payload: Mapping[str, object],
+        source: str | None = None,
+        updated_at_ms: int | None = None,
+    ) -> dict[str, Any]:
+        timestamp_ms = updated_at_ms if updated_at_ms is not None else now_ms()
+        record = build_profile_record(
+            payload,
+            updated_at_ms=timestamp_ms,
+            source=source,
+        )
+        normalized_payload = build_profile_payload(record)
+        if not normalized_payload:
+            return self.reset_user_profile()
+
+        self.paths.user_profile_json_path.write_text(
+            json.dumps(normalized_payload, ensure_ascii=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self.paths.user_profile_markdown_path.write_text(
+            render_profile_markdown(parse_profile_record(normalized_payload)),
+            encoding="utf-8",
+        )
+        return normalized_payload
+
+    def reset_user_profile(self) -> dict[str, Any]:
+        payload = empty_profile_payload()
+        self.paths.user_profile_json_path.write_text(
+            json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self.paths.user_profile_markdown_path.write_text(
+            empty_profile_markdown(),
+            encoding="utf-8",
+        )
+        return payload
+
+    def list_memory_export_artifacts(self) -> list[MemoryExportArtifact]:
+        artifacts: list[MemoryExportArtifact] = []
+        profile_artifacts = (
+            (
+                "user_profile_markdown",
+                self.paths.user_root / PROFILE_ARTIFACT_FILE_NAMES[0],
+                "text/markdown",
+            ),
+            (
+                "user_profile_json",
+                self.paths.user_root / PROFILE_ARTIFACT_FILE_NAMES[1],
+                "application/json",
+            ),
+        )
+        for artifact_kind, artifact_path, content_type in profile_artifacts:
+            if not artifact_path.exists():
+                continue
+            artifacts.append(
+                MemoryExportArtifact(
+                    artifact_id=None,
+                    session_id=None,
+                    artifact_kind=artifact_kind,
+                    relative_path=str(artifact_path.relative_to(self.paths.data_root)),
+                    absolute_path=artifact_path,
+                    content_type=content_type,
+                    created_at_ms=None,
+                )
+            )
+
+        placeholders = ", ".join("?" for _ in EXPORTABLE_SESSION_ARTIFACT_KINDS)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT artifact_id, session_id, artifact_kind, relative_path, content_type, created_at_ms
+                FROM artifact_index
+                WHERE artifact_kind IN ({placeholders})
+                ORDER BY CASE WHEN session_id IS NULL THEN 0 ELSE 1 END, session_id, artifact_kind
+                """,
+                EXPORTABLE_SESSION_ARTIFACT_KINDS,
+            ).fetchall()
+
+        for row in rows:
+            absolute_path = self.paths.data_root / str(row["relative_path"])
+            if not absolute_path.exists():
+                continue
+            artifacts.append(
+                MemoryExportArtifact(
+                    artifact_id=str(row["artifact_id"]),
+                    session_id=str(row["session_id"]) if row["session_id"] is not None else None,
+                    artifact_kind=str(row["artifact_kind"]),
+                    relative_path=str(row["relative_path"]),
+                    absolute_path=absolute_path,
+                    content_type=str(row["content_type"]),
+                    created_at_ms=int(row["created_at_ms"]),
+                )
+            )
+        return artifacts
+
+    def get_session_memory_reset_eligibility(
+        self,
+        *,
+        session_id: str,
+    ) -> SessionMemoryResetEligibility:
+        session_storage = self._build_session_storage_result(session_id=session_id)
+        raw_vision_dir = self._session_vision_frames_dir(session_id=session_id)
+        with self.connect() as connection:
+            session_row = connection.execute(
+                """
+                SELECT status
+                FROM session_index
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+            artifact_count = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM artifact_index
+                    WHERE session_id = ?
+                    """,
+                    (session_id,),
+                ).fetchone()[0]
+            )
+            vision_frame_count = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM vision_frame_index
+                    WHERE session_id = ?
+                    """,
+                    (session_id,),
+                ).fetchone()[0]
+            )
+
+        has_persisted_memory = any(
+            [
+                session_row is not None,
+                artifact_count > 0,
+                vision_frame_count > 0,
+                session_storage.session_dir.exists(),
+                raw_vision_dir.exists(),
+            ]
+        )
+        is_active = bool(session_row is not None and str(session_row["status"]) == "active")
+        if is_active:
+            return SessionMemoryResetEligibility(
+                session_id=session_id,
+                is_active=True,
+                has_persisted_memory=True,
+                eligible=False,
+                reason="session_is_active",
+            )
+        if not has_persisted_memory:
+            return SessionMemoryResetEligibility(
+                session_id=session_id,
+                is_active=False,
+                has_persisted_memory=False,
+                eligible=False,
+                reason="session_memory_not_found",
+            )
+        return SessionMemoryResetEligibility(
+            session_id=session_id,
+            is_active=False,
+            has_persisted_memory=True,
+            eligible=True,
+            reason="eligible",
+        )
+
+    def reset_session_memory(self, *, session_id: str) -> SessionMemoryResetResult:
+        eligibility = self.get_session_memory_reset_eligibility(session_id=session_id)
+        if eligibility.is_active:
+            raise RuntimeError(f"Cannot reset memory for active session {session_id!r}")
+        if not eligibility.has_persisted_memory:
+            raise KeyError(f"No persisted memory found for session {session_id!r}")
+        return self._delete_session_memory(session_id=session_id)
+
+    def list_session_memory_retention_eligibility(
+        self,
+        *,
+        retention_days: int,
+        reference_time_ms: int | None = None,
+    ) -> list[SessionMemoryRetentionEligibility]:
+        if retention_days < 1:
+            raise ValueError("retention_days must be >= 1")
+        reference_ms = reference_time_ms if reference_time_ms is not None else now_ms()
+        cutoff_at_ms = max(0, reference_ms - retention_days * 24 * 60 * 60 * 1000)
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT session_id, status, updated_at_ms
+                FROM session_index
+                ORDER BY updated_at_ms ASC, session_id ASC
+                """
+            ).fetchall()
+
+        results: list[SessionMemoryRetentionEligibility] = []
+        for row in rows:
+            session_id = str(row["session_id"])
+            status = str(row["status"])
+            updated_at_ms = int(row["updated_at_ms"])
+            if status == "active":
+                reason = "session_is_active"
+                eligible = False
+            elif status != "ended":
+                reason = "session_not_ended"
+                eligible = False
+            elif updated_at_ms > cutoff_at_ms:
+                reason = "within_retention_window"
+                eligible = False
+            else:
+                reason = "expired_ended_session"
+                eligible = True
+            results.append(
+                SessionMemoryRetentionEligibility(
+                    session_id=session_id,
+                    status=status,
+                    updated_at_ms=updated_at_ms,
+                    cutoff_at_ms=cutoff_at_ms,
+                    eligible=eligible,
+                    reason=reason,
+                )
+            )
+        return results
+
+    def sweep_expired_session_memory(
+        self,
+        *,
+        retention_days: int,
+        reference_time_ms: int | None = None,
+    ) -> list[SessionMemoryResetResult]:
+        results: list[SessionMemoryResetResult] = []
+        for eligibility in self.list_session_memory_retention_eligibility(
+            retention_days=retention_days,
+            reference_time_ms=reference_time_ms,
+        ):
+            if not eligibility.eligible:
+                continue
+            results.append(self._delete_session_memory(session_id=eligibility.session_id))
+        return results
+
     def write_short_term_memory(
         self,
         *,
@@ -509,9 +794,9 @@ class BackendStorage:
     def _ensure_user_profile_files(self) -> None:
         self._ensure_text_file(
             self.paths.user_profile_markdown_path,
-            "# User Profile\n\n",
+            empty_profile_markdown(),
         )
-        self._ensure_json_file(self.paths.user_profile_json_path, {})
+        self._ensure_json_file(self.paths.user_profile_json_path, empty_profile_payload())
 
     def _initialize_sqlite(self) -> None:
         with self.connect() as connection:
@@ -602,6 +887,71 @@ class BackendStorage:
                 json.dumps(default_payload, ensure_ascii=True, indent=2) + "\n",
                 encoding="utf-8",
             )
+
+    def _build_session_storage_result(self, *, session_id: str) -> SessionStorageResult:
+        session_dir = self.paths.session_root / self._sanitize_session_id(session_id)
+        return SessionStorageResult(
+            session_dir=session_dir,
+            short_term_memory_markdown_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[0],
+            short_term_memory_json_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[1],
+            session_memory_markdown_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[2],
+            session_memory_json_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[3],
+            vision_events_log_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[4],
+            vision_routing_events_log_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[5],
+        )
+
+    def _session_vision_frames_dir(self, *, session_id: str) -> Path:
+        return self.paths.vision_frames_root / self._sanitize_session_id(session_id)
+
+    def _delete_session_memory(self, *, session_id: str) -> SessionMemoryResetResult:
+        eligibility = self.get_session_memory_reset_eligibility(session_id=session_id)
+        if eligibility.is_active:
+            raise RuntimeError(f"Cannot delete active session memory for {session_id!r}")
+
+        session_storage = self._build_session_storage_result(session_id=session_id)
+        raw_vision_dir = self._session_vision_frames_dir(session_id=session_id)
+        with self.connect() as connection:
+            artifact_delete = connection.execute(
+                """
+                DELETE FROM artifact_index
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            )
+            vision_delete = connection.execute(
+                """
+                DELETE FROM vision_frame_index
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            )
+            session_delete = connection.execute(
+                """
+                DELETE FROM session_index
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            )
+            connection.commit()
+
+        removed_session_dir = False
+        if session_storage.session_dir.exists():
+            shutil.rmtree(session_storage.session_dir)
+            removed_session_dir = True
+
+        removed_vision_frames_dir = False
+        if raw_vision_dir.exists():
+            shutil.rmtree(raw_vision_dir)
+            removed_vision_frames_dir = True
+
+        return SessionMemoryResetResult(
+            session_id=session_id,
+            deleted_artifact_rows=max(artifact_delete.rowcount, 0),
+            deleted_vision_frame_rows=max(vision_delete.rowcount, 0),
+            deleted_session_rows=max(session_delete.rowcount, 0),
+            removed_session_dir=removed_session_dir,
+            removed_vision_frames_dir=removed_vision_frames_dir,
+        )
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

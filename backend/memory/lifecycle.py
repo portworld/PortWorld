@@ -7,6 +7,7 @@ from typing import Final
 PROFILE_SCHEMA_VERSION: Final[str] = "1"
 MEMORY_EXPORT_SCHEMA_VERSION: Final[str] = "1"
 DEFAULT_SESSION_MEMORY_RETENTION_DAYS: Final[int] = 30
+PROFILE_METADATA_KEY: Final[str] = "profile_metadata"
 
 PROFILE_ALLOWLISTED_FIELDS: Final[tuple[str, ...]] = (
     "name",
@@ -57,8 +58,8 @@ class ProfileRecord:
     name: str | None = None
     job: str | None = None
     company: str | None = None
-    preferences: tuple[str, ...] = ()
-    projects: tuple[str, ...] = ()
+    preferences: list[str] = field(default_factory=list)
+    projects: list[str] = field(default_factory=list)
     metadata: ProfileLifecycleMetadata = field(default_factory=ProfileLifecycleMetadata)
 
 
@@ -67,8 +68,8 @@ class ProfileOnboardingPayload:
     name: str | None = None
     job: str | None = None
     company: str | None = None
-    preferences: tuple[str, ...] = ()
-    projects: tuple[str, ...] = ()
+    preferences: list[str] = field(default_factory=list)
+    projects: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +105,7 @@ class ProfilePromotionCandidate:
     source_kind: str
     source_id: str
     extracted_at_ms: int
-    fields: dict[str, str | tuple[str, ...]]
+    fields: dict[str, str | list[str]]
 
 
 def allowed_profile_fields() -> tuple[str, ...]:
@@ -121,6 +122,7 @@ __all__ = [
     "MEMORY_EXPORT_SCHEMA_VERSION",
     "PROFILE_ALLOWLISTED_FIELDS",
     "PROFILE_ARTIFACT_FILE_NAMES",
+    "PROFILE_METADATA_KEY",
     "PROFILE_ONBOARDING_FIELD_DESCRIPTIONS",
     "PROFILE_SCHEMA_VERSION",
     "SESSION_MEMORY_ARTIFACT_FILE_NAMES",

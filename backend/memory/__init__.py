@@ -4,6 +4,7 @@ from backend.memory.lifecycle import (
     MEMORY_EXPORT_SCHEMA_VERSION,
     PROFILE_ALLOWLISTED_FIELDS,
     PROFILE_ARTIFACT_FILE_NAMES,
+    PROFILE_METADATA_KEY,
     PROFILE_ONBOARDING_FIELD_DESCRIPTIONS,
     PROFILE_SCHEMA_VERSION,
     SESSION_MEMORY_ARTIFACT_FILE_NAMES,
@@ -22,6 +23,15 @@ from backend.memory.materializer import (
     build_session_memory_rollup,
     build_short_term_memory,
 )
+from backend.memory.profile import (
+    PROFILE_MARKDOWN_HEADER,
+    build_profile_payload,
+    build_profile_record,
+    empty_profile_markdown,
+    empty_profile_payload,
+    parse_profile_record,
+    render_profile_markdown,
+)
 
 __all__ = [
     "DEFAULT_SESSION_MEMORY_RETENTION_DAYS",
@@ -29,6 +39,7 @@ __all__ = [
     "MEMORY_EXPORT_SCHEMA_VERSION",
     "PROFILE_ALLOWLISTED_FIELDS",
     "PROFILE_ARTIFACT_FILE_NAMES",
+    "PROFILE_METADATA_KEY",
     "PROFILE_ONBOARDING_FIELD_DESCRIPTIONS",
     "PROFILE_SCHEMA_VERSION",
     "SESSION_MEMORY_ARTIFACT_FILE_NAMES",
@@ -37,11 +48,18 @@ __all__ = [
     "ProfileOnboardingPayload",
     "ProfilePromotionCandidate",
     "ProfileRecord",
+    "PROFILE_MARKDOWN_HEADER",
     "SessionMemoryResetEligibility",
     "SessionMemoryRetentionEligibility",
     "allowed_profile_fields",
     "build_accepted_vision_event",
+    "build_profile_payload",
+    "build_profile_record",
     "build_session_memory_rollup",
     "build_short_term_memory",
+    "empty_profile_markdown",
+    "empty_profile_payload",
+    "parse_profile_record",
     "profile_onboarding_field_descriptions",
+    "render_profile_markdown",
 ]
