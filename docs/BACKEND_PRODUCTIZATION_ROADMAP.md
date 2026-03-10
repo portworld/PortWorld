@@ -275,7 +275,25 @@ Acceptance:
 
 Status:
 
-- planned
+- complete
+
+Implementation notes:
+
+- the backend now exposes explicit HTTP lifecycle routes for Step `4D`:
+  - `GET /profile`
+  - `PUT /profile`
+  - `POST /profile/reset`
+  - `GET /memory/export`
+  - `POST /memory/session/{session_id}/reset`
+- persistent profile facts now remain separate from per-session memory, with allowlisted top-level profile fields preserved for Step `4C` prompt injection
+- additive lifecycle metadata now lives under `profile_metadata` and does not change the injected profile-field contract
+- profile writes and resets now rewrite both `user_profile.json` and `user_profile.md`
+- session reset now deletes one ended session’s persisted derived-memory artifacts, related SQLite rows, and session-scoped raw-frame directory when present
+- memory export now returns one bounded zip archive containing profile artifacts, derived session-memory artifacts, and `manifest.json`
+- ended session-memory retention now defaults to `30` days through `BACKEND_SESSION_MEMORY_RETENTION_DAYS`
+- retention sweeps now run at backend startup and after session finalization using the same storage deletion path as explicit session reset
+- the live realtime/tooling path now receives a read-only storage view, so live turns can read profile context but cannot directly write or reset persistent profile memory
+- automatic profile promotion from completed conversations is still not active; Step `4D` leaves only the seam for that future work
 
 ### Step 4E. OSS Deployment And Operator Experience
 
