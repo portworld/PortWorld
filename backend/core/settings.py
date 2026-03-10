@@ -78,6 +78,11 @@ class Settings:
     vision_short_term_window_seconds: int
     vision_min_analysis_gap_seconds: int
     vision_scene_change_hamming_threshold: int
+    vision_provider_max_rps: int
+    vision_analysis_heartbeat_seconds: int
+    vision_provider_backoff_initial_seconds: int
+    vision_provider_backoff_max_seconds: int
+    vision_deferred_candidate_ttl_seconds: int
     vision_session_rollup_interval_seconds: int
     vision_session_rollup_min_accepted_events: int
     vision_debug_retain_raw_frames: bool
@@ -175,6 +180,31 @@ class Settings:
             vision_scene_change_hamming_threshold=_parse_int_env(
                 "VISION_SCENE_CHANGE_HAMMING_THRESHOLD",
                 default=12,
+                minimum=1,
+            ),
+            vision_provider_max_rps=_parse_int_env(
+                "VISION_PROVIDER_MAX_RPS",
+                default=1,
+                minimum=1,
+            ),
+            vision_analysis_heartbeat_seconds=_parse_int_env(
+                "VISION_ANALYSIS_HEARTBEAT_SECONDS",
+                default=15,
+                minimum=1,
+            ),
+            vision_provider_backoff_initial_seconds=_parse_int_env(
+                "VISION_PROVIDER_BACKOFF_INITIAL_SECONDS",
+                default=5,
+                minimum=1,
+            ),
+            vision_provider_backoff_max_seconds=_parse_int_env(
+                "VISION_PROVIDER_BACKOFF_MAX_SECONDS",
+                default=60,
+                minimum=1,
+            ),
+            vision_deferred_candidate_ttl_seconds=_parse_int_env(
+                "VISION_DEFERRED_CANDIDATE_TTL_SECONDS",
+                default=10,
                 minimum=1,
             ),
             vision_session_rollup_interval_seconds=_parse_int_env(
