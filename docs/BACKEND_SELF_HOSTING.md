@@ -9,8 +9,6 @@ It is intentionally narrow:
 - one env file at `backend/.env`
 - one persistent Docker volume for backend data
 
-The same container-first runtime can later be deployed on cloud VMs or managed container platforms, but that is outside the current self-host guide.
-
 ## Prerequisites
 
 - Docker with Compose support

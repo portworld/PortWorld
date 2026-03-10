@@ -599,6 +599,10 @@ curl http://127.0.0.1:8080/healthz
 
 A minimal self-host path is available through the repo root `docker-compose.yml`.
 
+For the canonical Step 4E self-host guide, see `docs/BACKEND_SELF_HOSTING.md`.
+
+Compose is the supported self-host path for this stage. The same container-first runtime may later be reused on cloud VMs or managed container platforms, but those deployment paths are outside the current backend docs.
+
 It currently:
 
 - builds one backend service from `backend/Dockerfile`
@@ -621,8 +625,6 @@ Run:
 ```bash
 docker compose up --build
 ```
-
-This is the canonical self-host path for the current backend slice. More polished operator guidance stays in later roadmap work.
 
 ## Validation
 
