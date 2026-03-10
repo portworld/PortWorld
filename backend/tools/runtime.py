@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from backend.core.settings import Settings
 from backend.core.storage import BackendStorage
+from backend.memory.lifecycle import PROFILE_ALLOWLISTED_FIELDS
 from backend.tools.contracts import ToolCall, ToolDefinition, ToolResult
 from backend.tools.memory import MemoryToolExecutor
 from backend.tools.providers.tavily import TavilySearchProvider
@@ -15,7 +16,6 @@ from backend.tools.web_search import WebSearchToolExecutor
 
 
 SUPPORTED_WEB_SEARCH_PROVIDERS = {"tavily"}
-SUPPORTED_PROFILE_FIELDS = ("name", "job", "company", "preferences", "projects")
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,7 +238,7 @@ class RealtimeToolingRuntime:
     @staticmethod
     def _build_profile_lines(profile: dict[str, object]) -> list[str]:
         lines: list[str] = []
-        for field_name in SUPPORTED_PROFILE_FIELDS:
+        for field_name in PROFILE_ALLOWLISTED_FIELDS:
             value = profile.get(field_name)
             rendered = RealtimeToolingRuntime._render_profile_value(value)
             if not rendered:

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+from backend.memory.lifecycle import DEFAULT_SESSION_MEMORY_RETENTION_DAYS
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _BACKEND_ENV_PATH = _BACKEND_ROOT / ".env"
@@ -75,6 +76,7 @@ class Settings:
     backend_debug_trace_ws_messages: bool
     backend_max_vision_request_bytes: int
     backend_max_vision_frame_bytes: int
+    backend_session_memory_retention_days: int
     vision_memory_enabled: bool
     vision_memory_provider: str
     vision_memory_model: str
@@ -170,6 +172,11 @@ class Settings:
             backend_max_vision_frame_bytes=_parse_int_env(
                 "BACKEND_MAX_VISION_FRAME_BYTES",
                 default=2_500_000,
+                minimum=1,
+            ),
+            backend_session_memory_retention_days=_parse_int_env(
+                "BACKEND_SESSION_MEMORY_RETENTION_DAYS",
+                default=DEFAULT_SESSION_MEMORY_RETENTION_DAYS,
                 minimum=1,
             ),
             vision_memory_enabled=_parse_bool_env(
