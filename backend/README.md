@@ -44,7 +44,8 @@ Auth behavior:
 
 - when `BACKEND_BEARER_TOKEN` is set, `/ws/session`, `/vision/frame`, `/profile`, and `/memory/*` require `Authorization: Bearer <token>`
 - when `BACKEND_PROFILE=production`, startup fails unless `BACKEND_BEARER_TOKEN` is set
-- `POST /vision/frame` and websocket session setup are rate-limited per IP and per session
+- `POST /vision/frame` and websocket session setup are rate-limited per session
+- optional per-IP rate limits are controlled by `BACKEND_ENABLE_IP_RATE_LIMITS` (enabled by default in production profile)
 
 Step 4A keeps the existing websocket and vision wire contract stable while cleaning up backend internals.
 
@@ -419,6 +420,9 @@ It returns:
   default: `60`, minimum: `1`
 - `BACKEND_RATE_LIMIT_VISION_WINDOW_SECONDS`
   default: `60`, minimum: `1`
+- `BACKEND_ENABLE_IP_RATE_LIMITS`
+  default: `false` in development profile, `true` in production profile
+  enables extra per-IP limiting on websocket setup and vision ingest
 - `BACKEND_ALLOW_TEXT_AUDIO_FALLBACK`
   default: `false`
   compatibility path only; not used by the active iPhone runtime

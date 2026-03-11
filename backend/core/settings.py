@@ -107,6 +107,7 @@ class Settings:
     realtime_web_search_max_results: int
     backend_profile: str
     backend_allowed_hosts: list[str]
+    backend_enable_ip_rate_limits: bool
     backend_rate_limit_ws_ip_max_attempts: int
     backend_rate_limit_ws_session_max_attempts: int
     backend_rate_limit_ws_window_seconds: int
@@ -123,6 +124,7 @@ class Settings:
         origins = _parse_csv_env("CORS_ORIGINS", default="*")
         allowed_hosts = _parse_csv_env("BACKEND_ALLOWED_HOSTS", default="*")
         backend_profile = (_get_env("BACKEND_PROFILE") or "development").strip().lower()
+        enable_ip_rate_limits_default = backend_profile in {"prod", "production"}
         backend_data_dir = Path(_get_env("BACKEND_DATA_DIR") or "backend/var")
         backend_sqlite_path = Path(
             _get_env("BACKEND_SQLITE_PATH") or str(backend_data_dir / "portworld.db")
@@ -283,6 +285,10 @@ class Settings:
             ),
             backend_profile=backend_profile,
             backend_allowed_hosts=allowed_hosts,
+            backend_enable_ip_rate_limits=_parse_bool_env(
+                "BACKEND_ENABLE_IP_RATE_LIMITS",
+                default=enable_ip_rate_limits_default,
+            ),
             backend_rate_limit_ws_ip_max_attempts=_parse_int_env(
                 "BACKEND_RATE_LIMIT_WS_IP_MAX_ATTEMPTS",
                 default=30,
