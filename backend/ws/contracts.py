@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from time import time_ns
 from typing import Any, TypeAlias
 
@@ -20,24 +19,6 @@ class IOSEnvelope(BaseModel):
     payload: PayloadDict = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="forbid")
-
-
-@dataclass(slots=True)
-class PayloadBuilder:
-    """Small mutable helper for assembling payload dictionaries in handlers/tests."""
-
-    data: PayloadDict = field(default_factory=dict)
-
-    def put(self, key: str, value: Any) -> "PayloadBuilder":
-        self.data[key] = value
-        return self
-
-    def extend(self, values: PayloadDict) -> "PayloadBuilder":
-        self.data.update(values)
-        return self
-
-    def to_dict(self) -> PayloadDict:
-        return dict(self.data)
 
 
 def now_ms() -> int:

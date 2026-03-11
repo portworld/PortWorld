@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 HEADER_SIZE = 9
 
 CLIENT_AUDIO_FRAME_TYPE = 0x01
@@ -33,16 +31,6 @@ class UnsupportedFrameTypeError(FrameCodecError):
 
 class TimestampRangeError(FrameCodecError):
     """Raised when timestamp cannot fit in a 64-bit bit pattern."""
-
-
-@dataclass(frozen=True, slots=True)
-class DecodedFrame:
-    """Structured representation of a decoded binary transport frame."""
-
-    frame_type: int
-    ts_ms: int
-    payload_bytes: bytes
-
 
 def _validate_frame_type(frame_type: int) -> None:
     if frame_type not in SUPPORTED_FRAME_TYPES:

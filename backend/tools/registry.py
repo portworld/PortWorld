@@ -18,10 +18,6 @@ class UnknownToolError(ToolRegistryError):
     """Raised when resolving an unknown tool name."""
 
 
-class ToolNotImplementedError(ToolRegistryError):
-    """Raised when a declared tool exists but has no real executor yet."""
-
-
 @dataclass(frozen=True, slots=True)
 class RegisteredTool:
     definition: ToolDefinition
@@ -58,11 +54,3 @@ class RealtimeToolRegistry:
     async def execute(self, call: ToolCall) -> ToolResult:
         registered = self.resolve(call.name)
         return await registered.executor(call)
-
-
-class NotImplementedToolExecutor:
-    def __init__(self, *, tool_name: str) -> None:
-        self._tool_name = tool_name
-
-    async def __call__(self, call: ToolCall) -> ToolResult:
-        raise ToolNotImplementedError(f"Tool not implemented yet: {self._tool_name}")

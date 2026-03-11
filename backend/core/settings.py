@@ -81,6 +81,7 @@ class Settings:
     openai_realtime_enable_manual_turn_fallback: bool
     openai_realtime_manual_turn_fallback_delay_ms: int
     backend_allow_text_audio_fallback: bool
+    backend_enable_devtools_protocol: bool
     backend_uplink_ack_every_n_frames: int
     backend_data_dir: Path
     backend_sqlite_path: Path
@@ -169,6 +170,10 @@ class Settings:
             ),
             backend_allow_text_audio_fallback=_parse_bool_env(
                 "BACKEND_ALLOW_TEXT_AUDIO_FALLBACK",
+                default=False,
+            ),
+            backend_enable_devtools_protocol=_parse_bool_env(
+                "BACKEND_ENABLE_DEVTOOLS_PROTOCOL",
                 default=False,
             ),
             backend_uplink_ack_every_n_frames=_parse_int_env(

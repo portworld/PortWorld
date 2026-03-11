@@ -5,9 +5,7 @@ from backend.tools.memory import MemoryToolExecutor
 from backend.tools.providers.tavily import TavilySearchProvider
 from backend.tools.registry import (
     DuplicateToolError,
-    NotImplementedToolExecutor,
     RealtimeToolRegistry,
-    ToolNotImplementedError,
     UnknownToolError,
 )
 from backend.tools.runtime import RealtimeToolingRuntime
@@ -17,7 +15,6 @@ from backend.tools.web_search import WebSearchToolExecutor
 __all__ = [
     "DuplicateToolError",
     "MemoryToolExecutor",
-    "NotImplementedToolExecutor",
     "RealtimeToolRegistry",
     "RealtimeToolingRuntime",
     "SearchProvider",
@@ -28,7 +25,6 @@ __all__ = [
     "ToolCall",
     "ToolDefinition",
     "ToolExecutor",
-    "ToolNotImplementedError",
     "ToolResult",
     "UnknownToolError",
     "WebSearchToolExecutor",

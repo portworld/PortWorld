@@ -151,6 +151,7 @@ async def ws_session(websocket: WebSocket) -> None:
                     send_control=send_control,
                     telemetry=telemetry,
                     connection_id=connection_id,
+                    settings=runtime.settings,
                 )
                 if handled:
                     continue

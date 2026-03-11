@@ -12,7 +12,7 @@ extension AssistantRuntimeController {
     await resetConversationToArmedState(reason: "Conversation ended. Listening for wake phrase again.")
   }
 
-  func startConversation(from event: WakeWordDetectionEvent) async {
+  func startConversation(from _: WakeWordDetectionEvent) async {
     guard status.assistantRuntimeState == .armedListening else { return }
 
     wakeWarmupTask?.cancel()
@@ -40,8 +40,7 @@ extension AssistantRuntimeController {
 
     do {
       try await backendSessionClient.sendSessionActivate()
-      try await backendSessionClient.sendWakewordDetected(event)
-      debugLog("Conversation control messages sent; enabling realtime uplink for session \(activeSessionID)")
+      debugLog("Session activate sent; enabling realtime uplink for session \(activeSessionID)")
       markConversationReady(source: "control_messages_sent")
     } catch {
       status.errorText = "Failed to start backend conversation: \(error.localizedDescription)"

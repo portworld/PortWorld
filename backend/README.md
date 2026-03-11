@@ -91,7 +91,6 @@ Mock capture is a backend debug mode, not a separate realtime provider.
 Important client -> backend envelope types:
 
 - `session.activate`
-- `wakeword.detected`
 - `session.end_turn`
 - `session.deactivate`
 
@@ -106,7 +105,7 @@ Important backend -> client envelope types:
 
 - iPhone -> backend uses frame type `0x01` (`CLIENT_AUDIO_FRAME_TYPE`)
 - backend -> iPhone uses frame type `0x02` (`SERVER_AUDIO_FRAME_TYPE`)
-- optional probe frame type `0x03` (`CLIENT_PROBE_FRAME_TYPE`)
+- devtools-only probe frame type `0x03` (`CLIENT_PROBE_FRAME_TYPE`) remains available only when `BACKEND_ENABLE_DEVTOOLS_PROTOCOL=true`
 
 Expected active audio format:
 
@@ -121,11 +120,10 @@ Expected active audio format:
 3. backend validates the declared audio format if provided
 4. backend creates a per-session bridge through the configured realtime provider
 5. backend emits `session.state { state: "active" }`
-6. iPhone sends `wakeword.detected`
-7. iPhone streams binary audio uplink frames
-8. backend acknowledges uplink periodically via `transport.uplink.ack`
-9. backend relays assistant playback control and assistant audio back to the iPhone
-10. on sleep, end-turn, deactivate, or disconnect, the backend tears the session down and marks the session as ended in persistent storage
+6. iPhone streams binary audio uplink frames
+7. backend acknowledges uplink periodically via `transport.uplink.ack`
+8. backend relays assistant playback control and assistant audio back to the iPhone
+9. on sleep, end-turn, deactivate, or disconnect, the backend tears the session down and marks the session as ended in persistent storage
 
 ## Storage Model
 
@@ -432,6 +430,9 @@ It returns:
 - `BACKEND_ALLOW_TEXT_AUDIO_FALLBACK`
   default: `false`
   compatibility path only; not used by the active iPhone runtime
+- `BACKEND_ENABLE_DEVTOOLS_PROTOCOL`
+  default: `false`
+  enables devtools-only probe frame handling; keep disabled for normal app traffic
 - `BACKEND_DEBUG_DUMP_INPUT_AUDIO`
   default: `false`
 - `BACKEND_DEBUG_DUMP_INPUT_AUDIO_DIR`
@@ -571,13 +572,14 @@ curl http://127.0.0.1:8080/readyz
 python3 -m compileall backend
 ```
 
-When debugging websocket transport from the terminal, use:
+When debugging websocket transport from the terminal, use the devtools probe:
 
 ```bash
 source backend/.venv/bin/activate
-python backend/scripts/ws_probe.py \
+python backend/devtools/ws_probe.py \
   --url ws://127.0.0.1:8080/ws/session \
   --session-id sess_probe \
+  --probe-count 1 \
   --frame-size-bytes 4080 \
   --frame-count 24 \
   --frame-duration-ms 85 \
@@ -594,6 +596,8 @@ python backend/scripts/ws_probe.py \
 - Realtime tooling is opt-in. It is enabled only when `REALTIME_TOOLING_ENABLED=true`.
 - `web_search` is optional and only appears when Tavily is configured.
 - Persistent profile onboarding, memory export, session reset, and retention are now backend-owned HTTP flows.
+- The active iPhone runtime no longer emits `wakeword.detected`; `session.activate` is the only required conversation-start control message.
+- Probe frames are a devtools-only compatibility surface and stay disabled unless `BACKEND_ENABLE_DEVTOOLS_PROTOCOL=true`.
 - Automatic profile promotion from conversations or vision is still not active in the current backend slice.
 - MCP-backed tools are not active yet in the current backend slice.
 - Step 4A intentionally keeps the live session registry in memory. SQLite is persistent indexing, not live coordination.

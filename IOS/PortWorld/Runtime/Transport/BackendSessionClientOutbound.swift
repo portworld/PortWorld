@@ -18,23 +18,6 @@ extension BackendSessionClient {
     try await sendPreencodedText(text, kind: AssistantWSOutboundType.sessionActivate.rawValue)
   }
 
-  func sendWakewordDetected(_ event: WakeWordDetectionEvent) async throws {
-    guard let sessionID else { return }
-    let sequence = nextOutboundSequence()
-    let payload = AssistantWakeWordDetectedPayload(
-      wakePhrase: event.wakePhrase,
-      engine: event.engine,
-      confidence: event.confidence.map(Double.init)
-    )
-    let text = try Self.encodeEnvelopeText(
-      type: .wakewordDetected,
-      sessionID: sessionID,
-      sequence: sequence,
-      payload: payload
-    )
-    try await sendPreencodedText(text, kind: AssistantWSOutboundType.wakewordDetected.rawValue)
-  }
-
   func sendEndTurn() async throws {
     guard let sessionID else { return }
     try await sendTextEnvelope(type: .sessionEndTurn, sessionID: sessionID)

@@ -131,14 +131,12 @@ enum TransportEvent: Sendable, Equatable {
 enum TransportFrameType: UInt8, Sendable {
   case clientAudio = 0x01
   case serverAudio = 0x02
-  case clientProbe = 0x03
 }
 
 enum TransportBinaryFraming {
   static let headerSize = 9
   static let clientAudioTypeByte: UInt8 = 0x01
   static let serverAudioTypeByte: UInt8 = 0x02
-  static let clientProbeTypeByte: UInt8 = 0x03
 }
 
 nonisolated struct TransportSocketCloseInfo: Sendable, Equatable {

@@ -14,7 +14,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from backend.ws.frame_codec import CLIENT_AUDIO_FRAME_TYPE, encode_frame
+from backend.ws.frame_codec import (
+    CLIENT_AUDIO_FRAME_TYPE,
+    CLIENT_PROBE_FRAME_TYPE,
+    encode_frame,
+)
 
 
 def _make_envelope(message_type: str, session_id: str, payload: dict[str, Any]) -> str:
@@ -49,6 +53,22 @@ async def _run(args: argparse.Namespace) -> None:
 
         payload = bytes((index % 256 for index in range(args.frame_size_bytes)))
         timestamp_ms = args.timestamp_start_ms
+        for probe_index in range(args.probe_count):
+            await ws.send(encode_frame(CLIENT_PROBE_FRAME_TYPE, timestamp_ms, payload))
+            print(
+                "sent probe frame:",
+                probe_index + 1,
+                "/",
+                args.probe_count,
+                "payload_bytes=",
+                len(payload),
+                "timestamp_ms=",
+                timestamp_ms,
+            )
+            timestamp_ms += args.frame_duration_ms
+            if args.frame_interval_ms > 0 and probe_index + 1 < args.probe_count:
+                await asyncio.sleep(args.frame_interval_ms / 1000.0)
+
         for frame_index in range(args.frame_count):
             await ws.send(encode_frame(CLIENT_AUDIO_FRAME_TYPE, timestamp_ms, payload))
             print(
@@ -78,7 +98,10 @@ async def _run(args: argparse.Namespace) -> None:
         remaining_acks = args.expect_ack_count
         while remaining_acks > 0:
             try:
-                response = await asyncio.wait_for(ws.recv(), timeout=args.ack_timeout_seconds)
+                response = await asyncio.wait_for(
+                    ws.recv(),
+                    timeout=args.ack_timeout_seconds,
+                )
             except asyncio.TimeoutError:
                 print(
                     "timed out waiting for ack:",
@@ -94,12 +117,15 @@ async def _run(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Probe backend /ws/session audio framing.")
+    parser = argparse.ArgumentParser(
+        description="Devtools websocket audio probe for the backend session transport."
+    )
     parser.add_argument("--url", default="ws://127.0.0.1:8080/ws/session")
     parser.add_argument("--session-id", default="sess_probe")
     parser.add_argument("--settle-seconds", type=float, default=0.5)
     parser.add_argument("--frame-size-bytes", type=int, default=4_080)
     parser.add_argument("--frame-count", type=int, default=1)
+    parser.add_argument("--probe-count", type=int, default=0)
     parser.add_argument("--frame-duration-ms", type=int, default=85)
     parser.add_argument("--frame-interval-ms", type=int, default=0)
     parser.add_argument("--timestamp-start-ms", type=int, default=42)

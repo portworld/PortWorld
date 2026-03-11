@@ -160,17 +160,6 @@ async def dispatch_control_envelope(
         logger.warning("Health ping session=%s", envelope.session_id)
         return ControlDispatchResult(active_session=active_session, handled=True)
 
-    if envelope.type == "debug.payload_sweep":
-        payload = envelope.payload if isinstance(envelope.payload, dict) else {}
-        logger.warning(
-            "Debug payload sweep control received session=%s mode=%s index=%s payload_bytes=%s",
-            envelope.session_id,
-            payload.get("mode"),
-            payload.get("index"),
-            payload.get("payload_bytes"),
-        )
-        return ControlDispatchResult(active_session=active_session, handled=True)
-
     if envelope.type == "client.audio":
         await _handle_text_audio_fallback(
             envelope=envelope,

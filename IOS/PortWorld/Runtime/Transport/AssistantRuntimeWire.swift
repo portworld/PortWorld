@@ -36,12 +36,10 @@ nonisolated struct AssistantPlaybackControlPayload: Codable, Sendable {
 nonisolated struct AssistantRealtimeUplinkAckPayload: Codable, Sendable {
   let framesReceived: Int
   let bytesReceived: Int
-  let probeAcknowledged: Bool?
 
   private enum CodingKeys: String, CodingKey {
     case framesReceived = "frames_received"
     case bytesReceived = "bytes_received"
-    case probeAcknowledged = "probe_acknowledged"
   }
 }
 
@@ -84,18 +82,6 @@ nonisolated struct AssistantSessionActivatePayload: Codable, Sendable {
   }
 }
 
-nonisolated struct AssistantWakeWordDetectedPayload: Codable, Sendable {
-  let wakePhrase: String
-  let engine: String
-  let confidence: Double?
-
-  private enum CodingKeys: String, CodingKey {
-    case wakePhrase = "wake_phrase"
-    case engine
-    case confidence
-  }
-}
-
 @preconcurrency nonisolated struct AssistantWSControlEnvelope<Payload> {
   let type: String
   let sessionID: String
@@ -122,7 +108,6 @@ enum AssistantWSOutboundType: String, Codable, Sendable {
   case sessionActivate = "session.activate"
   case sessionDeactivate = "session.deactivate"
   case sessionEndTurn = "session.end_turn"
-  case wakewordDetected = "wakeword.detected"
 }
 
 enum AssistantWSInboundType: String, Codable, Sendable {
