@@ -790,7 +790,7 @@ class BackendStorage:
                     routing_score,
                     routing_metadata_json
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id, frame_id) DO UPDATE SET
                     capture_ts_ms=excluded.capture_ts_ms,
                     ingest_ts_ms=excluded.ingest_ts_ms,
