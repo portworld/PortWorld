@@ -136,14 +136,19 @@ Default layout:
 - `backend/var/portworld.db`
 - `backend/var/user/user_profile.md`
 - `backend/var/user/user_profile.json`
-- `backend/var/session/<session_id>/short_term_memory.md`
-- `backend/var/session/<session_id>/short_term_memory.json`
-- `backend/var/session/<session_id>/session_memory.md`
-- `backend/var/session/<session_id>/session_memory.json`
-- `backend/var/session/<session_id>/vision_events.jsonl`
-- `backend/var/session/<session_id>/vision_routing_events.jsonl`
-- `backend/var/vision_frames/...`
+- `backend/var/session/<session_storage_key>/short_term_memory.md`
+- `backend/var/session/<session_storage_key>/short_term_memory.json`
+- `backend/var/session/<session_storage_key>/session_memory.md`
+- `backend/var/session/<session_storage_key>/session_memory.json`
+- `backend/var/session/<session_storage_key>/vision_events.jsonl`
+- `backend/var/session/<session_storage_key>/vision_routing_events.jsonl`
+- `backend/var/vision_frames/<session_storage_key>/<frame_storage_key>.jpg`
+- `backend/var/vision_frames/<session_storage_key>/<frame_storage_key>.json`
 - `backend/var/debug_audio/...`
+
+`session_storage_key` and `frame_storage_key` are deterministic collision-safe path components derived from the logical IDs as `<sanitized-prefix>--<sha256>`. The raw logical IDs remain in SQLite and artifact metadata.
+
+For upgrade compatibility, existing pre-Part-2 session and vision-frame directories using the legacy sanitized naming scheme are still read and reused when present.
 
 ### SQLite foundation
 
@@ -281,7 +286,8 @@ Per-session derived memory artifacts have a separate lifecycle from the persiste
 The backend now provides:
 
 - `GET /memory/export`
-  returns a bounded zip archive containing:
+  writes the archive to a temporary file and streams it back without holding the full zip in RAM
+  archive contents:
   - `user_profile.md`
   - `user_profile.json`
   - session derived-memory artifacts
@@ -401,7 +407,7 @@ It returns:
   local-dev default only; production should set explicit allowed hosts
 - `BACKEND_MAX_VISION_REQUEST_BYTES`
   default: `4000000`
-  rejects oversized `/vision/frame` requests using `Content-Length` when present
+  rejects oversized `/vision/frame` requests while the body is being read, including chunked uploads without a trustworthy `Content-Length`
 - `BACKEND_MAX_VISION_FRAME_BYTES`
   default: `2500000`
   rejects oversized decoded JPEG payloads before write

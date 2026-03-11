@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from time import time_ns
 from typing import Any, Iterator, Mapping
@@ -27,6 +29,7 @@ from backend.memory.profile import (
 )
 
 SCHEMA_VERSION = "3"
+_STORAGE_ID_PREFIX_MAX_LENGTH = 24
 _UNSET = object()
 
 
@@ -153,7 +156,7 @@ class BackendStorage:
         )
 
     def ensure_session_storage(self, *, session_id: str) -> SessionStorageResult:
-        session_dir = self.paths.session_root / self._sanitize_session_id(session_id)
+        session_dir = self.session_storage_dir(session_id=session_id)
         session_dir.mkdir(parents=True, exist_ok=True)
         short_term_memory_markdown_path = session_dir / "short_term_memory.md"
         short_term_memory_json_path = session_dir / "short_term_memory.json"
@@ -303,6 +306,33 @@ class BackendStorage:
             content_type=content_type,
             metadata_json=metadata_json,
             created_at_ms=created_at_ms,
+        )
+
+    def session_storage_dir(self, *, session_id: str) -> Path:
+        return self._resolved_storage_dir(
+            root=self.paths.session_root,
+            raw_id=session_id,
+        )
+
+    def vision_frame_artifact_paths(self, *, session_id: str, frame_id: str) -> tuple[Path, Path]:
+        session_dir = self.vision_frames_session_dir(session_id=session_id)
+        if self._is_legacy_storage_dir(
+            root=self.paths.vision_frames_root,
+            directory=session_dir,
+            raw_id=session_id,
+        ):
+            frame_stem = self._legacy_storage_component_for_id(frame_id)
+        else:
+            frame_stem = self._storage_component_for_id(frame_id)
+        return (
+            session_dir / f"{frame_stem}.jpg",
+            session_dir / f"{frame_stem}.json",
+        )
+
+    def vision_frames_session_dir(self, *, session_id: str) -> Path:
+        return self._resolved_storage_dir(
+            root=self.paths.vision_frames_root,
+            raw_id=session_id,
         )
 
     def record_vision_frame_ingest(
@@ -656,10 +686,10 @@ class BackendStorage:
         )
 
     def delete_vision_ingest_artifacts(self, *, session_id: str, frame_id: str) -> None:
-        session_component = self._sanitize_session_id(session_id)
-        frame_component = self._sanitize_session_id(frame_id)
-        for suffix in (".jpg", ".json"):
-            artifact_path = self.paths.vision_frames_root / session_component / f"{frame_component}{suffix}"
+        for artifact_path in self.vision_frame_artifact_paths(
+            session_id=session_id,
+            frame_id=frame_id,
+        ):
             if artifact_path.exists():
                 artifact_path.unlink()
 
@@ -958,7 +988,7 @@ class BackendStorage:
             )
 
     def _build_session_storage_result(self, *, session_id: str) -> SessionStorageResult:
-        session_dir = self.paths.session_root / self._sanitize_session_id(session_id)
+        session_dir = self.session_storage_dir(session_id=session_id)
         return SessionStorageResult(
             session_dir=session_dir,
             short_term_memory_markdown_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[0],
@@ -1074,7 +1104,7 @@ class BackendStorage:
         }
 
     def _session_vision_frames_dir(self, *, session_id: str) -> Path:
-        return self.paths.vision_frames_root / self._sanitize_session_id(session_id)
+        return self.vision_frames_session_dir(session_id=session_id)
 
     def _delete_session_memory(self, *, session_id: str) -> SessionMemoryResetResult:
         eligibility = self.get_session_memory_reset_eligibility(session_id=session_id)
@@ -1163,8 +1193,31 @@ class BackendStorage:
             routing_metadata_json=str(row["routing_metadata_json"]) if row["routing_metadata_json"] is not None else None,
         )
 
-    def _sanitize_session_id(self, session_id: str) -> str:
+    def _storage_component_for_id(self, raw_id: str) -> str:
+        prefix = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_id.strip())
+        prefix = prefix.strip("._-") or "id"
+        prefix = prefix[:_STORAGE_ID_PREFIX_MAX_LENGTH]
+        digest = sha256(raw_id.encode("utf-8")).hexdigest()
+        return f"{prefix}--{digest}"
+
+    def _legacy_storage_component_for_id(self, raw_id: str) -> str:
         return "".join(
             char if char.isalnum() or char in "._-" else "_"
-            for char in session_id.strip()
+            for char in raw_id.strip()
         ) or "unknown"
+
+    def _resolved_storage_dir(self, *, root: Path, raw_id: str) -> Path:
+        hashed_dir = root / self._storage_component_for_id(raw_id)
+        if hashed_dir.exists():
+            return hashed_dir
+
+        legacy_dir = root / self._legacy_storage_component_for_id(raw_id)
+        if legacy_dir.exists():
+            return legacy_dir
+
+        return hashed_dir
+
+    def _is_legacy_storage_dir(self, *, root: Path, directory: Path, raw_id: str) -> bool:
+        legacy_dir = root / self._legacy_storage_component_for_id(raw_id)
+        hashed_dir = root / self._storage_component_for_id(raw_id)
+        return directory == legacy_dir and directory != hashed_dir

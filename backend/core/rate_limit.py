@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
-from collections.abc import Deque
 from dataclasses import dataclass
 from math import ceil
 from time import monotonic
+from typing import Deque
 
 
 @dataclass(frozen=True, slots=True)

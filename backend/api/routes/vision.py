@@ -4,7 +4,6 @@ import base64
 import binascii
 import json
 import logging
-import re
 from math import ceil
 
 from fastapi import APIRouter
@@ -26,11 +25,6 @@ def _client_ip_from_request(request: Request) -> str:
         return "unknown"
     host = (client.host or "").strip()
     return host or "unknown"
-
-
-def _sanitize_path_component(value: str) -> str:
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
-    return sanitized or "unknown"
 
 
 class VisionFramePayload(BaseModel):
@@ -107,16 +101,11 @@ async def vision_frame(request: Request, payload: VisionFramePayload) -> dict[st
             ),
         )
     runtime.storage.ensure_session_storage(session_id=payload.session_id)
-
-    session_dir = (
-        runtime.storage_paths.vision_frames_root
-        / _sanitize_path_component(payload.session_id)
+    frame_path, metadata_path = runtime.storage.vision_frame_artifact_paths(
+        session_id=payload.session_id,
+        frame_id=payload.frame_id,
     )
-    session_dir.mkdir(parents=True, exist_ok=True)
-
-    file_stem = _sanitize_path_component(payload.frame_id)
-    frame_path = session_dir / f"{file_stem}.jpg"
-    metadata_path = session_dir / f"{file_stem}.json"
+    frame_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_metadata = {
         "session_id": payload.session_id,
         "frame_id": payload.frame_id,
