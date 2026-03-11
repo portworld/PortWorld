@@ -26,7 +26,8 @@ _SYSTEM_PROMPT = (
     "Do not include markdown, code fences, or extra commentary. "
     "Keep scene_summary short and factual. "
     "Use arrays of short strings for entities, actions, visible_text, and documents_seen. "
-    "Set confidence as a number between 0.0 and 1.0."
+    "Set salient_change to the JSON boolean true or false. "
+    "Set confidence as a JSON number between 0.0 and 1.0."
 )
 
 
