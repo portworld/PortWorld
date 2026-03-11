@@ -121,7 +121,9 @@ class MistralVisionAnalyzer:
                         },
                         {
                             "type": "image_url",
-                            "image_url": data_url,
+                            "image_url": {
+                                "url": data_url,
+                            },
                         },
                     ],
                 },
