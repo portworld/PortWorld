@@ -31,6 +31,7 @@ Not in scope for the current backend slice:
 The active backend surface is:
 
 - `GET /healthz`
+- `GET /readyz`
 - `GET /profile`
 - `PUT /profile`
 - `POST /profile/reset`
@@ -42,7 +43,8 @@ The active backend surface is:
 Auth behavior:
 
 - when `BACKEND_BEARER_TOKEN` is set, `/ws/session`, `/vision/frame`, `/profile`, and `/memory/*` require `Authorization: Bearer <token>`
-- when `BACKEND_BEARER_TOKEN` is unset, the backend keeps the current local-dev behavior and does not require auth
+- when `BACKEND_PROFILE=production`, startup fails unless `BACKEND_BEARER_TOKEN` is set
+- `POST /vision/frame` and websocket session setup are rate-limited per IP and per session
 
 Step 4A keeps the existing websocket and vision wire contract stable while cleaning up backend internals.
 
@@ -368,6 +370,13 @@ It returns:
 
 Detailed provider/runtime/storage state is intentionally not exposed through this endpoint in the current cleanup pass.
 
+`GET /readyz` is the internal readiness endpoint.
+
+It returns:
+
+- `200` with `status=ready` when required runtime dependencies are available
+- `503` with `status=not_ready` and check details when a required dependency is missing
+
 ## Configuration
 
 ### Backend-owned settings
@@ -383,6 +392,12 @@ Detailed provider/runtime/storage state is intentionally not exposed through thi
 - `BACKEND_BEARER_TOKEN`
   default: unset
   when set, requires `Authorization: Bearer <token>` on `/ws/session`, `/vision/frame`, `/profile`, and `/memory/*`
+- `BACKEND_PROFILE`
+  default: `development`
+  when set to `production`, startup enforces bearer token plus explicit host/CORS policy
+- `BACKEND_ALLOWED_HOSTS`
+  default: `*`
+  local-dev default only; production should set explicit allowed hosts
 - `BACKEND_MAX_VISION_REQUEST_BYTES`
   default: `4000000`
   rejects oversized `/vision/frame` requests using `Content-Length` when present
@@ -392,6 +407,18 @@ Detailed provider/runtime/storage state is intentionally not exposed through thi
 - `BACKEND_SESSION_MEMORY_RETENTION_DAYS`
   default: `30`, minimum: `1`
   removes expired ended session-memory sets at startup and after later session finalization
+- `BACKEND_RATE_LIMIT_WS_IP_MAX_ATTEMPTS`
+  default: `30`, minimum: `1`
+- `BACKEND_RATE_LIMIT_WS_SESSION_MAX_ATTEMPTS`
+  default: `6`, minimum: `1`
+- `BACKEND_RATE_LIMIT_WS_WINDOW_SECONDS`
+  default: `60`, minimum: `1`
+- `BACKEND_RATE_LIMIT_VISION_IP_MAX_REQUESTS`
+  default: `120`, minimum: `1`
+- `BACKEND_RATE_LIMIT_VISION_SESSION_MAX_REQUESTS`
+  default: `60`, minimum: `1`
+- `BACKEND_RATE_LIMIT_VISION_WINDOW_SECONDS`
+  default: `60`, minimum: `1`
 - `BACKEND_ALLOW_TEXT_AUDIO_FALLBACK`
   default: `false`
   compatibility path only; not used by the active iPhone runtime
@@ -502,7 +529,7 @@ Missing Tavily config does not fail startup. It only means `web_search` is omitt
   default: `INFO`
 - `CORS_ORIGINS`
   default: `*`
-  local-dev default only; production should set explicit allowed origins
+  local-dev default only; production profile requires explicit allowed origins
 
 ## Self-Hosting
 
@@ -517,6 +544,7 @@ High-signal self-host summary:
   - `REALTIME_TOOLING_ENABLED=true` with optional `TAVILY_API_KEY`
 - start with `docker compose up --build`
 - verify `GET /healthz`
+- optionally verify `GET /readyz` for dependency readiness
 
 The repo-root `docker-compose.yml` remains the supported self-host entrypoint for this backend slice.
 
@@ -529,6 +557,7 @@ Useful backend sanity checks:
 ```bash
 docker compose config
 curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/readyz
 python3 -m compileall backend
 ```
 
