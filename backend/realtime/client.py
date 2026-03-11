@@ -343,6 +343,7 @@ class OpenAIRealtimeClient:
             }
         if tools:
             session["tools"] = tools
+            session["tool_choice"] = "auto"
 
         return {
             "type": "session.update",
