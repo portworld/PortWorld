@@ -125,7 +125,7 @@ class OpenAIRealtimeClient:
             ) from exc
 
         if self._trace_events:
-            logger.warning(
+            logger.info(
                 "Realtime websocket connected endpoint=%s model=%s",
                 self.websocket_url,
                 self._model,
@@ -155,13 +155,13 @@ class OpenAIRealtimeClient:
                 self._input_audio_append_count += 1
                 count = self._input_audio_append_count
                 if count == 1:
-                    logger.warning(
+                    logger.debug(
                         "Upstream send type=%s count=%s",
                         event_type,
                         count,
                     )
             else:
-                logger.warning("Upstream send type=%s", event_type)
+                logger.debug("Upstream send type=%s", event_type)
 
     async def recv_json(self) -> dict[str, Any]:
         """Read one websocket message and parse it as JSON event."""
@@ -204,20 +204,20 @@ class OpenAIRealtimeClient:
                 self._output_audio_delta_count += 1
                 delta_len = len(normalized.get("delta", ""))
                 if self._output_audio_delta_count == 1:
-                    logger.warning(
+                    logger.debug(
                         "Upstream recv type=%s delta_b64_len=%s",
                         event_type,
                         delta_len,
                     )
             elif event_type == self.audio_event_names.done:
-                logger.warning("Upstream recv type=%s", event_type)
+                logger.debug("Upstream recv type=%s", event_type)
                 self._output_audio_delta_count = 0
             elif event_type == "response.output_audio_transcript.delta":
                 pass
             elif event_type == "response.output_audio_transcript.done":
-                logger.warning("Upstream recv type=%s", event_type)
+                logger.debug("Upstream recv type=%s", event_type)
             else:
-                logger.warning("Upstream recv type=%s", event_type)
+                logger.debug("Upstream recv type=%s", event_type)
         return normalized
 
     async def iter_events(self) -> AsyncIterator[dict[str, Any]]:

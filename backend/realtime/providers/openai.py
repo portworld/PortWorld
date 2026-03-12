@@ -3,9 +3,13 @@ from __future__ import annotations
 from backend.core.settings import Settings
 from backend.realtime.bridge import IOSRealtimeBridge
 from backend.realtime.client import OpenAIRealtimeClient
-from backend.realtime.factory import BinarySender, BridgeBinding, ControlSender
+from backend.realtime.factory import (
+    BinarySender,
+    BridgeBinding,
+    BridgeBindingContext,
+    ControlSender,
+)
 from backend.tools.runtime import RealtimeToolingRuntime
-from backend.ws.session_registry import SessionRecord
 
 
 def validate_openai_realtime_settings(settings: Settings) -> None:
@@ -20,7 +24,7 @@ def build_openai_session_bridge(
     send_server_audio: BinarySender,
     realtime_tooling_runtime: RealtimeToolingRuntime | None = None,
 ) -> BridgeBinding:
-    record_ref: dict[str, SessionRecord | None] = {"record": None}
+    context = BridgeBindingContext()
     api_key = settings.require_openai_api_key()
     effective_instructions = settings.openai_realtime_instructions
     if realtime_tooling_runtime is not None:
@@ -41,15 +45,13 @@ def build_openai_session_bridge(
         send_envelope=lambda message_type, payload: send_control(
             message_type,
             payload,
-            target=record_ref["record"],
+            target=context.record,
             fallback_session_id=session_id,
         ),
         send_binary_frame=send_server_audio,
         server_turn_detection_enabled=settings.openai_realtime_include_turn_detection,
         manual_turn_fallback_enabled=settings.openai_realtime_enable_manual_turn_fallback,
         manual_turn_fallback_delay_ms=settings.openai_realtime_manual_turn_fallback_delay_ms,
-        dump_input_audio_enabled=settings.backend_debug_dump_input_audio,
-        dump_input_audio_dir=str(settings.backend_debug_dump_input_audio_dir),
         tooling_runtime=realtime_tooling_runtime,
     )
-    return BridgeBinding(bridge=bridge, _record_ref=record_ref)
+    return BridgeBinding(bridge=bridge, context=context)

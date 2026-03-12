@@ -2,24 +2,47 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol
 
 from backend.tools.contracts import ToolCall
+from backend.tools.runtime import RealtimeToolingRuntime
 from backend.ws.contracts import now_ms
 
 logger = logging.getLogger(__name__)
 
 
-class BridgeToolDispatchMixin:
-    _processed_tool_call_ids: dict[str, None]
-    _processed_tool_dedupe_limit: int
-    _processed_tool_item_ids: dict[str, None]
-    _saw_duplicate_tool_call_event_for_turn: bool
-    _session_id: str
-    _tooling_runtime: Any
-    _upstream_client: Any
+class UpstreamToolSender(Protocol):
+    async def send_json(self, event: dict[str, Any]) -> None: ...
 
-    async def _on_tool_call_event(self, event: dict[str, Any]) -> None:
+
+class ToolCallDispatcher:
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        upstream_client: UpstreamToolSender,
+        tooling_runtime: RealtimeToolingRuntime | None,
+        send_response_create: Callable[[str], Awaitable[None]],
+        dedupe_limit: int = 512,
+    ) -> None:
+        self._session_id = session_id
+        self._upstream_client = upstream_client
+        self._tooling_runtime = tooling_runtime
+        self._send_response_create = send_response_create
+        self._processed_tool_call_ids: dict[str, None] = {}
+        self._processed_tool_item_ids: dict[str, None] = {}
+        self._processed_tool_dedupe_limit = max(1, dedupe_limit)
+        self._saw_duplicate_tool_call_event_for_turn = False
+
+    @property
+    def saw_duplicate_tool_call_event_for_turn(self) -> bool:
+        return self._saw_duplicate_tool_call_event_for_turn
+
+    def reset_turn_state(self) -> None:
+        self._saw_duplicate_tool_call_event_for_turn = False
+
+    async def handle_event(self, event: dict[str, Any]) -> None:
         if self._tooling_runtime is None:
             logger.warning(
                 "Ignoring tool call event without tooling runtime session=%s type=%s",
@@ -54,6 +77,7 @@ class BridgeToolDispatchMixin:
             )
             return
 
+        assert self._tooling_runtime is not None
         try:
             tool_result = await self._tooling_runtime.execute(tool_call_or_error)
         except Exception as exc:  # pragma: no cover
@@ -228,4 +252,4 @@ class BridgeToolDispatchMixin:
                 },
             }
         )
-        await self._send_response_create(source="tool_output")
+        await self._send_response_create("tool_output")

@@ -73,14 +73,17 @@ def build_default_realtime_provider_registry() -> RealtimeProviderRegistry:
 
 
 @dataclass(slots=True)
+class BridgeBindingContext:
+    record: SessionRecord | None = None
+
+
+@dataclass(slots=True)
 class BridgeBinding:
     bridge: SessionBridge
-    _record_ref: dict[str, SessionRecord | None] = field(
-        default_factory=lambda: {"record": None}
-    )
+    context: BridgeBindingContext = field(default_factory=BridgeBindingContext)
 
     def bind_record(self, record: SessionRecord) -> None:
-        self._record_ref["record"] = record
+        self.context.record = record
 
 
 @dataclass(frozen=True, slots=True)
