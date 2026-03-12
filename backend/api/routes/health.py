@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from backend.core.auth import require_http_bearer_auth
 from backend.realtime.factory import RealtimeProviderFactory
 from backend.tools.runtime import SearchProviderFactory
 from backend.vision.factory import VisionAnalyzerFactory
@@ -23,7 +24,7 @@ async def healthz(request: Request) -> dict[str, str]:
     }
 
 
-def _readiness_checks(request: Request) -> list[dict[str, Any]]:
+def _readiness_checks(request: Request, *, redact_details: bool) -> list[dict[str, Any]]:
     runtime = get_app_runtime(request.app)
     checks: list[dict[str, Any]] = []
     checks.append(
@@ -37,11 +38,12 @@ def _readiness_checks(request: Request) -> list[dict[str, Any]]:
         RealtimeProviderFactory(settings=runtime.settings).validate_configuration()
         checks.append({"name": "realtime_provider_configuration", "ok": True})
     except RuntimeError as exc:
+        detail = "check_failed" if redact_details else str(exc)
         checks.append(
             {
                 "name": "realtime_provider_configuration",
                 "ok": False,
-                "detail": str(exc),
+                "detail": detail,
             }
         )
     try:
@@ -49,11 +51,12 @@ def _readiness_checks(request: Request) -> list[dict[str, Any]]:
             VisionAnalyzerFactory(settings=runtime.settings).validate_configuration()
         checks.append({"name": "vision_provider_configuration", "ok": True})
     except RuntimeError as exc:
+        detail = "check_failed" if redact_details else str(exc)
         checks.append(
             {
                 "name": "vision_provider_configuration",
                 "ok": False,
-                "detail": str(exc),
+                "detail": detail,
             }
         )
     try:
@@ -61,11 +64,12 @@ def _readiness_checks(request: Request) -> list[dict[str, Any]]:
             SearchProviderFactory(settings=runtime.settings)
         checks.append({"name": "realtime_tooling_configuration", "ok": True})
     except RuntimeError as exc:
+        detail = "check_failed" if redact_details else str(exc)
         checks.append(
             {
                 "name": "realtime_tooling_configuration",
                 "ok": False,
-                "detail": str(exc),
+                "detail": detail,
             }
         )
     checks.append(
@@ -82,7 +86,12 @@ def _readiness_checks(request: Request) -> list[dict[str, Any]]:
 
 @router.get("/readyz")
 async def readyz(request: Request) -> JSONResponse:
-    checks = _readiness_checks(request)
+    runtime = get_app_runtime(request.app)
+    require_http_bearer_auth(request=request, settings=runtime.settings)
+    checks = _readiness_checks(
+        request,
+        redact_details=runtime.settings.is_production_profile,
+    )
     ready = all(bool(check.get("ok")) for check in checks)
     status = "ready" if ready else "not_ready"
     payload = {
