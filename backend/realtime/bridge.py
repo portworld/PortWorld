@@ -12,8 +12,8 @@ from backend.realtime.client import OpenAIRealtimeClient, RealtimeClientError
 from backend.realtime.contracts import BinarySender, EnvelopeSender
 from backend.realtime.tool_dispatcher import ToolCallDispatcher
 from backend.tools.runtime import RealtimeToolingRuntime
-from backend.ws.contracts import now_ms
-from backend.ws.frame_codec import SERVER_AUDIO_FRAME_TYPE
+from backend.ws.protocol.contracts import now_ms
+from backend.ws.protocol.frame_codec import SERVER_AUDIO_FRAME_TYPE
 
 logger = logging.getLogger(__name__)
 SESSION_READY_EVENT_TYPES = {"session.created", "session.updated"}

@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from backend.ws.session_registry import SessionRecord
+from backend.ws.session.session_registry import SessionRecord
 
 logger = logging.getLogger(__name__)
 

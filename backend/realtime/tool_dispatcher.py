@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 from backend.tools.contracts import ToolCall
 from backend.tools.runtime import RealtimeToolingRuntime
-from backend.ws.contracts import now_ms
+from backend.ws.protocol.contracts import now_ms
 
 logger = logging.getLogger(__name__)
 

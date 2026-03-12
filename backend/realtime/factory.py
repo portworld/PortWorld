@@ -6,7 +6,7 @@ from typing import Protocol
 from backend.core.settings import Settings
 from backend.realtime.contracts import BinarySender, EnvelopeSender
 from backend.tools.runtime import RealtimeToolingRuntime
-from backend.ws.session_registry import SessionBridge, SessionRecord
+from backend.ws.session.session_registry import SessionBridge, SessionRecord
 
 ControlSender = EnvelopeSender
 
