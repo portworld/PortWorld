@@ -10,6 +10,7 @@ from backend.memory.lifecycle import (
     ProfileLifecycleMetadata,
     ProfileRecord,
 )
+from backend.memory.normalize import normalize_optional_string, normalize_string
 
 PROFILE_MARKDOWN_HEADER = "# User Profile\n\n"
 
@@ -19,7 +20,7 @@ def parse_profile_record(payload: Mapping[str, object]) -> ProfileRecord:
     metadata = ProfileLifecycleMetadata()
     if isinstance(metadata_payload, Mapping):
         updated_at_ms = _coerce_optional_int(metadata_payload.get("updated_at_ms"))
-        source = _normalize_optional_string(metadata_payload.get("source"))
+        source = normalize_optional_string(metadata_payload.get("source"))
         schema_version_raw = metadata_payload.get("schema_version")
         schema_version = (
             schema_version_raw.strip()
@@ -33,9 +34,9 @@ def parse_profile_record(payload: Mapping[str, object]) -> ProfileRecord:
         )
 
     return ProfileRecord(
-        name=_normalize_optional_string(payload.get("name")),
-        job=_normalize_optional_string(payload.get("job")),
-        company=_normalize_optional_string(payload.get("company")),
+        name=normalize_optional_string(payload.get("name")),
+        job=normalize_optional_string(payload.get("job")),
+        company=normalize_optional_string(payload.get("company")),
         preferences=_normalize_string_list(payload.get("preferences")),
         projects=_normalize_string_list(payload.get("projects")),
         metadata=metadata,
@@ -115,7 +116,7 @@ def build_profile_record(
     metadata = ProfileLifecycleMetadata(
         schema_version=PROFILE_SCHEMA_VERSION,
         updated_at_ms=updated_at_ms,
-        source=_normalize_optional_string(source),
+        source=normalize_optional_string(source),
     )
     return ProfileRecord(
         name=existing.name,
@@ -135,13 +136,6 @@ def empty_profile_markdown() -> str:
     return PROFILE_MARKDOWN_HEADER
 
 
-def _normalize_optional_string(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()
-    return normalized or None
-
-
 def _normalize_string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -150,7 +144,7 @@ def _normalize_string_list(value: object) -> list[str]:
     for item in value:
         if not isinstance(item, str):
             continue
-        candidate = item.strip()
+        candidate = normalize_string(item)
         if not candidate:
             continue
         lowered = candidate.lower()
