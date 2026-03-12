@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from backend.core.auth import require_http_bearer_auth
 from backend.realtime.factory import RealtimeProviderFactory
@@ -16,12 +17,14 @@ from backend.core.runtime import get_app_runtime
 router = APIRouter()
 
 
-@router.get("/healthz")
-async def healthz(request: Request) -> dict[str, str]:
-    return {
-        "status": "ok",
-        "service": SERVICE_NAME,
-    }
+class HealthStatusResponse(BaseModel):
+    status: str
+    service: str
+
+
+@router.get("/healthz", response_model=HealthStatusResponse)
+async def healthz(request: Request) -> HealthStatusResponse:
+    return HealthStatusResponse(status="ok", service=SERVICE_NAME)
 
 
 def _readiness_checks(request: Request, *, redact_details: bool) -> list[dict[str, Any]]:

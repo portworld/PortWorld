@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Generator
 
 from fastapi import APIRouter
 from fastapi import HTTPException
 from fastapi import Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from backend.bootstrap.memory_export import cleanup_export_file, write_memory_export_zip
@@ -16,13 +18,25 @@ from backend.core.storage import now_ms
 router = APIRouter()
 
 
-def _iter_file_chunks(path: str, *, chunk_size: int = 64 * 1024):
+def _iter_file_chunks(
+    path: str, *, chunk_size: int = 64 * 1024
+) -> Generator[bytes, None, None]:
     with open(path, "rb") as handle:
         while True:
             chunk = handle.read(chunk_size)
             if not chunk:
                 break
             yield chunk
+
+
+class SessionMemoryResetResponse(BaseModel):
+    status: str
+    session_id: str
+    deleted_artifact_rows: int
+    deleted_vision_frame_rows: int
+    deleted_session_rows: int
+    removed_session_dir: bool
+    removed_vision_frames_dir: bool
 
 
 @router.get("/memory/export")
@@ -47,8 +61,14 @@ async def export_memory(request: Request) -> StreamingResponse:
     )
 
 
-@router.post("/memory/session/{session_id}/reset")
-async def reset_session_memory(request: Request, session_id: str) -> dict[str, object]:
+@router.post(
+    "/memory/session/{session_id}/reset",
+    response_model=SessionMemoryResetResponse,
+)
+async def reset_session_memory(
+    request: Request,
+    session_id: str,
+) -> SessionMemoryResetResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
 
@@ -82,15 +102,15 @@ async def reset_session_memory(request: Request, session_id: str) -> dict[str, o
             status_code=404,
             detail="Session memory not found.",
         ) from exc
-    return {
-        "status": "ok",
-        "session_id": result.session_id,
-        "deleted_artifact_rows": result.deleted_artifact_rows,
-        "deleted_vision_frame_rows": result.deleted_vision_frame_rows,
-        "deleted_session_rows": result.deleted_session_rows,
-        "removed_session_dir": result.removed_session_dir,
-        "removed_vision_frames_dir": result.removed_vision_frames_dir,
-    }
+    return SessionMemoryResetResponse(
+        status="ok",
+        session_id=result.session_id,
+        deleted_artifact_rows=result.deleted_artifact_rows,
+        deleted_vision_frame_rows=result.deleted_vision_frame_rows,
+        deleted_session_rows=result.deleted_session_rows,
+        removed_session_dir=result.removed_session_dir,
+        removed_vision_frames_dir=result.removed_vision_frames_dir,
+    )
 
 
 @router.get("/memory/session/{session_id}/status")

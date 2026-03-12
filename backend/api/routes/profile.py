@@ -14,6 +14,13 @@ from backend.memory.lifecycle import PROFILE_METADATA_KEY, allowed_profile_field
 router = APIRouter()
 
 
+class ProfileResponse(BaseModel):
+    profile: dict[str, Any]
+    is_onboarded: bool
+    missing_fields: list[str]
+    metadata: dict[str, Any]
+
+
 class ProfileUpdatePayload(BaseModel):
     name: str | None = None
     job: str | None = None
@@ -33,7 +40,10 @@ class ProfileUpdatePayload(BaseModel):
 
     @field_validator("preferences", "projects")
     @classmethod
-    def validate_string_lists(cls, value: list[str]) -> list[str]:
+    def validate_string_lists(
+        cls,
+        value: list[str],
+    ) -> list[str]:
         normalized: list[str] = []
         for item in value:
             candidate = item.strip()
@@ -42,7 +52,7 @@ class ProfileUpdatePayload(BaseModel):
         return normalized
 
 
-def _build_profile_response(profile_payload: dict[str, Any]) -> dict[str, Any]:
+def _build_profile_response(profile_payload: dict[str, Any]) -> ProfileResponse:
     fields = allowed_profile_fields()
     profile = {
         field_name: profile_payload[field_name]
@@ -53,27 +63,29 @@ def _build_profile_response(profile_payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(metadata, dict):
         metadata = {}
     present_fields = set(profile.keys())
-    return {
-        "profile": profile,
-        "is_onboarded": bool(profile),
-        "missing_fields": [field_name for field_name in fields if field_name not in present_fields],
-        "metadata": metadata,
-    }
+    return ProfileResponse(
+        profile=profile,
+        is_onboarded=bool(profile),
+        missing_fields=[
+            field_name for field_name in fields if field_name not in present_fields
+        ],
+        metadata=metadata,
+    )
 
 
-@router.get("/profile")
-async def get_profile(request: Request) -> dict[str, Any]:
+@router.get("/profile", response_model=ProfileResponse)
+async def get_profile(request: Request) -> ProfileResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
     profile = await asyncio.to_thread(runtime.storage.read_user_profile)
     return _build_profile_response(profile)
 
 
-@router.put("/profile")
+@router.put("/profile", response_model=ProfileResponse)
 async def put_profile(
     request: Request,
     payload: ProfileUpdatePayload,
-) -> dict[str, Any]:
+) -> ProfileResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
     updated_profile = await asyncio.to_thread(
@@ -84,8 +96,8 @@ async def put_profile(
     return _build_profile_response(updated_profile)
 
 
-@router.post("/profile/reset")
-async def reset_profile(request: Request) -> dict[str, Any]:
+@router.post("/profile/reset", response_model=ProfileResponse)
+async def reset_profile(request: Request) -> ProfileResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
     profile = await asyncio.to_thread(runtime.storage.reset_user_profile)
