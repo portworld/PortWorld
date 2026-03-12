@@ -8,10 +8,10 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from backend.core.auth import reject_ws_if_unauthorized
 from backend.core.http import client_ip_from_connection
 from backend.core.runtime import get_app_runtime
-from backend.ws.session_context import SessionConnectionContext
-from backend.ws.session_loop import process_next_websocket_message
-from backend.ws.session_runtime import deactivate_and_unregister_session
-from backend.ws.session_transport import make_send_control, make_send_server_audio
+from backend.ws.session.session_context import SessionConnectionContext
+from backend.ws.handlers.session_loop import process_next_websocket_message
+from backend.ws.session.session_runtime import deactivate_and_unregister_session
+from backend.ws.session.session_transport import make_send_control, make_send_server_audio
 from backend.ws.telemetry import SessionTelemetry
 
 router = APIRouter()
@@ -60,6 +60,8 @@ async def ws_session(websocket: WebSocket) -> None:
             pass
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected")
+    except Exception:
+        logger.exception("Unhandled websocket session loop failure connection_id=%s", connection_id)
     finally:
         if context.active_session is not None:
             await deactivate_and_unregister_session(
@@ -67,7 +69,6 @@ async def ws_session(websocket: WebSocket) -> None:
                 websocket=websocket,
                 send_control=send_control,
                 storage=runtime.storage,
-                session_memory_retention_days=runtime.settings.backend_session_memory_retention_days,
                 vision_memory_runtime=runtime.vision_memory_runtime,
                 emit_session_state=False,
                 trace_ws_messages_enabled=runtime.settings.backend_debug_trace_ws_messages,
