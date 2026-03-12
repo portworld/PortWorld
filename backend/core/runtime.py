@@ -5,10 +5,10 @@ from dataclasses import dataclass, field
 from hashlib import sha1
 from typing import TYPE_CHECKING, Any
 
-from backend.bootstrap.runtime import RuntimeStoragePaths, build_runtime_dependencies
+from backend.bootstrap.runtime import build_runtime_dependencies
 from backend.core.rate_limit import RateLimitDecision, SlidingWindowRateLimiter
 from backend.core.settings import Settings
-from backend.core.storage import BackendStorage, StorageBootstrapResult
+from backend.core.storage import BackendStorage, StorageBootstrapResult, StoragePaths
 from backend.realtime.factory import RealtimeProviderFactory
 from backend.tools.runtime import RealtimeToolingRuntime
 from backend.vision.runtime import VisionMemoryRuntime
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass(slots=True)
 class AppRuntime:
     settings: Settings
-    storage_paths: RuntimeStoragePaths
+    storage_paths: StoragePaths
     storage: BackendStorage
     realtime_provider: RealtimeProviderFactory
     vision_memory_runtime: VisionMemoryRuntime | None
@@ -134,6 +134,22 @@ class AppRuntime:
             limit=self.settings.backend_rate_limit_vision_session_max_requests,
             window_seconds=self.settings.backend_rate_limit_vision_window_seconds,
             scope="session",
+        )
+
+    async def limit_http_request(
+        self,
+        *,
+        client_ip: str,
+        endpoint: str,
+    ) -> RateLimitDecision:
+        if not self.settings.backend_enable_ip_rate_limits:
+            return RateLimitDecision(allowed=True, scope="ip_disabled")
+        ip_key = _rate_key(client_ip)
+        return await self.rate_limiter.allow(
+            key=f"http:{endpoint}:ip:{ip_key}",
+            limit=self.settings.backend_rate_limit_http_ip_max_requests,
+            window_seconds=self.settings.backend_rate_limit_http_window_seconds,
+            scope="ip",
         )
 
     def make_session_bridge(

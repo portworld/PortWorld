@@ -126,6 +126,8 @@ class Settings:
     backend_rate_limit_vision_ip_max_requests: int
     backend_rate_limit_vision_session_max_requests: int
     backend_rate_limit_vision_window_seconds: int
+    backend_rate_limit_http_ip_max_requests: int
+    backend_rate_limit_http_window_seconds: int
     host: str
     port: int
     log_level: str
@@ -174,12 +176,6 @@ class Settings:
         key = (self.openai_api_key or "").strip()
         if not key:
             raise MissingOpenAIAPIKeyError("OPENAI_API_KEY is required at runtime")
-        return key
-
-    def require_mistral_api_key(self) -> str:
-        key = (self.mistral_api_key or "").strip()
-        if not key:
-            raise RuntimeError("MISTRAL_API_KEY is required when VISION_MEMORY_ENABLED=true")
         return key
 
     def require_vision_provider_api_key(self) -> str:
@@ -408,6 +404,16 @@ def _load_rate_limit_settings(*, backend_profile: str) -> dict[str, int | bool]:
         ),
         "backend_rate_limit_vision_window_seconds": _parse_int_env(
             "BACKEND_RATE_LIMIT_VISION_WINDOW_SECONDS",
+            default=60,
+            minimum=1,
+        ),
+        "backend_rate_limit_http_ip_max_requests": _parse_int_env(
+            "BACKEND_RATE_LIMIT_HTTP_IP_MAX_REQUESTS",
+            default=30,
+            minimum=1,
+        ),
+        "backend_rate_limit_http_window_seconds": _parse_int_env(
+            "BACKEND_RATE_LIMIT_HTTP_WINDOW_SECONDS",
             default=60,
             minimum=1,
         ),

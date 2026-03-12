@@ -96,6 +96,14 @@ async def vision_frame(request: Request, payload: VisionFramePayload) -> VisionF
         frame_size_bytes=estimated_frame_bytes,
         max_bytes=runtime.settings.backend_max_vision_frame_bytes,
     )
+    if runtime.vision_memory_runtime is None:
+        logger.debug(
+            "Vision memory disabled; ignoring frame session=%s frame=%s",
+            payload.session_id,
+            payload.frame_id,
+        )
+        return VisionFrameResponse(status="ignored", frame_id=payload.frame_id)
+
     frame_bytes = _decode_frame_bytes(payload.frame_b64)
     _reject_frame_if_oversized(
         frame_size_bytes=len(frame_bytes),
@@ -120,17 +128,16 @@ async def vision_frame(request: Request, payload: VisionFramePayload) -> VisionF
         payload.width,
         payload.height,
     )
-    if runtime.vision_memory_runtime is not None:
-        await runtime.vision_memory_runtime.submit_frame(
-            image_bytes=frame_bytes,
-            frame_context=VisionFrameContext(
-                frame_id=payload.frame_id,
-                session_id=payload.session_id,
-                capture_ts_ms=payload.capture_ts_ms,
-                width=payload.width,
-                height=payload.height,
-            ),
-            image_media_type="image/jpeg",
-        )
+    await runtime.vision_memory_runtime.submit_frame(
+        image_bytes=frame_bytes,
+        frame_context=VisionFrameContext(
+            frame_id=payload.frame_id,
+            session_id=payload.session_id,
+            capture_ts_ms=payload.capture_ts_ms,
+            width=payload.width,
+            height=payload.height,
+        ),
+        image_media_type="image/jpeg",
+    )
 
     return VisionFrameResponse(status="ok", frame_id=payload.frame_id)

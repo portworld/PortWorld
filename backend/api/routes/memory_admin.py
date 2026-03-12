@@ -3,19 +3,45 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Generator
 
+from typing import Annotated
+
 from fastapi import APIRouter
 from fastapi import HTTPException
+from fastapi import Path
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
+SessionIdPath = Annotated[
+    str,
+    Path(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[a-zA-Z0-9_\-]+$",
+        description="Session identifier (alphanumeric, hyphens, underscores)",
+    ),
+]
+
 from backend.bootstrap.memory_export import cleanup_export_file, write_memory_export_zip
 from backend.core.auth import require_http_bearer_auth
+from backend.core.http import client_ip_from_connection
 from backend.core.runtime import get_app_runtime
 from backend.core.storage import SessionNotFoundError, now_ms
 
 router = APIRouter()
+
+
+async def _enforce_rate_limit(request: Request, endpoint: str) -> None:
+    runtime = get_app_runtime(request.app)
+    client_ip = client_ip_from_connection(request)
+    decision = await runtime.limit_http_request(client_ip=client_ip, endpoint=endpoint)
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded for {decision.scope}.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
 
 
 def _iter_file_chunks(
@@ -43,6 +69,7 @@ class SessionMemoryResetResponse(BaseModel):
 async def export_memory(request: Request) -> StreamingResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
+    await _enforce_rate_limit(request, "memory_export")
 
     artifacts = await asyncio.to_thread(runtime.storage.list_memory_export_artifacts)
     export_path = await asyncio.to_thread(
@@ -67,10 +94,11 @@ async def export_memory(request: Request) -> StreamingResponse:
 )
 async def reset_session_memory(
     request: Request,
-    session_id: str,
+    session_id: SessionIdPath,
 ) -> SessionMemoryResetResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
+    await _enforce_rate_limit(request, "memory_session_reset")
 
     eligibility = await asyncio.to_thread(
         runtime.storage.get_session_memory_reset_eligibility,
@@ -114,9 +142,10 @@ async def reset_session_memory(
 
 
 @router.get("/memory/session/{session_id}/status")
-async def session_memory_status(request: Request, session_id: str) -> dict[str, object]:
+async def session_memory_status(request: Request, session_id: SessionIdPath) -> dict[str, object]:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
+    await _enforce_rate_limit(request, "memory_session_status")
     try:
         return await asyncio.to_thread(
             runtime.storage.read_session_memory_status,

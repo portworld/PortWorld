@@ -66,7 +66,7 @@ def build_default_realtime_provider_registry() -> RealtimeProviderRegistry:
             name="openai",
             build_bridge=build_openai_session_bridge,
             validate_settings=validate_openai_realtime_settings,
-            validate_on_startup=False,
+            validate_on_startup=True,
         )
     )
     return registry

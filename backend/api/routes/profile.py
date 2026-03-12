@@ -4,14 +4,28 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter
+from fastapi import HTTPException
 from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.core.auth import require_http_bearer_auth
+from backend.core.http import client_ip_from_connection
 from backend.core.runtime import get_app_runtime
 from backend.memory.lifecycle import PROFILE_METADATA_KEY, allowed_profile_fields
 
 router = APIRouter()
+
+
+async def _enforce_rate_limit(request: Request, endpoint: str) -> None:
+    runtime = get_app_runtime(request.app)
+    client_ip = client_ip_from_connection(request)
+    decision = await runtime.limit_http_request(client_ip=client_ip, endpoint=endpoint)
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded for {decision.scope}.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
 
 
 class ProfileResponse(BaseModel):
@@ -77,6 +91,7 @@ def _build_profile_response(profile_payload: dict[str, Any]) -> ProfileResponse:
 async def get_profile(request: Request) -> ProfileResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
+    await _enforce_rate_limit(request, "profile")
     profile = await asyncio.to_thread(runtime.storage.read_user_profile)
     return _build_profile_response(profile)
 
@@ -88,6 +103,7 @@ async def put_profile(
 ) -> ProfileResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
+    await _enforce_rate_limit(request, "profile")
     updated_profile = await asyncio.to_thread(
         runtime.storage.write_user_profile,
         payload=payload.model_dump(),
@@ -100,5 +116,6 @@ async def put_profile(
 async def reset_profile(request: Request) -> ProfileResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
+    await _enforce_rate_limit(request, "profile_reset")
     profile = await asyncio.to_thread(runtime.storage.reset_user_profile)
     return _build_profile_response(profile)

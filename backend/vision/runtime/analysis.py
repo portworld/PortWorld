@@ -456,6 +456,12 @@ class VisionAnalysisMixin:
             )
             return
         except Exception:
+            logger.exception(
+                "Unexpected vision analysis failure session=%s frame=%s provider=%s",
+                pending_frame.frame_context.session_id,
+                pending_frame.frame_context.frame_id,
+                self.provider_name,
+            )
             await self.provider_budget.record_non_rate_limit_failure()
             generic_error_details = {"error_type": "unexpected_analysis_failure"}
             await self._run_storage(
