@@ -4,15 +4,24 @@ import asyncio
 import math
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Literal, TypeAlias
 
 from backend.core.storage import SessionStorageResult, now_ms
 from backend.vision.contracts import VisionFrameContext, VisionObservation
-from backend.vision.gating import (
+from backend.vision.policy.gating import (
     AcceptedFrameReference,
+    VisionRouteAction,
     VisionProviderBudgetState,
     VisionRouteDecision,
     VisionSignalSnapshot,
 )
+
+BootstrapState: TypeAlias = Literal[
+    "unbootstrapped",
+    "bootstrap_pending",
+    "bootstrapped",
+    "bootstrap_degraded",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +35,7 @@ class PendingVisionFrame:
 class RouteRecord:
     frame_id: str
     capture_ts_ms: int
-    action: str
+    action: VisionRouteAction
     reason: str
     priority_score: float
     novelty_score: float
@@ -59,9 +68,11 @@ class SessionVisionWorker:
     session_memory_last_updated_at_ms: int | None = None
     session_memory_exists: bool = False
     accepted_event_count: int = 0
-    bootstrap_state: str = "unbootstrapped"
+    bootstrap_state: BootstrapState = "unbootstrapped"
     pending_session_events: list[dict[str, object]] = field(default_factory=list)
+    short_term_window_events: deque[dict[str, object]] = field(default_factory=deque)
     last_session_rollup_at_ms: int | None = None
+    last_worker_error: str | None = None
     close_requested: bool = False
     task: asyncio.Task[None] | None = None
     condition: asyncio.Condition = field(default_factory=asyncio.Condition)

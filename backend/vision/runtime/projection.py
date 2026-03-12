@@ -2,15 +2,39 @@ from __future__ import annotations
 
 from backend.core.storage import now_ms
 from backend.memory.materializer import build_session_memory_rollup, build_short_term_memory
-from backend.vision.runtime_models import coerce_optional_int, latest_capture_ts_from_events
+from backend.vision.runtime.models import coerce_optional_int, latest_capture_ts_from_events
 
 
 class VisionMemoryProjectionMixin:
-    async def _materialize_short_term_memory(self, worker) -> None:
-        accepted_events = await self._run_storage(
-            self.storage.read_vision_events,
-            session_id=worker.session_id,
+    def _prune_short_term_window_events(self, worker) -> None:
+        if not worker.short_term_window_events:
+            return
+        latest_capture_ts_ms = latest_capture_ts_from_events(list(worker.short_term_window_events))
+        if latest_capture_ts_ms is None:
+            worker.short_term_window_events.clear()
+            return
+        window_start_ts_ms = max(
+            0,
+            latest_capture_ts_ms - (self.settings.vision_short_term_window_seconds * 1000),
         )
+        while worker.short_term_window_events:
+            oldest_capture_ts_ms = coerce_optional_int(
+                worker.short_term_window_events[0].get("capture_ts_ms")
+            )
+            if oldest_capture_ts_ms is None:
+                worker.short_term_window_events.popleft()
+                continue
+            if oldest_capture_ts_ms >= window_start_ts_ms:
+                break
+            worker.short_term_window_events.popleft()
+
+    def _append_short_term_window_event(self, *, worker, event: dict[str, object]) -> None:
+        worker.short_term_window_events.append(event)
+        self._prune_short_term_window_events(worker)
+
+    async def _materialize_short_term_memory(self, worker) -> None:
+        self._prune_short_term_window_events(worker)
+        accepted_events = list(worker.short_term_window_events)
         payload, markdown_text = build_short_term_memory(
             session_id=worker.session_id,
             accepted_events=accepted_events,

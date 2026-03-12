@@ -3,25 +3,25 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 from backend.core.settings import Settings
-from backend.core.storage import BackendStorage, SessionStorageResult, now_ms
+from backend.core.storage import BackendStorage, now_ms
 from backend.vision.contracts import (
     VisionAnalyzer,
     VisionFrameContext,
     VisionObservation,
 )
 from backend.vision.factory import build_vision_analyzer
-from backend.vision.gating import (
+from backend.vision.policy.gating import (
     VisionGateError,
     VisionProviderBudgetState,
-    VisionRouteDecision,
     VisionSignalSnapshot,
     decide_vision_route,
 )
-from backend.vision.runtime_analysis import VisionAnalysisMixin
-from backend.vision.runtime_journal import VisionFrameJournalMixin
-from backend.vision.runtime_models import (
+from backend.vision.runtime.analysis import VisionAnalysisMixin
+from backend.vision.runtime.journal import VisionFrameJournalMixin
+from backend.vision.runtime.models import (
     DeferredVisionCandidate,
     PendingVisionFrame,
     RouteRecord,
@@ -31,7 +31,7 @@ from backend.vision.runtime_models import (
     coerce_optional_int,
     coerce_positive_optional_int,
 )
-from backend.vision.runtime_projection import VisionMemoryProjectionMixin
+from backend.vision.runtime.projection import VisionMemoryProjectionMixin
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,11 @@ class VisionMemoryRuntime(
     provider_budget: VisionBudgetManager
     started: bool = field(default=False, init=False, repr=False, compare=False)
     _workers: dict[str, SessionVisionWorker] = field(default_factory=dict, init=False, repr=False)
+    _worker_bootstraps: dict[str, asyncio.Future[SessionVisionWorker]] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
     _workers_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
     _shutdown_requested: bool = field(default=False, init=False, repr=False)
 
@@ -93,6 +98,50 @@ class VisionMemoryRuntime(
     async def _run_storage(self, operation, /, *args, **kwargs):
         return await asyncio.to_thread(operation, *args, **kwargs)
 
+    async def _update_frame_processing(
+        self,
+        *,
+        session_id: str,
+        frame_id: str,
+        processing_status: str,
+        gate_status: str | None = None,
+        gate_reason: str | None = None,
+        phash: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        analyzed_at_ms: int | None = None,
+        next_retry_at_ms: int | None = None,
+        attempt_count: int | None = None,
+        error_code: str | None = None,
+        error_details: dict[str, Any] | None = None,
+        summary_snippet: str | None = None,
+        routing_status: str | None = None,
+        routing_reason: str | None = None,
+        routing_score: float | None = None,
+        routing_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        await self._run_storage(
+            self.storage.update_vision_frame_processing,
+            session_id=session_id,
+            frame_id=frame_id,
+            processing_status=processing_status,
+            gate_status=gate_status,
+            gate_reason=gate_reason,
+            phash=phash,
+            provider=provider,
+            model=model,
+            analyzed_at_ms=analyzed_at_ms,
+            next_retry_at_ms=next_retry_at_ms,
+            attempt_count=attempt_count,
+            error_code=error_code,
+            error_details=error_details,
+            summary_snippet=summary_snippet,
+            routing_status=routing_status,
+            routing_reason=routing_reason,
+            routing_score=routing_score,
+            routing_metadata=routing_metadata,
+        )
+
     async def submit_frame(
         self,
         *,
@@ -125,8 +174,7 @@ class VisionMemoryRuntime(
             worker.latest_inbox_frame = incoming_frame
             worker.condition.notify_all()
         if dropped_frame_id is not None:
-            await self._run_storage(
-                self.storage.update_vision_frame_processing,
+            await self._update_frame_processing(
                 session_id=frame_context.session_id,
                 frame_id=dropped_frame_id,
                 processing_status="superseded",
@@ -134,7 +182,6 @@ class VisionMemoryRuntime(
                 gate_reason="replaced_by_newer_inbox_frame",
                 provider=self.provider_name,
                 model=self.model_name,
-                error_code=None,
             )
             logger.info(
                 "VISION_INBOX_FRAME_REPLACED session=%s dropped_frame=%s new_frame=%s",
@@ -228,8 +275,7 @@ class VisionMemoryRuntime(
                     ),
                     error_code="VISION_BOOTSTRAP_INCOMPLETE",
                 )
-                await self._run_storage(
-                    self.storage.update_vision_frame_processing,
+                await self._update_frame_processing(
                     session_id=deferred.pending_frame.frame_context.session_id,
                     frame_id=deferred.pending_frame.frame_context.frame_id,
                     processing_status="bootstrap_degraded",
@@ -270,49 +316,89 @@ class VisionMemoryRuntime(
             await self._materialize_session_memory(worker)
 
     async def _ensure_worker(self, *, session_id: str) -> SessionVisionWorker:
-        async with self._workers_lock:
-            worker = self._workers.get(session_id)
-            if worker is None:
-                session_storage = await self._run_storage(
-                    self.storage.ensure_session_storage,
-                    session_id=session_id,
-                )
-                accepted_events = await self._run_storage(
-                    self.storage.read_vision_events,
-                    session_id=session_id,
-                )
-                previous_session_memory = await self._run_storage(
-                    self.storage.read_session_memory,
-                    session_id=session_id,
-                )
-                previous_short_term_memory = await self._run_storage(
-                    self.storage.read_short_term_memory,
-                    session_id=session_id,
-                )
-                session_updated_at_ms = coerce_optional_int(previous_session_memory.get("updated_at_ms"))
-                accepted_event_count = len(accepted_events)
-                short_term_updated_at_ms = (
-                    coerce_positive_optional_int(previous_short_term_memory.get("window_end_ts_ms"))
-                    if accepted_event_count > 0
-                    else None
-                )
-                worker = SessionVisionWorker(
-                    session_id=session_id,
-                    session_storage=session_storage,
-                    last_successful_analysis_at_ms=short_term_updated_at_ms,
-                    short_term_memory_last_updated_at_ms=short_term_updated_at_ms,
-                    session_memory_last_updated_at_ms=short_term_updated_at_ms,
-                    session_memory_exists=accepted_event_count > 0,
-                    accepted_event_count=accepted_event_count,
-                    bootstrap_state="bootstrapped" if accepted_event_count > 0 else "unbootstrapped",
-                    last_session_rollup_at_ms=session_updated_at_ms if accepted_event_count > 0 else None,
-                )
-                worker.task = asyncio.create_task(
-                    self._run_session_worker(worker),
-                    name=f"vision-session-{session_id}",
-                )
+        while True:
+            owns_bootstrap = False
+            bootstrap_future: asyncio.Future[SessionVisionWorker]
+            async with self._workers_lock:
+                worker = self._workers.get(session_id)
+                if worker is not None:
+                    if worker.task is not None and not worker.task.done():
+                        return worker
+                    self._workers.pop(session_id, None)
+                    logger.error(
+                        "VISION_WORKER_RESTARTING session=%s previous_error=%s",
+                        session_id,
+                        worker.last_worker_error or "task_ended",
+                    )
+
+                bootstrap_future = self._worker_bootstraps.get(session_id)
+                if bootstrap_future is None:
+                    bootstrap_future = asyncio.get_running_loop().create_future()
+                    self._worker_bootstraps[session_id] = bootstrap_future
+                    owns_bootstrap = True
+
+            if not owns_bootstrap:
+                return await bootstrap_future
+
+            try:
+                worker = await self._build_worker(session_id=session_id)
+            except Exception as exc:
+                async with self._workers_lock:
+                    current = self._worker_bootstraps.pop(session_id, None)
+                    if current is bootstrap_future and not bootstrap_future.done():
+                        bootstrap_future.set_exception(exc)
+                raise
+
+            async with self._workers_lock:
                 self._workers[session_id] = worker
+                current = self._worker_bootstraps.pop(session_id, None)
+                if current is bootstrap_future and not bootstrap_future.done():
+                    bootstrap_future.set_result(worker)
             return worker
+
+    async def _build_worker(self, *, session_id: str) -> SessionVisionWorker:
+        session_storage = await self._run_storage(
+            self.storage.ensure_session_storage,
+            session_id=session_id,
+        )
+        accepted_events = await self._run_storage(
+            self.storage.read_vision_events,
+            session_id=session_id,
+        )
+        previous_session_memory = await self._run_storage(
+            self.storage.read_session_memory,
+            session_id=session_id,
+        )
+        previous_short_term_memory = await self._run_storage(
+            self.storage.read_short_term_memory,
+            session_id=session_id,
+        )
+        session_updated_at_ms = coerce_optional_int(previous_session_memory.get("updated_at_ms"))
+        accepted_event_count = len(accepted_events)
+        short_term_updated_at_ms = (
+            coerce_positive_optional_int(previous_short_term_memory.get("window_end_ts_ms"))
+            if accepted_event_count > 0
+            else None
+        )
+        worker = SessionVisionWorker(
+            session_id=session_id,
+            session_storage=session_storage,
+            last_successful_analysis_at_ms=short_term_updated_at_ms,
+            short_term_memory_last_updated_at_ms=short_term_updated_at_ms,
+            session_memory_last_updated_at_ms=short_term_updated_at_ms,
+            session_memory_exists=accepted_event_count > 0,
+            accepted_event_count=accepted_event_count,
+            bootstrap_state="bootstrapped" if accepted_event_count > 0 else "unbootstrapped",
+            last_session_rollup_at_ms=session_updated_at_ms if accepted_event_count > 0 else None,
+        )
+        for event in accepted_events:
+            worker.short_term_window_events.append(event)
+        self._prune_short_term_window_events(worker)
+        worker.task = asyncio.create_task(
+            self._run_session_worker(worker),
+            name=f"vision-session-{session_id}",
+        )
+        return worker
 
     async def _run_session_worker(self, worker: SessionVisionWorker) -> None:
         try:
@@ -329,7 +415,8 @@ class VisionMemoryRuntime(
                     await self._process_deferred_candidate(worker, payload)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            worker.last_worker_error = f"{type(exc).__name__}: {exc}"
             logger.exception("VISION_SESSION_WORKER_FAILED session=%s", worker.session_id)
 
     async def _wait_for_work_item(
@@ -379,64 +466,10 @@ class VisionMemoryRuntime(
                 provider_budget_state=budget_state,
             )
         except VisionGateError:
-            fallback_signal = VisionSignalSnapshot(
-                session_id=pending_frame.frame_context.session_id,
-                frame_id=pending_frame.frame_context.frame_id,
-                capture_ts_ms=pending_frame.frame_context.capture_ts_ms,
-                is_first_frame=worker.last_accepted_frame is None,
-                capture_gap_ms=None,
-                dhash_hex="",
-                hamming_distance=None,
-                has_short_term_memory=worker.short_term_memory_last_updated_at_ms is not None,
-                has_session_memory=worker.session_memory_last_updated_at_ms is not None,
-                short_term_memory_age_ms=None,
-                session_memory_age_ms=None,
-                last_successful_analysis_at_ms=worker.last_successful_analysis_at_ms,
-                last_analysis_failed=worker.last_analysis_failed,
-                provider_available_now=budget_state.available_now,
-                provider_cooldown_until_ms=budget_state.cooldown_until_ms,
-                provider_budget_reason=budget_state.reason,
-            )
-            await self._run_storage(
-                self.storage.update_vision_frame_processing,
-                session_id=pending_frame.frame_context.session_id,
-                frame_id=pending_frame.frame_context.frame_id,
-                processing_status="gate_failed",
-                gate_status="error",
-                gate_reason="image_decode_failed",
-                provider=self.provider_name,
-                model=self.model_name,
-                analyzed_at_ms=now_ms(),
-                error_code="VISION_GATE_FAILED",
-                routing_status="store_only",
-                routing_reason="image_decode_failed",
-                routing_score=0.0,
-                routing_metadata={
-                    "analysis_outcome": "gate_failed",
-                    "provider_available_now": budget_state.available_now,
-                    "provider_available_at_ms": budget_state.available_at_ms,
-                    "provider_cooldown_until_ms": budget_state.cooldown_until_ms,
-                    "provider_budget_reason": budget_state.reason,
-                },
-            )
-            await self._append_routing_event(
-                signal=fallback_signal,
-                route=None,
+            await self._handle_gate_failure(
+                worker=worker,
+                pending_frame=pending_frame,
                 provider_budget_state=budget_state,
-                did_attempt_analysis=False,
-                analysis_outcome="gate_failed",
-                fallback_action="store_only",
-                fallback_reason="image_decode_failed",
-            )
-            worker.last_analysis_failed = True
-            logger.exception(
-                "VISION_SIGNAL_EXTRACTION_FAILED session=%s frame=%s",
-                pending_frame.frame_context.session_id,
-                pending_frame.frame_context.frame_id,
-            )
-            await self._cleanup_ingest_artifacts(
-                session_id=pending_frame.frame_context.session_id,
-                frame_id=pending_frame.frame_context.frame_id,
             )
             return
 
@@ -534,61 +567,12 @@ class VisionMemoryRuntime(
                 provider_budget_state=budget_state,
             )
         except VisionGateError:
-            fallback_signal = VisionSignalSnapshot(
-                session_id=deferred.pending_frame.frame_context.session_id,
-                frame_id=deferred.pending_frame.frame_context.frame_id,
-                capture_ts_ms=deferred.pending_frame.frame_context.capture_ts_ms,
-                is_first_frame=worker.last_accepted_frame is None,
-                capture_gap_ms=None,
-                dhash_hex="",
-                hamming_distance=None,
-                has_short_term_memory=worker.short_term_memory_last_updated_at_ms is not None,
-                has_session_memory=worker.session_memory_last_updated_at_ms is not None,
-                short_term_memory_age_ms=None,
-                session_memory_age_ms=None,
-                last_successful_analysis_at_ms=worker.last_successful_analysis_at_ms,
-                last_analysis_failed=worker.last_analysis_failed,
-                provider_available_now=budget_state.available_now,
-                provider_cooldown_until_ms=budget_state.cooldown_until_ms,
-                provider_budget_reason=budget_state.reason,
-            )
-            await self._run_storage(
-                self.storage.update_vision_frame_processing,
-                session_id=deferred.pending_frame.frame_context.session_id,
-                frame_id=deferred.pending_frame.frame_context.frame_id,
-                processing_status="gate_failed",
-                gate_status="error",
-                gate_reason="image_decode_failed",
-                provider=self.provider_name,
-                model=self.model_name,
-                analyzed_at_ms=now_ms(),
-                error_code="VISION_GATE_FAILED",
-                routing_status="store_only",
-                routing_reason="image_decode_failed",
-                routing_score=0.0,
-                routing_metadata={
-                    "analysis_outcome": "gate_failed",
-                    "provider_available_now": budget_state.available_now,
-                    "provider_available_at_ms": budget_state.available_at_ms,
-                    "provider_cooldown_until_ms": budget_state.cooldown_until_ms,
-                    "provider_budget_reason": budget_state.reason,
-                },
-            )
-            await self._append_routing_event(
-                signal=fallback_signal,
-                route=None,
+            await self._handle_gate_failure(
+                worker=worker,
+                pending_frame=deferred.pending_frame,
                 provider_budget_state=budget_state,
-                did_attempt_analysis=False,
-                analysis_outcome="gate_failed",
-                fallback_action="store_only",
-                fallback_reason="image_decode_failed",
             )
             worker.best_deferred_candidate = None
-            worker.last_analysis_failed = True
-            await self._cleanup_ingest_artifacts(
-                session_id=deferred.pending_frame.frame_context.session_id,
-                frame_id=deferred.pending_frame.frame_context.frame_id,
-            )
             return
 
         route = decide_vision_route(
@@ -599,8 +583,7 @@ class VisionMemoryRuntime(
         )
         if route.action == "defer_candidate":
             processing_status = "retry_pending" if deferred.bootstrap_candidate else "deferred"
-            await self._run_storage(
-                self.storage.update_vision_frame_processing,
+            await self._update_frame_processing(
                 session_id=deferred.pending_frame.frame_context.session_id,
                 frame_id=deferred.pending_frame.frame_context.frame_id,
                 processing_status=processing_status,
@@ -664,4 +647,71 @@ class VisionMemoryRuntime(
             pending_frame=deferred.pending_frame,
             signal=signal,
             route=route,
+        )
+
+    async def _handle_gate_failure(
+        self,
+        *,
+        worker: SessionVisionWorker,
+        pending_frame: PendingVisionFrame,
+        provider_budget_state: VisionProviderBudgetState,
+    ) -> None:
+        fallback_signal = VisionSignalSnapshot(
+            session_id=pending_frame.frame_context.session_id,
+            frame_id=pending_frame.frame_context.frame_id,
+            capture_ts_ms=pending_frame.frame_context.capture_ts_ms,
+            is_first_frame=worker.last_accepted_frame is None,
+            capture_gap_ms=None,
+            dhash_hex="",
+            hamming_distance=None,
+            has_short_term_memory=worker.short_term_memory_last_updated_at_ms is not None,
+            has_session_memory=worker.session_memory_last_updated_at_ms is not None,
+            short_term_memory_age_ms=None,
+            session_memory_age_ms=None,
+            last_successful_analysis_at_ms=worker.last_successful_analysis_at_ms,
+            last_analysis_failed=worker.last_analysis_failed,
+            provider_available_now=provider_budget_state.available_now,
+            provider_cooldown_until_ms=provider_budget_state.cooldown_until_ms,
+            provider_budget_reason=provider_budget_state.reason,
+        )
+        await self._update_frame_processing(
+            session_id=pending_frame.frame_context.session_id,
+            frame_id=pending_frame.frame_context.frame_id,
+            processing_status="gate_failed",
+            gate_status="error",
+            gate_reason="image_decode_failed",
+            provider=self.provider_name,
+            model=self.model_name,
+            analyzed_at_ms=now_ms(),
+            error_code="VISION_GATE_FAILED",
+            error_details={"reason": "image_decode_failed"},
+            routing_status="store_only",
+            routing_reason="image_decode_failed",
+            routing_score=0.0,
+            routing_metadata={
+                "analysis_outcome": "gate_failed",
+                "provider_available_now": provider_budget_state.available_now,
+                "provider_available_at_ms": provider_budget_state.available_at_ms,
+                "provider_cooldown_until_ms": provider_budget_state.cooldown_until_ms,
+                "provider_budget_reason": provider_budget_state.reason,
+            },
+        )
+        await self._append_routing_event(
+            signal=fallback_signal,
+            route=None,
+            provider_budget_state=provider_budget_state,
+            did_attempt_analysis=False,
+            analysis_outcome="gate_failed",
+            fallback_action="store_only",
+            fallback_reason="image_decode_failed",
+        )
+        worker.last_analysis_failed = True
+        logger.exception(
+            "VISION_SIGNAL_EXTRACTION_FAILED session=%s frame=%s",
+            pending_frame.frame_context.session_id,
+            pending_frame.frame_context.frame_id,
+        )
+        await self._cleanup_ingest_artifacts(
+            session_id=pending_frame.frame_context.session_id,
+            frame_id=pending_frame.frame_context.frame_id,
         )

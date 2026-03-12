@@ -2,10 +2,18 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass
+from typing import Literal, TypeAlias
 
 from PIL import Image, UnidentifiedImageError
 
 from backend.vision.contracts import VisionFrameContext
+
+VisionRouteAction: TypeAlias = Literal[
+    "drop_redundant",
+    "store_only",
+    "defer_candidate",
+    "analyze_now",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +59,7 @@ class VisionSignalSnapshot:
 class VisionRouteDecision:
     session_id: str
     frame_id: str
-    action: str
+    action: VisionRouteAction
     reason: str
     priority_score: float
     novelty_score: float

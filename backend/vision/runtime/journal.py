@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from backend.vision.gating import VisionProviderBudgetState, VisionRouteDecision, VisionSignalSnapshot
-    from backend.vision.runtime_models import PendingVisionFrame
+    from backend.vision.policy.gating import VisionProviderBudgetState, VisionRouteDecision, VisionSignalSnapshot
+    from backend.vision.runtime.models import PendingVisionFrame
 
 
 class VisionFrameJournalMixin:

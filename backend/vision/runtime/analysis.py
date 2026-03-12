@@ -5,12 +5,10 @@ import logging
 from backend.core.storage import now_ms
 from backend.memory.materializer import build_accepted_vision_event
 from backend.vision.contracts import VisionProviderError, VisionRateLimitError
-from backend.vision.gating import AcceptedFrameReference, VisionGateError, VisionRouteDecision, extract_vision_signal_snapshot
-from backend.vision.runtime_models import (
+from backend.vision.policy.gating import AcceptedFrameReference, VisionGateError, VisionRouteDecision, extract_vision_signal_snapshot
+from backend.vision.runtime.models import (
     DeferredVisionCandidate,
     PendingVisionFrame,
-    build_budget_state_from_signal,
-    coerce_optional_int,
     compute_age_ms,
     is_candidate_stronger,
 )
@@ -459,6 +457,7 @@ class VisionAnalysisMixin:
             return
         except Exception:
             await self.provider_budget.record_non_rate_limit_failure()
+            generic_error_details = {"error_type": "unexpected_analysis_failure"}
             await self._run_storage(
                 self.storage.update_vision_frame_processing,
                 session_id=pending_frame.frame_context.session_id,
@@ -476,6 +475,7 @@ class VisionAnalysisMixin:
                     frame_id=pending_frame.frame_context.frame_id,
                 ),
                 error_code="VISION_ANALYSIS_FAILED",
+                error_details=generic_error_details,
                 routing_status=route.action,
                 routing_reason=route.reason,
                 routing_score=route.priority_score,
@@ -484,6 +484,7 @@ class VisionAnalysisMixin:
                     route=route,
                     provider_budget_state=slot_state,
                     analysis_outcome="analysis_failed",
+                    error_details=generic_error_details,
                 ),
             )
             await self._append_routing_event(
@@ -492,6 +493,7 @@ class VisionAnalysisMixin:
                 provider_budget_state=slot_state,
                 did_attempt_analysis=True,
                 analysis_outcome="analysis_failed",
+                error_details=generic_error_details,
             )
             worker.last_analysis_failed = True
             worker.best_deferred_candidate = None
@@ -544,6 +546,7 @@ class VisionAnalysisMixin:
         )
         worker.accepted_event_count += 1
         worker.pending_session_events.append(accepted_event)
+        self._append_short_term_window_event(worker=worker, event=accepted_event)
         await self._materialize_short_term_memory(worker)
         if self._should_roll_session_memory(worker):
             await self._materialize_session_memory(worker)
