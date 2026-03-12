@@ -6,11 +6,11 @@ struct StartupLoadingView: View {
 
   var body: some View {
     ZStack {
-      Color("launchBackground")
+      Color.black
         .ignoresSafeArea()
 
       VStack(spacing: 20) {
-        Image("LaunchArtwork")
+        Image("StartupMark")
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(width: artworkSize, height: artworkSize)

@@ -363,7 +363,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 0C66636B2F5361000084DE6C /* Debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = PortWorldIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLIENT_TOKEN = "";
 				CODE_SIGN_ENTITLEMENTS = PortWorld.entitlements;
@@ -395,7 +395,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 0C66636C2F5361000084DE6C /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = PortWorldIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLIENT_TOKEN = "";
 				CODE_SIGN_ENTITLEMENTS = PortWorld.entitlements;
