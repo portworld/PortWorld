@@ -1,0 +1,30 @@
+// Branded first-launch loading view shown while shared app capabilities initialize.
+import SwiftUI
+
+struct StartupLoadingView: View {
+  @ScaledMetric(relativeTo: .largeTitle) private var artworkSize = 236
+
+  var body: some View {
+    ZStack {
+      Color("launchBackground")
+        .ignoresSafeArea()
+
+      VStack(spacing: 20) {
+        Image("LaunchArtwork")
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(width: artworkSize, height: artworkSize)
+          .accessibilityHidden(true)
+
+        Text("PortWorld")
+          .font(.system(.title, design: .rounded).weight(.bold))
+          .tracking(0.8)
+          .foregroundStyle(.white)
+      }
+      .padding(24)
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel("PortWorld is starting")
+    }
+    .statusBarHidden(true)
+  }
+}

@@ -96,7 +96,12 @@
 		<string>audio</string>
 	</array>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>launchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchArtwork</string>
+	</dict>
 	<key>UIRequiresFullScreen</key>
 	<true/>
 	<key>UISupportedExternalAccessoryProtocols</key>
