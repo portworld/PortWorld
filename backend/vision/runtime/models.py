@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Literal, TypeAlias
 
 from backend.core.storage import SessionStorageResult, now_ms
+from backend.memory.normalize import coerce_optional_int
 from backend.vision.contracts import VisionFrameContext, VisionObservation
 from backend.vision.policy.gating import (
     AcceptedFrameReference,
@@ -217,15 +218,6 @@ def build_budget_state_from_signal(signal: VisionSignalSnapshot) -> VisionProvid
         consecutive_rate_limit_count=0,
         reason=signal.provider_budget_reason,
     )
-
-
-def coerce_optional_int(value: object) -> int | None:
-    if value in (None, ""):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def coerce_positive_optional_int(value: object) -> int | None:

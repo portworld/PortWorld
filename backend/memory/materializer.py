@@ -89,21 +89,21 @@ def build_session_memory_rollup(
     previous_memory: dict[str, Any],
     recent_events: list[AcceptedVisionEvent],
 ) -> tuple[dict[str, Any], str]:
-    previous_transitions = _normalize_string_list(previous_memory.get("notable_transitions"))
-    previous_entities = _normalize_string_list(previous_memory.get("recurring_entities"))
-    previous_documents = _normalize_string_list(previous_memory.get("documents_seen"))
+    previous_transitions = normalize_string_list(previous_memory.get("notable_transitions"))
+    previous_entities = normalize_string_list(previous_memory.get("recurring_entities"))
+    previous_documents = normalize_string_list(previous_memory.get("documents_seen"))
     recent_activities = [
-        _normalize_string(event.get("user_activity_guess")) for event in recent_events
+        normalize_string(event.get("user_activity_guess")) for event in recent_events
     ]
     recent_scene_summaries = [
-        _normalize_string(event.get("scene_summary")) for event in recent_events
+        normalize_string(event.get("scene_summary")) for event in recent_events
     ]
     recent_scene_summaries = [summary for summary in recent_scene_summaries if summary]
-    latest_activity = _last_non_empty(recent_activities) or _normalize_string(
+    latest_activity = _last_non_empty(recent_activities) or normalize_string(
         previous_memory.get("current_task_guess")
     )
     environment_summary = _build_environment_summary(
-        previous_summary=_normalize_string(previous_memory.get("environment_summary")),
+        previous_summary=normalize_string(previous_memory.get("environment_summary")),
         recent_scene_summaries=recent_scene_summaries,
     )
     recurring_entities = _merge_unique(previous_entities, _unique_recent_values(recent_events, "entities"))
@@ -114,7 +114,7 @@ def build_session_memory_rollup(
     )
     open_uncertainties = _build_open_uncertainties(recent_events)
 
-    started_at_ms = _coerce_optional_int(previous_memory.get("started_at_ms"))
+    started_at_ms = coerce_optional_int(previous_memory.get("started_at_ms"))
     if started_at_ms is None:
         started_at_ms = min(event["capture_ts_ms"] for event in recent_events) if recent_events else 0
 
@@ -264,23 +264,11 @@ def _build_session_summary_text(
     return " ".join(parts)
 
 
-def _normalize_string(value: Any) -> str:
-    return normalize_string(value)
-
-
-def _normalize_string_list(value: Any) -> list[str]:
-    return normalize_string_list(value)
-
-
 def _last_non_empty(values: list[str]) -> str:
     for value in reversed(values):
         if value:
             return value
     return ""
-
-
-def _coerce_optional_int(value: Any) -> int | None:
-    return coerce_optional_int(value)
 
 
 def _latest_event_by_capture_ts(events: list[AcceptedVisionEvent]) -> AcceptedVisionEvent | None:
