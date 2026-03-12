@@ -17,7 +17,6 @@ class RuntimeStoragePaths:
     user_root: Path
     session_root: Path
     vision_frames_root: Path
-    debug_audio_root: Path
     sqlite_path: Path
     user_profile_markdown_path: Path
     user_profile_json_path: Path
@@ -28,7 +27,6 @@ class RuntimeStoragePaths:
             "user_root": str(self.user_root),
             "session_root": str(self.session_root),
             "vision_frames_root": str(self.vision_frames_root),
-            "debug_audio_root": str(self.debug_audio_root),
             "sqlite_path": str(self.sqlite_path),
             "user_profile_markdown_path": str(self.user_profile_markdown_path),
             "user_profile_json_path": str(self.user_profile_json_path),
@@ -78,7 +76,6 @@ def build_backend_storage(settings: Settings) -> tuple[RuntimeStoragePaths, Back
             user_root=storage_paths.user_root,
             session_root=storage_paths.session_root,
             vision_frames_root=storage_paths.vision_frames_root,
-            debug_audio_root=storage_paths.debug_audio_root,
             sqlite_path=storage_paths.sqlite_path,
             user_profile_markdown_path=storage_paths.user_profile_markdown_path,
             user_profile_json_path=storage_paths.user_profile_json_path,
@@ -93,7 +90,6 @@ def build_runtime_storage_paths(settings: Settings) -> RuntimeStoragePaths:
         user_root=settings.backend_data_dir / "user",
         session_root=settings.backend_data_dir / "session",
         vision_frames_root=settings.backend_data_dir / "vision_frames",
-        debug_audio_root=settings.backend_debug_dump_input_audio_dir,
         sqlite_path=settings.backend_sqlite_path,
         user_profile_markdown_path=settings.backend_data_dir / "user" / "user_profile.md",
         user_profile_json_path=settings.backend_data_dir / "user" / "user_profile.json",

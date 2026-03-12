@@ -19,7 +19,6 @@ class StoragePaths:
     user_root: Path
     session_root: Path
     vision_frames_root: Path
-    debug_audio_root: Path
     sqlite_path: Path
     user_profile_markdown_path: Path
     user_profile_json_path: Path

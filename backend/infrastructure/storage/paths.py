@@ -49,7 +49,6 @@ class StoragePathMixin:
             self.paths.user_root,
             self.paths.session_root,
             self.paths.vision_frames_root,
-            self.paths.debug_audio_root,
         ):
             path.mkdir(parents=True, exist_ok=True)
 

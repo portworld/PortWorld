@@ -87,8 +87,6 @@ class Settings:
     backend_uplink_ack_every_n_frames: int
     backend_data_dir: Path
     backend_sqlite_path: Path
-    backend_debug_dump_input_audio: bool
-    backend_debug_dump_input_audio_dir: Path
     backend_debug_trace_ws_messages: bool
     backend_max_vision_request_bytes: int
     backend_max_vision_frame_bytes: int
@@ -241,17 +239,9 @@ def _load_storage_settings() -> dict[str, str | int | bool | Path]:
     backend_sqlite_path = Path(
         _get_env("BACKEND_SQLITE_PATH") or str(backend_data_dir / "portworld.db")
     )
-    backend_debug_dump_input_audio_dir = Path(
-        _get_env("BACKEND_DEBUG_DUMP_INPUT_AUDIO_DIR") or str(backend_data_dir / "debug_audio")
-    )
     return {
         "backend_data_dir": backend_data_dir,
         "backend_sqlite_path": backend_sqlite_path,
-        "backend_debug_dump_input_audio": _parse_bool_env(
-            "BACKEND_DEBUG_DUMP_INPUT_AUDIO",
-            default=False,
-        ),
-        "backend_debug_dump_input_audio_dir": backend_debug_dump_input_audio_dir,
         "backend_debug_trace_ws_messages": _parse_bool_env(
             "BACKEND_DEBUG_TRACE_WS_MESSAGES",
             default=False,
