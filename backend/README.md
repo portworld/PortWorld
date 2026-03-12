@@ -9,7 +9,7 @@ FastAPI + Uvicorn backend that relays realtime voice sessions to OpenAI, with op
 - **Visual memory** *(opt-in)* — ingests JPEG frames via `POST /vision/frame`, routes them through adaptive scene-change gating, and builds semantic session memory using any OpenAI-compatible vision endpoint (default: Mistral)
 - **Realtime tooling** *(opt-in)* — registers memory-recall tools with the active OpenAI session; optionally adds web search via Tavily
 - **Bearer token auth** — all non-health endpoints can require `Authorization: Bearer <token>`; production mode enforces this at startup
-- **Rate limiting** — sliding-window limits per session and per IP on WebSocket setup and vision ingest
+- **Rate limiting** — sliding-window limits on WebSocket setup, session activation, vision ingest, and protected profile/memory-admin HTTP routes
 - **Memory export** — `GET /memory/export` streams a ZIP of all session and profile memory
 - **Operator CLI** — `python -m backend.cli` for serving, config validation, storage bootstrap, and memory export
 
@@ -78,6 +78,14 @@ Set `BACKEND_PROFILE=production` to enforce the following at startup:
 | `CORS_ORIGINS` | Explicit allowed origins (not `*`) |
 | `BACKEND_ALLOWED_HOSTS` | Explicit allowed hosts (not `*`) |
 
+**Rate limiting**
+
+| Variable | Description |
+|---|---|
+| `BACKEND_ENABLE_IP_RATE_LIMITS` | Enables IP-based sliding-window rate limits (enabled by default in production profile) |
+| `BACKEND_RATE_LIMIT_HTTP_IP_MAX_REQUESTS` | Max requests per IP for protected profile and memory-admin HTTP endpoints within the HTTP rate-limit window |
+| `BACKEND_RATE_LIMIT_HTTP_WINDOW_SECONDS` | Sliding-window size in seconds for protected profile and memory-admin HTTP endpoints |
+
 Generate a secure bearer token:
 
 ```bash
@@ -98,6 +106,8 @@ openssl rand -hex 32
 | `GET` | `/memory/export` | Bearer | Download a ZIP of all session and profile memory |
 | `GET` | `/memory/session/{id}/status` | Bearer | Per-session memory status |
 | `POST` | `/memory/session/{id}/reset` | Bearer | Delete memory for a specific ended session |
+
+Protected profile and memory-admin HTTP routes are IP-rate-limited when `BACKEND_ENABLE_IP_RATE_LIMITS=true`.
 
 ## Operator CLI
 

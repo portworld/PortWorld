@@ -164,5 +164,8 @@ curl -X POST http://127.0.0.1:8080/memory/session/<session_id>/reset
 - `BACKEND_BEARER_TOKEN` should be set for any shared or remotely reachable deployment.
 - `CORS_ORIGINS=*` is the local-dev default, not a recommended production setting.
 - `BACKEND_FORWARDED_ALLOW_IPS` should be set to your reverse proxy/LB peer IPs/CIDRs when deploying behind a proxy.
+- `BACKEND_RATE_LIMIT_HTTP_IP_MAX_REQUESTS` defaults to `30` and `BACKEND_RATE_LIMIT_HTTP_WINDOW_SECONDS` defaults to `60`.
+- When `BACKEND_ENABLE_IP_RATE_LIMITS=true`, the backend IP-rate-limits `GET /profile`, `PUT /profile`, `POST /profile/reset`, `GET /memory/export`, `GET /memory/session/{session_id}/status`, and `POST /memory/session/{session_id}/reset`.
+- In development profile, IP rate limits stay off by default unless you explicitly enable them.
 - Visual memory keeps derived memory by default and deletes raw frames unless debug retention is enabled.
 - When `REALTIME_TOOLING_ENABLED=true` and `TAVILY_API_KEY` is unset, the backend still starts but omits `web_search`.
