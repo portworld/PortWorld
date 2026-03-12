@@ -130,6 +130,10 @@ Route reference:
 
 - `GET /profile`
   - read the current persistent profile scaffold or populated profile
+- `GET /readyz`
+  - internal readiness endpoint
+  - when `BACKEND_BEARER_TOKEN` is set, requires bearer auth
+  - in production profile, failed checks return redacted detail strings
 - `PUT /profile`
   - write allowlisted profile fields:
     - `name`
@@ -164,5 +168,6 @@ curl -X POST http://127.0.0.1:8080/memory/session/<session_id>/reset
 
 - `BACKEND_BEARER_TOKEN` should be set for any shared or remotely reachable deployment.
 - `CORS_ORIGINS=*` is the local-dev default, not a recommended production setting.
+- `BACKEND_FORWARDED_ALLOW_IPS` should be set to your reverse proxy/LB peer IPs/CIDRs when deploying behind a proxy.
 - Visual memory keeps derived memory by default and deletes raw frames unless debug retention is enabled.
 - When `REALTIME_TOOLING_ENABLED=true` and `TAVILY_API_KEY` is unset, the backend still starts but omits `web_search`.

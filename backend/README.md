@@ -42,7 +42,7 @@ The active backend surface is:
 
 Auth behavior:
 
-- when `BACKEND_BEARER_TOKEN` is set, `/ws/session`, `/vision/frame`, `/profile`, and `/memory/*` require `Authorization: Bearer <token>`
+- when `BACKEND_BEARER_TOKEN` is set, `/ws/session`, `/vision/frame`, `/profile`, `/memory/*`, and `/readyz` require `Authorization: Bearer <token>`
 - when `BACKEND_PROFILE=production`, startup fails unless `BACKEND_BEARER_TOKEN` is set
 - `POST /vision/frame` and websocket session setup are rate-limited per session
 - optional per-IP rate limits are controlled by `BACKEND_ENABLE_IP_RATE_LIMITS` (enabled by default in production profile)
@@ -378,10 +378,14 @@ Detailed provider/runtime/storage state is intentionally not exposed through thi
 
 `GET /readyz` is the internal readiness endpoint.
 
+It uses the same bearer-token auth model as other protected routes when `BACKEND_BEARER_TOKEN` is set.
+
 It returns:
 
 - `200` with `status=ready` when required runtime dependencies are available
-- `503` with `status=not_ready` and check details when a required dependency is missing
+- `503` with `status=not_ready` when a required dependency is missing
+
+In production profile, failing checks are intentionally redacted to avoid leaking internal runtime configuration details.
 
 ## Configuration
 
@@ -404,6 +408,9 @@ It returns:
 - `BACKEND_ALLOWED_HOSTS`
   default: `*`
   local-dev default only; production should set explicit allowed hosts
+- `BACKEND_FORWARDED_ALLOW_IPS`
+  default: `127.0.0.1,::1`
+  passed to Uvicorn `forwarded_allow_ips`; trust forwarded client-IP headers only from these direct peer proxy IPs/CIDRs
 - `BACKEND_MAX_VISION_REQUEST_BYTES`
   default: `4000000`
   rejects oversized `/vision/frame` requests while the body is being read, including chunked uploads without a trustworthy `Content-Length`
@@ -557,7 +564,7 @@ High-signal self-host summary:
   - `REALTIME_TOOLING_ENABLED=true` with optional `TAVILY_API_KEY`
 - start with `docker compose up --build`
 - verify `GET /healthz`
-- optionally verify `GET /readyz` for dependency readiness
+- optionally verify authenticated `GET /readyz` for dependency readiness
 
 The repo-root `docker-compose.yml` remains the supported self-host entrypoint for this backend slice.
 
@@ -580,7 +587,7 @@ Useful backend sanity checks:
 docker compose config
 python3 -m backend.cli check-config
 curl http://127.0.0.1:8080/healthz
-curl http://127.0.0.1:8080/readyz
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/readyz
 python3 -m compileall backend
 ```
 
