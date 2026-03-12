@@ -13,7 +13,7 @@ from starlette.background import BackgroundTask
 from backend.bootstrap.memory_export import cleanup_export_file, write_memory_export_zip
 from backend.core.auth import require_http_bearer_auth
 from backend.core.runtime import get_app_runtime
-from backend.core.storage import now_ms
+from backend.core.storage import SessionNotFoundError, now_ms
 
 router = APIRouter()
 
@@ -117,7 +117,13 @@ async def reset_session_memory(
 async def session_memory_status(request: Request, session_id: str) -> dict[str, object]:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
-    return await asyncio.to_thread(
-        runtime.storage.read_session_memory_status,
-        session_id=session_id,
-    )
+    try:
+        return await asyncio.to_thread(
+            runtime.storage.read_session_memory_status,
+            session_id=session_id,
+        )
+    except SessionNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Session memory not found.",
+        ) from exc

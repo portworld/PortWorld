@@ -1,43 +1,65 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
+from json import JSONDecodeError
+from pathlib import Path
 from typing import Any
 
+from backend.infrastructure.storage.errors import SessionNotFoundError
 from backend.infrastructure.storage.types import SessionMemoryResetResult, SessionStorageResult, now_ms
 from backend.memory.lifecycle import SessionMemoryResetEligibility, SessionMemoryRetentionEligibility
 
+logger = logging.getLogger(__name__)
+
 
 class SessionStorageMixin:
-    def ensure_session_storage(self, *, session_id: str) -> SessionStorageResult:
+    def bootstrap_session_storage(self, *, session_id: str) -> SessionStorageResult:
         session_dir = self.session_storage_dir(session_id=session_id)
+        created_session_dir = not session_dir.exists()
         session_dir.mkdir(parents=True, exist_ok=True)
-        short_term_memory_markdown_path = session_dir / "short_term_memory.md"
-        short_term_memory_json_path = session_dir / "short_term_memory.json"
-        session_memory_markdown_path = session_dir / "session_memory.md"
-        session_memory_json_path = session_dir / "session_memory.json"
-        vision_events_log_path = session_dir / "vision_events.jsonl"
-        vision_routing_events_log_path = session_dir / "vision_routing_events.jsonl"
+        session_storage = self._build_session_storage_result(session_id=session_id)
 
-        self._ensure_text_file(
-            short_term_memory_markdown_path,
+        created_any = created_session_dir
+        created_any = self._ensure_text_file(
+            session_storage.short_term_memory_markdown_path,
             "# Short-Term Visual Memory\n\n",
-        )
-        self._ensure_json_file(short_term_memory_json_path, {})
-        self._ensure_text_file(
-            session_memory_markdown_path,
+        ) or created_any
+        created_any = self._ensure_json_file(session_storage.short_term_memory_json_path, {}) or created_any
+        created_any = self._ensure_text_file(
+            session_storage.session_memory_markdown_path,
             "# Session Memory\n\n",
+        ) or created_any
+        created_any = self._ensure_json_file(session_storage.session_memory_json_path, {}) or created_any
+        created_any = self._ensure_text_file(session_storage.vision_events_log_path, "") or created_any
+        created_any = (
+            self._ensure_text_file(session_storage.vision_routing_events_log_path, "") or created_any
         )
-        self._ensure_json_file(session_memory_json_path, {})
-        self._ensure_text_file(vision_events_log_path, "")
-        self._ensure_text_file(vision_routing_events_log_path, "")
 
+        if created_any:
+            self._register_session_artifacts(session_id=session_id, session_storage=session_storage)
+
+        return session_storage
+
+    def ensure_session_storage(self, *, session_id: str) -> SessionStorageResult:
+        return self.bootstrap_session_storage(session_id=session_id)
+
+    def get_session_storage_paths(self, *, session_id: str) -> SessionStorageResult:
+        return self._build_session_storage_result(session_id=session_id)
+
+    def _register_session_artifacts(
+        self,
+        *,
+        session_id: str,
+        session_storage: SessionStorageResult,
+    ) -> None:
         artifact_metadata = {"session_id": session_id, "artifact_role": "derived_memory"}
         self.register_artifact(
             artifact_id=f"{session_id}:short_term_memory_markdown",
             session_id=session_id,
             artifact_kind="short_term_memory_markdown",
-            artifact_path=short_term_memory_markdown_path,
+            artifact_path=session_storage.short_term_memory_markdown_path,
             content_type="text/markdown",
             metadata=artifact_metadata,
         )
@@ -45,7 +67,7 @@ class SessionStorageMixin:
             artifact_id=f"{session_id}:short_term_memory_json",
             session_id=session_id,
             artifact_kind="short_term_memory_json",
-            artifact_path=short_term_memory_json_path,
+            artifact_path=session_storage.short_term_memory_json_path,
             content_type="application/json",
             metadata=artifact_metadata,
         )
@@ -53,7 +75,7 @@ class SessionStorageMixin:
             artifact_id=f"{session_id}:session_memory_markdown",
             session_id=session_id,
             artifact_kind="session_memory_markdown",
-            artifact_path=session_memory_markdown_path,
+            artifact_path=session_storage.session_memory_markdown_path,
             content_type="text/markdown",
             metadata=artifact_metadata,
         )
@@ -61,7 +83,7 @@ class SessionStorageMixin:
             artifact_id=f"{session_id}:session_memory_json",
             session_id=session_id,
             artifact_kind="session_memory_json",
-            artifact_path=session_memory_json_path,
+            artifact_path=session_storage.session_memory_json_path,
             content_type="application/json",
             metadata=artifact_metadata,
         )
@@ -69,7 +91,7 @@ class SessionStorageMixin:
             artifact_id=f"{session_id}:vision_event_log",
             session_id=session_id,
             artifact_kind="vision_event_log",
-            artifact_path=vision_events_log_path,
+            artifact_path=session_storage.vision_events_log_path,
             content_type="application/x-ndjson",
             metadata=artifact_metadata,
         )
@@ -77,72 +99,12 @@ class SessionStorageMixin:
             artifact_id=f"{session_id}:vision_routing_event_log",
             session_id=session_id,
             artifact_kind="vision_routing_event_log",
-            artifact_path=vision_routing_events_log_path,
+            artifact_path=session_storage.vision_routing_events_log_path,
             content_type="application/x-ndjson",
             metadata=artifact_metadata,
         )
 
-        return SessionStorageResult(
-            session_dir=session_dir,
-            short_term_memory_markdown_path=short_term_memory_markdown_path,
-            short_term_memory_json_path=short_term_memory_json_path,
-            session_memory_markdown_path=session_memory_markdown_path,
-            session_memory_json_path=session_memory_json_path,
-            vision_events_log_path=vision_events_log_path,
-            vision_routing_events_log_path=vision_routing_events_log_path,
-        )
-
-    def upsert_session_status(self, *, session_id: str, status: str) -> None:
-        timestamp_ms = now_ms()
-
-        def _operation() -> None:
-            with self.connect() as connection:
-                connection.execute(
-                    """
-                    INSERT INTO session_index(session_id, status, created_at_ms, updated_at_ms)
-                    VALUES(?, ?, ?, ?)
-                    ON CONFLICT(session_id) DO UPDATE SET
-                        status=excluded.status,
-                        updated_at_ms=excluded.updated_at_ms
-                    """,
-                    (session_id, status, timestamp_ms, timestamp_ms),
-                )
-                connection.commit()
-
-        self._run_with_sqlite_retry(_operation)
-
-    def append_vision_event(self, *, session_id: str, event: dict[str, Any]) -> None:
-        session_storage = self.ensure_session_storage(session_id=session_id)
-        with session_storage.vision_events_log_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, ensure_ascii=True, sort_keys=True) + "\n")
-
-    def append_vision_routing_event(self, *, session_id: str, event: dict[str, Any]) -> None:
-        session_storage = self.ensure_session_storage(session_id=session_id)
-        with session_storage.vision_routing_events_log_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, ensure_ascii=True, sort_keys=True) + "\n")
-
-    def read_vision_events(self, *, session_id: str) -> list[dict[str, Any]]:
-        session_storage = self.ensure_session_storage(session_id=session_id)
-        events: list[dict[str, Any]] = []
-        for line in session_storage.vision_events_log_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            events.append(json.loads(line))
-        return events
-
-    def read_session_memory(self, *, session_id: str) -> dict[str, Any]:
-        session_storage = self.ensure_session_storage(session_id=session_id)
-        return json.loads(session_storage.session_memory_json_path.read_text(encoding="utf-8"))
-
-    def read_short_term_memory(self, *, session_id: str) -> dict[str, Any]:
-        session_storage = self.ensure_session_storage(session_id=session_id)
-        return json.loads(session_storage.short_term_memory_json_path.read_text(encoding="utf-8"))
-
-    def get_session_memory_reset_eligibility(
-        self,
-        *,
-        session_id: str,
-    ) -> SessionMemoryResetEligibility:
+    def _session_has_persisted_memory(self, *, session_id: str) -> bool:
         session_storage = self._build_session_storage_result(session_id=session_id)
         raw_vision_dir = self._session_vision_frames_dir(session_id=session_id)
         with self.connect() as connection:
@@ -175,7 +137,7 @@ class SessionStorageMixin:
                 ).fetchone()[0]
             )
 
-        has_persisted_memory = any(
+        return any(
             [
                 session_row is not None,
                 artifact_count > 0,
@@ -184,6 +146,156 @@ class SessionStorageMixin:
                 raw_vision_dir.exists(),
             ]
         )
+
+    def _require_session_persisted(self, *, session_id: str) -> None:
+        if not self._session_has_persisted_memory(session_id=session_id):
+            raise SessionNotFoundError(f"No persisted memory found for session {session_id!r}")
+
+    def _quarantine_corrupt_file(self, path: Path, *, reason: str) -> Path:
+        quarantined_path = path.with_name(f"{path.name}.corrupt.{now_ms()}")
+        suffix = 1
+        while quarantined_path.exists():
+            quarantined_path = path.with_name(f"{path.name}.corrupt.{now_ms()}.{suffix}")
+            suffix += 1
+        path.rename(quarantined_path)
+        logger.warning(
+            "Quarantined corrupt storage artifact path=%s reason=%s quarantined_path=%s",
+            path,
+            reason,
+            quarantined_path,
+        )
+        return quarantined_path
+
+    def _safe_read_json_file(
+        self,
+        *,
+        path: Path,
+        default_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not path.exists():
+            path.write_text(
+                json.dumps(default_payload, ensure_ascii=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            return dict(default_payload)
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+            self._quarantine_corrupt_file(path, reason=str(exc))
+            path.write_text(
+                json.dumps(default_payload, ensure_ascii=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            return dict(default_payload)
+        if not isinstance(payload, dict):
+            self._quarantine_corrupt_file(path, reason="JSON root must be an object")
+            path.write_text(
+                json.dumps(default_payload, ensure_ascii=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            return dict(default_payload)
+        return payload
+
+    def _safe_read_jsonl_file(self, *, path: Path) -> list[dict[str, Any]]:
+        if not path.exists():
+            path.write_text("", encoding="utf-8")
+            return []
+        valid_events: list[dict[str, Any]] = []
+        had_error = False
+        quarantined_reason = ""
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError) as exc:
+            lines = []
+            had_error = True
+            quarantined_reason = str(exc)
+
+        for index, line in enumerate(lines, start=1):
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except JSONDecodeError as exc:
+                had_error = True
+                quarantined_reason = f"invalid JSONL line {index}: {exc}"
+                continue
+            if isinstance(payload, dict):
+                valid_events.append(payload)
+            else:
+                had_error = True
+                quarantined_reason = f"invalid JSONL line {index}: root must be object"
+
+        if had_error:
+            self._quarantine_corrupt_file(path, reason=quarantined_reason or "invalid JSONL content")
+            with path.open("w", encoding="utf-8") as handle:
+                for event in valid_events:
+                    handle.write(json.dumps(event, ensure_ascii=True, sort_keys=True) + "\n")
+        return valid_events
+
+    def upsert_session_status(self, *, session_id: str, status: str) -> None:
+        timestamp_ms = now_ms()
+
+        def _operation() -> None:
+            with self.connect() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO session_index(session_id, status, created_at_ms, updated_at_ms)
+                    VALUES(?, ?, ?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        status=excluded.status,
+                        updated_at_ms=excluded.updated_at_ms
+                    """,
+                    (session_id, status, timestamp_ms, timestamp_ms),
+                )
+                connection.commit()
+
+        self._run_with_sqlite_retry(_operation)
+
+    def append_vision_event(self, *, session_id: str, event: dict[str, Any]) -> None:
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        if not session_storage.session_dir.exists():
+            session_storage = self.bootstrap_session_storage(session_id=session_id)
+        with session_storage.vision_events_log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=True, sort_keys=True) + "\n")
+
+    def append_vision_routing_event(self, *, session_id: str, event: dict[str, Any]) -> None:
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        if not session_storage.session_dir.exists():
+            session_storage = self.bootstrap_session_storage(session_id=session_id)
+        with session_storage.vision_routing_events_log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=True, sort_keys=True) + "\n")
+
+    def read_vision_events(self, *, session_id: str) -> list[dict[str, Any]]:
+        self._require_session_persisted(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        return self._safe_read_jsonl_file(path=session_storage.vision_events_log_path)
+
+    def read_session_memory(self, *, session_id: str) -> dict[str, Any]:
+        self._require_session_persisted(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        return self._safe_read_json_file(path=session_storage.session_memory_json_path, default_payload={})
+
+    def read_short_term_memory(self, *, session_id: str) -> dict[str, Any]:
+        self._require_session_persisted(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        return self._safe_read_json_file(path=session_storage.short_term_memory_json_path, default_payload={})
+
+    def get_session_memory_reset_eligibility(
+        self,
+        *,
+        session_id: str,
+    ) -> SessionMemoryResetEligibility:
+        with self.connect() as connection:
+            session_row = connection.execute(
+                """
+                SELECT status
+                FROM session_index
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+
+        has_persisted_memory = self._session_has_persisted_memory(session_id=session_id)
         is_active = bool(session_row is not None and str(session_row["status"]) == "active")
         if is_active:
             return SessionMemoryResetEligibility(
@@ -288,7 +400,9 @@ class SessionStorageMixin:
         payload: dict[str, Any],
         markdown_text: str,
     ) -> None:
-        session_storage = self.ensure_session_storage(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        if not session_storage.session_dir.exists():
+            session_storage = self.bootstrap_session_storage(session_id=session_id)
         session_storage.short_term_memory_json_path.write_text(
             json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
             encoding="utf-8",
@@ -305,7 +419,9 @@ class SessionStorageMixin:
         payload: dict[str, Any],
         markdown_text: str,
     ) -> None:
-        session_storage = self.ensure_session_storage(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        if not session_storage.session_dir.exists():
+            session_storage = self.bootstrap_session_storage(session_id=session_id)
         session_storage.session_memory_json_path.write_text(
             json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
             encoding="utf-8",
@@ -321,7 +437,8 @@ class SessionStorageMixin:
         session_id: str,
         recent_limit: int = 10,
     ) -> dict[str, Any]:
-        session_storage = self.ensure_session_storage(session_id=session_id)
+        self._require_session_persisted(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
         short_term_memory = self.read_short_term_memory(session_id=session_id)
         session_memory = self.read_session_memory(session_id=session_id)
         accepted_events = self.read_vision_events(session_id=session_id)
@@ -362,6 +479,14 @@ class SessionStorageMixin:
         )
         recent_frames: list[dict[str, Any]] = []
         for row in recent_rows:
+            error_details: dict[str, Any] | None = None
+            if row["error_details_json"] is not None:
+                try:
+                    loaded_error_details = json.loads(str(row["error_details_json"]))
+                except JSONDecodeError:
+                    loaded_error_details = {"raw": str(row["error_details_json"])}
+                if isinstance(loaded_error_details, dict):
+                    error_details = loaded_error_details
             recent_frames.append(
                 {
                     "frame_id": str(row["frame_id"]),
@@ -375,11 +500,7 @@ class SessionStorageMixin:
                     "next_retry_at_ms": int(row["next_retry_at_ms"]) if row["next_retry_at_ms"] is not None else None,
                     "attempt_count": int(row["attempt_count"] or 0),
                     "error_code": str(row["error_code"]) if row["error_code"] is not None else None,
-                    "error_details": (
-                        json.loads(str(row["error_details_json"]))
-                        if row["error_details_json"] is not None
-                        else None
-                    ),
+                    "error_details": error_details,
                     "routing_status": str(row["routing_status"]) if row["routing_status"] is not None else None,
                     "routing_reason": str(row["routing_reason"]) if row["routing_reason"] is not None else None,
                     "routing_score": float(row["routing_score"]) if row["routing_score"] is not None else None,
@@ -407,39 +528,70 @@ class SessionStorageMixin:
 
         session_storage = self._build_session_storage_result(session_id=session_id)
         raw_vision_dir = self._session_vision_frames_dir(session_id=session_id)
-        with self.connect() as connection:
-            artifact_delete = connection.execute(
-                """
-                DELETE FROM artifact_index
-                WHERE session_id = ?
-                """,
-                (session_id,),
-            )
-            vision_delete = connection.execute(
-                """
-                DELETE FROM vision_frame_index
-                WHERE session_id = ?
-                """,
-                (session_id,),
-            )
-            session_delete = connection.execute(
-                """
-                DELETE FROM session_index
-                WHERE session_id = ?
-                """,
-                (session_id,),
-            )
-            connection.commit()
+
+        staged_root = self.paths.data_root / "pending_delete" / str(now_ms())
+        staged_root.mkdir(parents=True, exist_ok=True)
+        staged_session_dir = staged_root / "session"
+        staged_vision_dir = staged_root / "vision_frames"
+        renamed_session_dir = False
+        renamed_vision_dir = False
+
+        if session_storage.session_dir.exists():
+            staged_session_dir.parent.mkdir(parents=True, exist_ok=True)
+            session_storage.session_dir.rename(staged_session_dir)
+            renamed_session_dir = True
+
+        if raw_vision_dir.exists():
+            staged_vision_dir.parent.mkdir(parents=True, exist_ok=True)
+            raw_vision_dir.rename(staged_vision_dir)
+            renamed_vision_dir = True
+
+        try:
+            with self.connect() as connection:
+                artifact_delete = connection.execute(
+                    """
+                    DELETE FROM artifact_index
+                    WHERE session_id = ?
+                    """,
+                    (session_id,),
+                )
+                vision_delete = connection.execute(
+                    """
+                    DELETE FROM vision_frame_index
+                    WHERE session_id = ?
+                    """,
+                    (session_id,),
+                )
+                session_delete = connection.execute(
+                    """
+                    DELETE FROM session_index
+                    WHERE session_id = ?
+                    """,
+                    (session_id,),
+                )
+                connection.commit()
+        except Exception:
+            if renamed_session_dir and staged_session_dir.exists() and not session_storage.session_dir.exists():
+                staged_session_dir.rename(session_storage.session_dir)
+            if renamed_vision_dir and staged_vision_dir.exists() and not raw_vision_dir.exists():
+                staged_vision_dir.rename(raw_vision_dir)
+            raise
 
         removed_session_dir = False
-        if session_storage.session_dir.exists():
-            shutil.rmtree(session_storage.session_dir)
+        if staged_session_dir.exists():
+            shutil.rmtree(staged_session_dir)
             removed_session_dir = True
 
         removed_vision_frames_dir = False
-        if raw_vision_dir.exists():
-            shutil.rmtree(raw_vision_dir)
+        if staged_vision_dir.exists():
+            shutil.rmtree(staged_vision_dir)
             removed_vision_frames_dir = True
+
+        if staged_root.exists():
+            try:
+                staged_root.rmdir()
+            except OSError:
+                logger.warning("Pending delete directory retained path=%s", staged_root)
 
         return SessionMemoryResetResult(
             session_id=session_id,

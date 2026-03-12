@@ -1,4 +1,5 @@
 from backend.infrastructure.storage.artifacts import ArtifactStorageMixin
+from backend.infrastructure.storage.errors import CorruptStorageArtifactError, SessionNotFoundError
 from backend.infrastructure.storage.paths import StoragePathMixin
 from backend.infrastructure.storage.profile import ProfileStorageMixin
 from backend.infrastructure.storage.sessions import SessionStorageMixin
@@ -20,6 +21,7 @@ from backend.infrastructure.storage.vision import VisionFrameStorageMixin
 __all__ = [
     "ArtifactRecord",
     "ArtifactStorageMixin",
+    "CorruptStorageArtifactError",
     "MemoryExportArtifact",
     "ProfileStorageMixin",
     "RealtimeReadOnlyStorageView",
@@ -30,6 +32,7 @@ __all__ = [
     "StorageBootstrapResult",
     "StoragePathMixin",
     "StoragePaths",
+    "SessionNotFoundError",
     "VisionFrameIndexRecord",
     "VisionFrameIngestResult",
     "VisionFrameStorageMixin",
