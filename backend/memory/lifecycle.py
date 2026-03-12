@@ -20,13 +20,19 @@ PROFILE_ARTIFACT_FILE_NAMES: Final[tuple[str, ...]] = (
     "user_profile.md",
     "user_profile.json",
 )
+SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME: Final[str] = "short_term_memory.md"
+SHORT_TERM_MEMORY_JSON_FILE_NAME: Final[str] = "short_term_memory.json"
+SESSION_MEMORY_MARKDOWN_FILE_NAME: Final[str] = "session_memory.md"
+SESSION_MEMORY_JSON_FILE_NAME: Final[str] = "session_memory.json"
+VISION_EVENTS_LOG_FILE_NAME: Final[str] = "vision_events.jsonl"
+VISION_ROUTING_EVENTS_LOG_FILE_NAME: Final[str] = "vision_routing_events.jsonl"
 SESSION_MEMORY_ARTIFACT_FILE_NAMES: Final[tuple[str, ...]] = (
-    "short_term_memory.md",
-    "short_term_memory.json",
-    "session_memory.md",
-    "session_memory.json",
-    "vision_events.jsonl",
-    "vision_routing_events.jsonl",
+    SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME,
+    SHORT_TERM_MEMORY_JSON_FILE_NAME,
+    SESSION_MEMORY_MARKDOWN_FILE_NAME,
+    SESSION_MEMORY_JSON_FILE_NAME,
+    VISION_EVENTS_LOG_FILE_NAME,
+    VISION_ROUTING_EVENTS_LOG_FILE_NAME,
 )
 EXPORTABLE_SESSION_ARTIFACT_KINDS: Final[tuple[str, ...]] = (
     "short_term_memory_markdown",
@@ -126,6 +132,12 @@ __all__ = [
     "PROFILE_ONBOARDING_FIELD_DESCRIPTIONS",
     "PROFILE_SCHEMA_VERSION",
     "SESSION_MEMORY_ARTIFACT_FILE_NAMES",
+    "SESSION_MEMORY_JSON_FILE_NAME",
+    "SESSION_MEMORY_MARKDOWN_FILE_NAME",
+    "SHORT_TERM_MEMORY_JSON_FILE_NAME",
+    "SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME",
+    "VISION_EVENTS_LOG_FILE_NAME",
+    "VISION_ROUTING_EVENTS_LOG_FILE_NAME",
     "MemoryExportManifest",
     "ProfileLifecycleMetadata",
     "ProfileOnboardingPayload",

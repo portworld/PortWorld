@@ -7,7 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from backend.infrastructure.storage.types import now_ms
-from backend.memory.lifecycle import SESSION_MEMORY_ARTIFACT_FILE_NAMES
+from backend.memory.lifecycle import (
+    SESSION_MEMORY_JSON_FILE_NAME,
+    SESSION_MEMORY_MARKDOWN_FILE_NAME,
+    SHORT_TERM_MEMORY_JSON_FILE_NAME,
+    SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME,
+    VISION_EVENTS_LOG_FILE_NAME,
+    VISION_ROUTING_EVENTS_LOG_FILE_NAME,
+)
 
 _STORAGE_ID_PREFIX_MAX_LENGTH = 24
 _HASHED_DIR_PATTERN = re.compile(r".+--[0-9a-f]{64}$")
@@ -67,12 +74,12 @@ class StoragePathMixin:
         session_dir = self.session_storage_dir(session_id=session_id)
         return SessionStorageResult(
             session_dir=session_dir,
-            short_term_memory_markdown_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[0],
-            short_term_memory_json_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[1],
-            session_memory_markdown_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[2],
-            session_memory_json_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[3],
-            vision_events_log_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[4],
-            vision_routing_events_log_path=session_dir / SESSION_MEMORY_ARTIFACT_FILE_NAMES[5],
+            short_term_memory_markdown_path=session_dir / SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME,
+            short_term_memory_json_path=session_dir / SHORT_TERM_MEMORY_JSON_FILE_NAME,
+            session_memory_markdown_path=session_dir / SESSION_MEMORY_MARKDOWN_FILE_NAME,
+            session_memory_json_path=session_dir / SESSION_MEMORY_JSON_FILE_NAME,
+            vision_events_log_path=session_dir / VISION_EVENTS_LOG_FILE_NAME,
+            vision_routing_events_log_path=session_dir / VISION_ROUTING_EVENTS_LOG_FILE_NAME,
         )
 
     def _session_vision_frames_dir(self, *, session_id: str) -> Path:
