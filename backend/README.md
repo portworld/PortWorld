@@ -130,7 +130,6 @@ Default layout:
 - `backend/var/session/<session_storage_key>/vision_routing_events.jsonl`
 - `backend/var/vision_frames/<session_storage_key>/<frame_storage_key>.jpg`
 - `backend/var/vision_frames/<session_storage_key>/<frame_storage_key>.json`
-- `backend/var/debug_audio/...`
 
 `session_storage_key` and `frame_storage_key` are deterministic collision-safe path components derived from the logical IDs as `<sanitized-prefix>--<sha256>`. The raw logical IDs remain in SQLite and artifact metadata.
 
@@ -422,10 +421,6 @@ In production profile, failing checks are intentionally redacted to avoid leakin
 - `BACKEND_ENABLE_IP_RATE_LIMITS`
   default: `false` in development profile, `true` in production profile
   enables extra per-IP limiting on websocket setup and vision ingest
-- `BACKEND_DEBUG_DUMP_INPUT_AUDIO`
-  default: `false`
-- `BACKEND_DEBUG_DUMP_INPUT_AUDIO_DIR`
-  default: `<BACKEND_DATA_DIR>/debug_audio`
 - `BACKEND_DEBUG_TRACE_WS_MESSAGES`
   default: `false`
   must remain `false` when `BACKEND_PROFILE=production`
