@@ -38,8 +38,16 @@ def make_send_control(context: SessionConnectionContext) -> SendControl:
                 seq=session.next_seq(),
                 payload=payload,
             )
-        if message_type in {"assistant.playback.control", "error"}:
+        if message_type == "error":
             logger.warning(
+                "WS_SEND_CONTROL connection_id=%s session=%s type=%s payload=%s",
+                context.connection_id,
+                envelope.session_id,
+                message_type,
+                payload,
+            )
+        elif message_type == "assistant.playback.control":
+            logger.debug(
                 "WS_SEND_CONTROL connection_id=%s session=%s type=%s payload=%s",
                 context.connection_id,
                 envelope.session_id,
@@ -71,7 +79,7 @@ def make_send_server_audio(context: SessionConnectionContext) -> SendBinary:
                 if context.active_session is not None
                 else "unknown"
             )
-            logger.warning(
+            logger.debug(
                 "WS_SEND_SERVER_AUDIO connection_id=%s session=%s frame=%s payload_bytes=%s total_bytes=%s ts_ms=%s",
                 context.connection_id,
                 session_id,
