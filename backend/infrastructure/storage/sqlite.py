@@ -7,7 +7,7 @@ from typing import Any, Callable, Iterator, TypeVar
 
 from backend.infrastructure.storage.types import VisionFrameIndexRecord
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 _SQLITE_BUSY_BACKOFF_SECONDS = (0.05, 0.1, 0.2)
 _SQLITE_BUSY_TIMEOUT_MS = 5_000
 _SQLiteRetryResult = TypeVar("_SQLiteRetryResult")
@@ -39,7 +39,8 @@ class SQLiteStorageMixin:
                     relative_path TEXT NOT NULL,
                     content_type TEXT NOT NULL,
                     metadata_json TEXT NOT NULL,
-                    created_at_ms INTEGER NOT NULL
+                    created_at_ms INTEGER NOT NULL,
+                    updated_at_ms INTEGER NOT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS vision_frame_index (
@@ -69,6 +70,7 @@ class SQLiteStorageMixin:
                 );
                 """
             )
+            self._ensure_artifact_index_columns(connection)
             self._ensure_vision_frame_index_columns(connection)
             connection.execute(
                 """
@@ -101,6 +103,23 @@ class SQLiteStorageMixin:
                 f"ALTER TABLE vision_frame_index ADD COLUMN {column_name} {column_type}"
             )
 
+    def _ensure_artifact_index_columns(self, connection: sqlite3.Connection) -> None:
+        existing_columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(artifact_index)").fetchall()
+        }
+        if "updated_at_ms" in existing_columns:
+            return
+        connection.execute(
+            "ALTER TABLE artifact_index ADD COLUMN updated_at_ms INTEGER"
+        )
+        connection.execute(
+            """
+            UPDATE artifact_index
+            SET updated_at_ms = COALESCE(updated_at_ms, created_at_ms)
+            """
+        )
+
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(
@@ -126,6 +145,7 @@ class SQLiteStorageMixin:
         content_type: str,
         metadata_json: str,
         created_at_ms: int,
+        updated_at_ms: int,
         connection: sqlite3.Connection,
     ) -> None:
         connection.execute(
@@ -137,16 +157,17 @@ class SQLiteStorageMixin:
                 relative_path,
                 content_type,
                 metadata_json,
-                created_at_ms
+                created_at_ms,
+                updated_at_ms
             )
-            VALUES(?, ?, ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(artifact_id) DO UPDATE SET
                 session_id=excluded.session_id,
                 artifact_kind=excluded.artifact_kind,
                 relative_path=excluded.relative_path,
                 content_type=excluded.content_type,
                 metadata_json=excluded.metadata_json,
-                created_at_ms=excluded.created_at_ms
+                updated_at_ms=excluded.updated_at_ms
             """,
             (
                 artifact_id,
@@ -156,6 +177,7 @@ class SQLiteStorageMixin:
                 content_type,
                 metadata_json,
                 created_at_ms,
+                updated_at_ms,
             ),
         )
 

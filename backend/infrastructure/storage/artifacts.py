@@ -20,6 +20,7 @@ class ArtifactStorageMixin:
     ) -> ArtifactRecord:
         relative_path = str(artifact_path.relative_to(self.paths.data_root))
         created_at_ms = now_ms()
+        updated_at_ms = created_at_ms
         metadata_json = json.dumps(metadata, ensure_ascii=True, sort_keys=True)
 
         def _operation() -> None:
@@ -32,6 +33,7 @@ class ArtifactStorageMixin:
                     content_type=content_type,
                     metadata_json=metadata_json,
                     created_at_ms=created_at_ms,
+                    updated_at_ms=updated_at_ms,
                     connection=connection,
                 )
                 connection.commit()

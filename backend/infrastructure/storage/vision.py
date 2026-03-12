@@ -93,6 +93,7 @@ class VisionFrameStorageMixin:
                         content_type="image/jpeg",
                         metadata_json=json.dumps(artifact_metadata, ensure_ascii=True, sort_keys=True),
                         created_at_ms=ingest_record.ingest_ts_ms,
+                        updated_at_ms=ingest_record.ingest_ts_ms,
                         connection=connection,
                     )
                     self._upsert_artifact_record(
@@ -103,6 +104,7 @@ class VisionFrameStorageMixin:
                         content_type="application/json",
                         metadata_json=json.dumps(artifact_metadata, ensure_ascii=True, sort_keys=True),
                         created_at_ms=ingest_record.ingest_ts_ms,
+                        updated_at_ms=ingest_record.ingest_ts_ms,
                         connection=connection,
                     )
                     self._upsert_vision_frame_index(ingest_record, connection=connection)
