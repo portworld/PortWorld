@@ -120,8 +120,7 @@ def _make_lifespan(settings: Settings) -> Callable[[FastAPI], AsyncIterator[None
     return lifespan
 
 
-def create_app() -> FastAPI:
-    settings = Settings.from_env()
+def create_app_from_settings(settings: Settings) -> FastAPI:
     settings.validate_production_posture()
     app = FastAPI(title=SERVICE_NAME, lifespan=_make_lifespan(settings))
 
@@ -148,6 +147,10 @@ def create_app() -> FastAPI:
     app.include_router(vision_router)
     app.include_router(session_ws_router)
     return app
+
+
+def create_app() -> FastAPI:
+    return create_app_from_settings(Settings.from_env())
 
 
 app = create_app()

@@ -3,12 +3,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from hashlib import sha1
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from backend.bootstrap.runtime import RuntimeStoragePaths, build_runtime_dependencies
 from backend.core.rate_limit import RateLimitDecision, SlidingWindowRateLimiter
 from backend.core.settings import Settings
-from backend.core.storage import BackendStorage, StorageBootstrapResult, StoragePaths
+from backend.core.storage import BackendStorage, StorageBootstrapResult
 from backend.realtime.factory import RealtimeProviderFactory, build_debug_mock_capture_bridge
 from backend.tools.runtime import RealtimeToolingRuntime
 from backend.vision.runtime import VisionMemoryRuntime
@@ -18,18 +18,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeStoragePaths:
-    data_root: Path
-    user_root: Path
-    session_root: Path
-    vision_frames_root: Path
-    debug_audio_root: Path
-    sqlite_path: Path
-    user_profile_markdown_path: Path
-    user_profile_json_path: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,45 +42,14 @@ class AppRuntime:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "AppRuntime":
-        settings.validate_production_posture()
-        storage_paths = RuntimeStoragePaths(
-            data_root=settings.backend_data_dir,
-            user_root=settings.backend_data_dir / "user",
-            session_root=settings.backend_data_dir / "session",
-            vision_frames_root=settings.backend_data_dir / "vision_frames",
-            debug_audio_root=settings.backend_debug_dump_input_audio_dir,
-            sqlite_path=settings.backend_sqlite_path,
-            user_profile_markdown_path=settings.backend_data_dir / "user" / "user_profile.md",
-            user_profile_json_path=settings.backend_data_dir / "user" / "user_profile.json",
-        )
-        storage = BackendStorage(
-            paths=StoragePaths(
-                data_root=storage_paths.data_root,
-                user_root=storage_paths.user_root,
-                session_root=storage_paths.session_root,
-                vision_frames_root=storage_paths.vision_frames_root,
-                debug_audio_root=storage_paths.debug_audio_root,
-                sqlite_path=storage_paths.sqlite_path,
-                user_profile_markdown_path=storage_paths.user_profile_markdown_path,
-                user_profile_json_path=storage_paths.user_profile_json_path,
-            )
-        )
-        vision_memory_runtime = None
-        if settings.vision_memory_enabled:
-            vision_memory_runtime = VisionMemoryRuntime.from_settings(settings, storage=storage)
-        realtime_tooling_runtime = None
-        if settings.realtime_tooling_enabled:
-            realtime_tooling_runtime = RealtimeToolingRuntime.from_settings(
-                settings,
-                storage=storage,
-            )
+        dependencies = build_runtime_dependencies(settings)
         return cls(
             settings=settings,
-            storage_paths=storage_paths,
-            storage=storage,
-            realtime_provider=RealtimeProviderFactory(settings=settings),
-            vision_memory_runtime=vision_memory_runtime,
-            realtime_tooling_runtime=realtime_tooling_runtime,
+            storage_paths=dependencies.storage_paths,
+            storage=dependencies.storage,
+            realtime_provider=dependencies.realtime_provider_factory,
+            vision_memory_runtime=dependencies.vision_memory_runtime,
+            realtime_tooling_runtime=dependencies.realtime_tooling_runtime,
             rate_limiter=SlidingWindowRateLimiter(),
         )
 

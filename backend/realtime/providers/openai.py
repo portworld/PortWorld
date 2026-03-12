@@ -8,6 +8,10 @@ from backend.tools.runtime import RealtimeToolingRuntime
 from backend.ws.session_registry import SessionRecord
 
 
+def validate_openai_realtime_settings(settings: Settings) -> None:
+    settings.require_openai_api_key()
+
+
 def build_openai_session_bridge(
     *,
     settings: Settings,

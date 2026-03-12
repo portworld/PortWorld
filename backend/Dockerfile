@@ -12,7 +12,9 @@ RUN pip install --no-cache-dir -r ./backend/requirements.txt
 
 COPY backend/__init__.py ./backend/__init__.py
 COPY backend/app.py ./backend/app.py
+COPY backend/cli.py ./backend/cli.py
 COPY backend/api/ ./backend/api/
+COPY backend/bootstrap/ ./backend/bootstrap/
 COPY backend/core/ ./backend/core/
 COPY backend/debug/ ./backend/debug/
 COPY backend/memory/ ./backend/memory/
@@ -23,4 +25,4 @@ COPY backend/ws/ ./backend/ws/
 
 EXPOSE 8080
 
-CMD ["python", "-m", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "-m", "backend.cli", "serve"]

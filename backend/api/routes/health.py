@@ -6,6 +6,9 @@ from fastapi import APIRouter
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from backend.realtime.factory import RealtimeProviderFactory
+from backend.tools.runtime import SearchProviderFactory
+from backend.vision.factory import VisionAnalyzerFactory
 from backend.core.constants import SERVICE_NAME
 from backend.core.runtime import get_app_runtime
 
@@ -31,25 +34,36 @@ def _readiness_checks(request: Request) -> list[dict[str, Any]]:
         }
     )
     try:
-        if runtime.settings.realtime_provider == "openai":
-            runtime.settings.require_openai_api_key()
-        checks.append({"name": "realtime_provider_credentials", "ok": True})
+        RealtimeProviderFactory(settings=runtime.settings).validate_configuration()
+        checks.append({"name": "realtime_provider_configuration", "ok": True})
     except RuntimeError as exc:
         checks.append(
             {
-                "name": "realtime_provider_credentials",
+                "name": "realtime_provider_configuration",
                 "ok": False,
                 "detail": str(exc),
             }
         )
     try:
         if runtime.settings.vision_memory_enabled:
-            runtime.settings.require_vision_provider_api_key()
-        checks.append({"name": "vision_provider_credentials", "ok": True})
+            VisionAnalyzerFactory(settings=runtime.settings).validate_configuration()
+        checks.append({"name": "vision_provider_configuration", "ok": True})
     except RuntimeError as exc:
         checks.append(
             {
-                "name": "vision_provider_credentials",
+                "name": "vision_provider_configuration",
+                "ok": False,
+                "detail": str(exc),
+            }
+        )
+    try:
+        if runtime.settings.realtime_tooling_enabled:
+            SearchProviderFactory(settings=runtime.settings)
+        checks.append({"name": "realtime_tooling_configuration", "ok": True})
+    except RuntimeError as exc:
+        checks.append(
+            {
+                "name": "realtime_tooling_configuration",
                 "ok": False,
                 "detail": str(exc),
             }

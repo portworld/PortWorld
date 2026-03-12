@@ -1,11 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import os
-import tempfile
-import zipfile
-from dataclasses import asdict
 
 from fastapi import APIRouter
 from fastapi import HTTPException
@@ -13,67 +8,12 @@ from fastapi import Request
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
+from backend.bootstrap.memory_export import cleanup_export_file, write_memory_export_zip
 from backend.core.auth import require_http_bearer_auth
 from backend.core.runtime import get_app_runtime
-from backend.core.storage import MemoryExportArtifact
 from backend.core.storage import now_ms
-from backend.memory.lifecycle import MemoryExportManifest
 
 router = APIRouter()
-
-
-def _build_export_manifest(
-    *,
-    artifacts: list[MemoryExportArtifact],
-    session_retention_days: int,
-) -> MemoryExportManifest:
-    session_ids = tuple(
-        sorted(
-            {
-                artifact.session_id
-                for artifact in artifacts
-                if artifact.session_id is not None
-            }
-        )
-    )
-    included_artifact_kinds = tuple(
-        sorted({artifact.artifact_kind for artifact in artifacts})
-    )
-    return MemoryExportManifest(
-        exported_at_ms=now_ms(),
-        session_retention_days=session_retention_days,
-        session_ids=session_ids,
-        included_artifact_kinds=included_artifact_kinds,
-    )
-
-
-def _write_export_zip(
-    *,
-    artifacts: list[MemoryExportArtifact],
-    session_retention_days: int,
-) -> str:
-    manifest = _build_export_manifest(
-        artifacts=artifacts,
-        session_retention_days=session_retention_days,
-    )
-    with tempfile.NamedTemporaryFile(
-        prefix="portworld-memory-export-",
-        suffix=".zip",
-        delete=False,
-    ) as handle:
-        export_path = handle.name
-    try:
-        with zipfile.ZipFile(export_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for artifact in artifacts:
-                archive.write(artifact.absolute_path, arcname=artifact.relative_path)
-            archive.writestr(
-                "manifest.json",
-                json.dumps(asdict(manifest), ensure_ascii=True, indent=2) + "\n",
-            )
-    except Exception:
-        _cleanup_export_file(export_path)
-        raise
-    return export_path
 
 
 def _iter_file_chunks(path: str, *, chunk_size: int = 64 * 1024):
@@ -85,13 +25,6 @@ def _iter_file_chunks(path: str, *, chunk_size: int = 64 * 1024):
             yield chunk
 
 
-def _cleanup_export_file(path: str) -> None:
-    try:
-        os.unlink(path)
-    except FileNotFoundError:
-        return
-
-
 @router.get("/memory/export")
 async def export_memory(request: Request) -> StreamingResponse:
     runtime = get_app_runtime(request.app)
@@ -99,18 +32,18 @@ async def export_memory(request: Request) -> StreamingResponse:
 
     artifacts = await asyncio.to_thread(runtime.storage.list_memory_export_artifacts)
     export_path = await asyncio.to_thread(
-        _write_export_zip,
+        write_memory_export_zip,
         artifacts=artifacts,
         session_retention_days=runtime.settings.backend_session_memory_retention_days,
     )
     filename = f"portworld-memory-export-{now_ms()}.zip"
     return StreamingResponse(
-        content=_iter_file_chunks(export_path),
+        content=_iter_file_chunks(str(export_path)),
         media_type="application/zip",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
-        background=BackgroundTask(_cleanup_export_file, export_path),
+        background=BackgroundTask(cleanup_export_file, export_path),
     )
 
 

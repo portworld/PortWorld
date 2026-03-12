@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from backend.core.settings import Settings
 from backend.vision.contracts import (
     ProviderObservationPayload,
     VisionFrameContext,
@@ -29,6 +30,18 @@ _SYSTEM_PROMPT = (
     "Set salient_change to the JSON boolean true or false. "
     "Set confidence as a JSON number between 0.0 and 1.0."
 )
+
+
+def validate_mistral_vision_settings(settings: Settings) -> None:
+    settings.require_vision_provider_api_key()
+
+
+def build_mistral_vision_analyzer(*, settings: Settings) -> "MistralVisionAnalyzer":
+    return MistralVisionAnalyzer(
+        api_key=settings.require_vision_provider_api_key(),
+        model_name=settings.vision_memory_model,
+        base_url=settings.vision_provider_base_url or settings.mistral_base_url,
+    )
 
 
 @dataclass(slots=True)
