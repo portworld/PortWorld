@@ -95,13 +95,8 @@
 		<string>external-accessory</string>
 		<string>audio</string>
 	</array>
-	<key>UILaunchScreen</key>
-	<dict>
-		<key>UIColorName</key>
-		<string>launchBackground</string>
-		<key>UIImageName</key>
-		<string>LaunchArtwork</string>
-	</dict>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
 	<key>UIRequiresFullScreen</key>
 	<true/>
 	<key>UISupportedExternalAccessoryProtocols</key>

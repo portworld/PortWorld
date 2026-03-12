@@ -2,7 +2,7 @@
 import SwiftUI
 
 struct StartupLoadingView: View {
-  @ScaledMetric(relativeTo: .largeTitle) private var artworkSize = 236
+  @ScaledMetric(relativeTo: .largeTitle) private var artworkSize = 224
 
   var body: some View {
     ZStack {
