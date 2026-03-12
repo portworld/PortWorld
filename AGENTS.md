@@ -8,23 +8,18 @@
 ## Platform Scope
 
 - Primary platform: **iOS 17.0+**
-- Target device path: iPhone first, then Meta Ray-Ban Gen 2 smart glasses
+- Target device: iPhone (primary); Meta Ray-Ban Gen 2 (future — deferred until near publishing)
 - Default to iOS-first decisions unless the task explicitly targets another platform
 
 ---
 
 ## Current Repo State
 
-The codebase is a **hackathon MVP being refactored into a cleaner consumer-grade iOS assistant**.
+The codebase is a hackathon MVP being cleaned up and stabilized for production.
 
-Active planning docs:
+**Backend** — active focus: removing non-production code, fixing gaps and reliability issues, making the backend deployable. Next: a developer CLI for easy self-hosting and deployment.
 
-- `docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md`
-  High-level sequencing from the cleaned phone runtime toward glasses support
-- `docs/intermediary/PHASE2_IMPLEMENTATION.md`
-  Detailed record of the landed Phase 2 glasses-capable runtime work
-- `docs/intermediary/PHASE1_IMPLEMENTATION.md`
-  Historical execution trace for the completed Phase 1 cleanup
+**iOS app** — active focus: clean UI/UX polish. Next: code cleanup and App Store publishing prep. Glasses / mock-device / phone-specific features will be removed or deferred as the app approaches publishing; Ray-Ban Meta Gen 2 hardware testing will happen once the app is close to ready.
 
 Historical docs:
 
@@ -35,7 +30,7 @@ Use archived docs only for migration context, historical rationale, or explicit 
 
 Golden rules:
 
-1. Do not add features until the active plan or milestone calls for them.
+1. Do not add features unless the user explicitly requests them.
 2. Always leave the app compilable after every change.
 3. No secrets in source. Use xcconfig or environment-based injection.
 
@@ -111,25 +106,13 @@ If a preferred tool is unavailable, use the closest substitute and note that in 
 
 ---
 
-## Implementation Policy
-
-- For active iOS assistant runtime work, align first with `docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md`.
-- Use `docs/intermediary/PHASE2_IMPLEMENTATION.md` for the detailed record of the current landed glasses-capable runtime behavior.
-- Use `docs/intermediary/PHASE1_IMPLEMENTATION.md` for the historical record of the completed phone-only cleanup.
-- Use archived docs only for historical context or migration reasoning.
-- If archived docs conflict with active root docs, follow the active root docs unless the user explicitly directs otherwise.
-
----
-
 ## Output Expectations
 
 For non-trivial changes, state:
 
-1. **Docs consulted**
-2. **MWDAT module touched** — `MWDATCore`, `MWDATCamera`, or `MWDATMockDevice` when relevant
-3. **MCP tools used**
-4. **Assumptions made**
-5. **Plan / milestone**
+1. **Files / areas changed**
+2. **MCP tools used**
+3. **Assumptions made**
 
 ---
 
