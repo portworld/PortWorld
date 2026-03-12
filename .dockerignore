@@ -7,7 +7,9 @@
 backend/.env
 backend/.venv/
 backend/.pytest_cache/
+backend/debug/
 backend/devtools/
+backend/scripts/
 backend/var/
 
 # Non-backend repo trees are not needed for the backend image build.

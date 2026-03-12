@@ -4,7 +4,7 @@ import logging
 import time
 from typing import Any
 
-from backend.debug.audio_dump import PCM16WavDumpWriter
+from backend.realtime.audio_dump import PCM16WavDumpWriter
 from backend.ws.contracts import now_ms
 
 logger = logging.getLogger(__name__)

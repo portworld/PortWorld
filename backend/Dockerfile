@@ -16,7 +16,7 @@ COPY backend/cli.py ./backend/cli.py
 COPY backend/api/ ./backend/api/
 COPY backend/bootstrap/ ./backend/bootstrap/
 COPY backend/core/ ./backend/core/
-COPY backend/debug/ ./backend/debug/
+COPY backend/infrastructure/ ./backend/infrastructure/
 COPY backend/memory/ ./backend/memory/
 COPY backend/realtime/ ./backend/realtime/
 COPY backend/tools/ ./backend/tools/

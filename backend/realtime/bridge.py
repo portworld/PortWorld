@@ -6,11 +6,11 @@ import logging
 import time
 from typing import Any
 
-from backend.debug.audio_dump import PCM16WavDumpWriter
 from backend.realtime.client import (
     OpenAIRealtimeClient,
     RealtimeClientError,
 )
+from backend.realtime.audio_dump import PCM16WavDumpWriter
 from backend.realtime.bridge_audio import BridgeAudioMixin
 from backend.realtime.bridge_tool_dispatch import BridgeToolDispatchMixin
 from backend.realtime.contracts import BinarySender, EnvelopeSender

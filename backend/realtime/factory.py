@@ -88,7 +88,13 @@ def build_debug_mock_capture_bridge(
     settings: Settings,
     session_id: str,
 ) -> BridgeBinding:
-    from backend.debug.mock_capture import IOSMockCaptureBridge
+    try:
+        from backend.debug.mock_capture import IOSMockCaptureBridge
+    except ImportError as exc:
+        raise RuntimeError(
+            "BACKEND_DEBUG_MOCK_CAPTURE_MODE requires the optional backend.debug package, "
+            "which is not included in the production container image."
+        ) from exc
 
     record_ref: dict[str, SessionRecord | None] = {"record": None}
     bridge = IOSMockCaptureBridge(
