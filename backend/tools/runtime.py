@@ -324,7 +324,16 @@ class RealtimeToolingRuntime:
 
         try:
             profile = self.storage.read_user_profile()
-        except (JSONDecodeError, OSError):
+        except JSONDecodeError:
+            logger.warning(
+                "Failed to parse user profile JSON, proceeding without profile context"
+            )
+            return "\n\n".join(section for section in sections if section).strip() + "\n"
+        except OSError as exc:
+            logger.warning(
+                "Failed to read user profile from storage: %s, proceeding without profile context",
+                exc,
+            )
             return "\n\n".join(section for section in sections if section).strip() + "\n"
 
         profile_lines = self._build_profile_lines(profile)
