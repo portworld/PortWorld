@@ -16,6 +16,9 @@ SendBinary = Callable[[int, int, bytes], Awaitable[None]]
 
 
 def make_send_control(context: SessionConnectionContext) -> SendControl:
+    def _payload_keys(payload: dict[str, Any]) -> str:
+        return ",".join(sorted(payload.keys()))
+
     async def send_control(
         message_type: str,
         payload: dict[str, Any],
@@ -40,19 +43,19 @@ def make_send_control(context: SessionConnectionContext) -> SendControl:
             )
         if message_type == "error":
             logger.warning(
-                "WS_SEND_CONTROL connection_id=%s session=%s type=%s payload=%s",
+                "WS_SEND_CONTROL connection_id=%s session=%s type=%s payload_keys=%s",
                 context.connection_id,
                 envelope.session_id,
                 message_type,
-                payload,
+                _payload_keys(payload),
             )
         elif message_type == "assistant.playback.control":
             logger.debug(
-                "WS_SEND_CONTROL connection_id=%s session=%s type=%s payload=%s",
+                "WS_SEND_CONTROL connection_id=%s session=%s type=%s payload_keys=%s",
                 context.connection_id,
                 envelope.session_id,
                 message_type,
-                payload,
+                _payload_keys(payload),
             )
         try:
             await context.websocket.send_json(envelope.model_dump())

@@ -28,7 +28,7 @@ class SessionTelemetry:
         )
         if has_bytes_payload and not has_text_payload:
             return
-        logger.warning(
+        logger.debug(
             "WS_RECEIVE_SHAPE connection_id=%s type=%s has_text=%s has_bytes=%s text_len=%s byte_len=%s",
             self.connection_id,
             message_type,
@@ -45,7 +45,7 @@ class SessionTelemetry:
         payload_bytes: bytes,
         frame_ts_ms: int,
     ) -> dict[str, int | bool]:
-        logger.warning(
+        logger.debug(
             "Client probe frame received connection_id=%s session=%s bytes=%s ts_ms=%s",
             self.connection_id,
             active_session.session_id,
@@ -66,7 +66,7 @@ class SessionTelemetry:
         active_session: SessionRecord,
         frame_ts_ms: int,
     ) -> dict[str, Any]:
-        logger.warning(
+        logger.info(
             "Ignoring empty client audio frame connection_id=%s session=%s ts_ms=%s",
             self.connection_id,
             active_session.session_id,
@@ -89,7 +89,7 @@ class SessionTelemetry:
         self.client_audio_total_bytes += len(payload_bytes)
         if not self.did_log_first_client_audio_frame:
             self.did_log_first_client_audio_frame = True
-            logger.warning(
+            logger.debug(
                 "First client audio frame received connection_id=%s session=%s bytes=%s total_bytes=%s ts_ms=%s",
                 self.connection_id,
                 active_session.session_id,
@@ -102,7 +102,7 @@ class SessionTelemetry:
             or self.client_audio_frame_count % self.uplink_ack_every_n_frames == 0
         ):
             if self.client_audio_frame_count == 1:
-                logger.warning(
+                logger.debug(
                     "WS_UPLINK_ACK_PREP connection_id=%s session=%s frames_received=%s bytes_received=%s probe_acknowledged=%s",
                     self.connection_id,
                     active_session.session_id,
@@ -137,7 +137,7 @@ class SessionTelemetry:
         self.client_audio_total_bytes += len(payload_bytes)
         if not self.did_log_first_client_audio_frame:
             self.did_log_first_client_audio_frame = True
-            logger.warning(
+            logger.debug(
                 "First client audio frame received connection_id=%s session=%s bytes=%s total_bytes=%s mode=text_base64",
                 self.connection_id,
                 active_session.session_id,
@@ -145,7 +145,7 @@ class SessionTelemetry:
                 self.client_audio_total_bytes,
             )
         elif self.client_audio_frame_count % self.uplink_ack_every_n_frames == 0:
-            logger.warning(
+            logger.debug(
                 "Client audio frame count connection_id=%s session=%s frames=%s total_bytes=%s mode=text_base64",
                 self.connection_id,
                 active_session.session_id,
@@ -185,7 +185,7 @@ class SessionTelemetry:
         socket_binary_send_attempted = as_integral_int(payload.get("realtime_socket_binary_send_attempted"))
         socket_binary_send_completed = as_integral_int(payload.get("realtime_socket_binary_send_completed"))
         socket_last_binary_first_byte = payload.get("realtime_socket_last_binary_first_byte")
-        logger.warning(
+        logger.debug(
             "Health stats session=%s ios_enqueued=%s ios_attempted=%s ios_sent=%s ios_send_failures=%s ios_last_send_error=%s ios_force_text_audio_fallback=%s ios_socket_connection_id=%s ios_socket_last_outbound_kind=%s ios_socket_last_outbound_bytes=%s ios_socket_binary_send_attempted=%s ios_socket_binary_send_completed=%s ios_socket_last_binary_first_byte=%s backend_frames=%s backend_bytes=%s uplink_ack_emitted=%s uplink_ack_count=%s",
             envelope_session_id,
             enqueued,

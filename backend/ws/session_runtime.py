@@ -85,14 +85,16 @@ async def deactivate_session(
     storage: BackendStorage,
     session_memory_retention_days: int,
     vision_memory_runtime: VisionMemoryRuntime | None = None,
+    trace_ws_messages_enabled: bool = False,
 ) -> None:
-    capture_summary = capture_summary_payload(active_session)
-    if capture_summary is not None:
-        await send_control(
-            "debug.capture.summary",
-            capture_summary,
-            target=active_session,
-        )
+    if trace_ws_messages_enabled:
+        capture_summary = capture_summary_payload(active_session)
+        if capture_summary is not None:
+            await send_control(
+                "debug.capture.summary",
+                capture_summary,
+                target=active_session,
+            )
 
     await send_control(
         "session.state",
@@ -122,6 +124,7 @@ async def deactivate_and_unregister_session(
     session_memory_retention_days: int,
     vision_memory_runtime: VisionMemoryRuntime | None = None,
     emit_session_state: bool = True,
+    trace_ws_messages_enabled: bool = False,
 ) -> None:
     if emit_session_state:
         await deactivate_session(
@@ -130,6 +133,7 @@ async def deactivate_and_unregister_session(
             storage=storage,
             session_memory_retention_days=session_memory_retention_days,
             vision_memory_runtime=vision_memory_runtime,
+            trace_ws_messages_enabled=trace_ws_messages_enabled,
         )
     else:
         await active_session.bridge.close()
@@ -207,7 +211,7 @@ def trace_ws_message(
     raw_text = message.get("text")
     raw_bytes = message.get("bytes")
     if isinstance(raw_text, str):
-        logger.warning(
+        logger.debug(
             "WS_TRACE connection_id=%s type=%s session=%s text_len=%s preview=%s",
             connection_id,
             message_type,
@@ -218,7 +222,7 @@ def trace_ws_message(
         return
     if isinstance(raw_bytes, (bytes, bytearray, memoryview)):
         return
-    logger.warning(
+    logger.debug(
         "WS_TRACE connection_id=%s type=%s session=%s code=%s reason=%s keys=%s",
         connection_id,
         message_type,

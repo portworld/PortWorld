@@ -450,6 +450,7 @@ In production profile, failing checks are intentionally redacted to avoid leakin
   source-checkout/local debug mode only; excluded from the production Docker image
 - `BACKEND_DEBUG_TRACE_WS_MESSAGES`
   default: `false`
+  must remain `false` when `BACKEND_PROFILE=production`
 - `VISION_MEMORY_ENABLED`
   default: `false`
 - `VISION_MEMORY_PROVIDER`

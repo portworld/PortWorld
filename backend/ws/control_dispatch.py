@@ -74,7 +74,7 @@ async def dispatch_control_envelope(
     storage: BackendStorage,
     vision_memory_runtime: VisionMemoryRuntime | None,
 ) -> ControlDispatchResult:
-    logger.warning(
+    logger.debug(
         "Inbound control type=%s session=%s seq=%s",
         envelope.type,
         envelope.session_id,
@@ -92,6 +92,7 @@ async def dispatch_control_envelope(
             storage=storage,
             session_memory_retention_days=settings.backend_session_memory_retention_days,
             vision_memory_runtime=vision_memory_runtime,
+            trace_ws_messages_enabled=settings.backend_debug_trace_ws_messages,
         )
         return ControlDispatchResult(active_session=next_active_session, handled=True)
 
@@ -105,6 +106,7 @@ async def dispatch_control_envelope(
             storage=storage,
             session_memory_retention_days=settings.backend_session_memory_retention_days,
             vision_memory_runtime=vision_memory_runtime,
+            trace_ws_messages_enabled=settings.backend_debug_trace_ws_messages,
         )
         return ControlDispatchResult(active_session=None, handled=True)
 
@@ -123,13 +125,13 @@ async def dispatch_control_envelope(
             if isinstance(candidate_reason, str) and candidate_reason:
                 ignore_reason = candidate_reason
         if ignore_reason is not None:
-            logger.warning(
+            logger.info(
                 "Ignoring session.end_turn session=%s reason=%s",
                 active_session.session_id,
                 ignore_reason,
             )
             return ControlDispatchResult(active_session=active_session, handled=True)
-        logger.warning(
+        logger.info(
             "Client requested session.end_turn session=%s",
             active_session.session_id,
         )
@@ -157,7 +159,7 @@ async def dispatch_control_envelope(
             {},
             fallback_session_id=envelope.session_id,
         )
-        logger.warning("Health ping session=%s", envelope.session_id)
+        logger.debug("Health ping session=%s", envelope.session_id)
         return ControlDispatchResult(active_session=active_session, handled=True)
 
     if envelope.type == "client.audio":

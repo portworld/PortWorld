@@ -360,6 +360,11 @@ class Settings:
                 "BACKEND_ALLOWED_HOSTS must be explicit (not '*') when "
                 "BACKEND_PROFILE=production."
             )
+        if self.backend_debug_trace_ws_messages:
+            raise RuntimeError(
+                "BACKEND_DEBUG_TRACE_WS_MESSAGES must be false when "
+                "BACKEND_PROFILE=production."
+            )
 
     def require_openai_api_key(self) -> str:
         key = (self.openai_api_key or "").strip()

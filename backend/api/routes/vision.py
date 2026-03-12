@@ -112,7 +112,7 @@ async def vision_frame(request: Request, payload: VisionFramePayload) -> VisionF
         frame_bytes=frame_bytes,
     )
 
-    logger.info(
+    logger.debug(
         "Vision frame stored session=%s frame=%s bytes=%s size=%sx%s",
         payload.session_id,
         payload.frame_id,

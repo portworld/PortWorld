@@ -36,6 +36,7 @@ async def activate_session(
     storage: BackendStorage,
     session_memory_retention_days: int,
     vision_memory_runtime: VisionMemoryRuntime | None,
+    trace_ws_messages_enabled: bool,
 ) -> SessionRecord | None:
     if active_session is not None:
         await deactivate_and_unregister_session(
@@ -45,6 +46,7 @@ async def activate_session(
             storage=storage,
             session_memory_retention_days=session_memory_retention_days,
             vision_memory_runtime=vision_memory_runtime,
+            trace_ws_messages_enabled=trace_ws_messages_enabled,
         )
 
     format_error = validate_client_audio_format_payload(envelope.payload)
@@ -116,5 +118,5 @@ async def activate_session(
         {"state": "active"},
         target=record,
     )
-    logger.warning("Session activated session=%s", envelope.session_id)
+    logger.info("Session activated session=%s", envelope.session_id)
     return record
