@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from backend.core.settings import Settings
 from backend.core.storage import BackendStorage, StoragePaths
@@ -12,30 +11,8 @@ from backend.vision.runtime import VisionBudgetManager, VisionMemoryRuntime
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimeStoragePaths:
-    data_root: Path
-    user_root: Path
-    session_root: Path
-    vision_frames_root: Path
-    sqlite_path: Path
-    user_profile_markdown_path: Path
-    user_profile_json_path: Path
-
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "data_root": str(self.data_root),
-            "user_root": str(self.user_root),
-            "session_root": str(self.session_root),
-            "vision_frames_root": str(self.vision_frames_root),
-            "sqlite_path": str(self.sqlite_path),
-            "user_profile_markdown_path": str(self.user_profile_markdown_path),
-            "user_profile_json_path": str(self.user_profile_json_path),
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class RuntimeDependencies:
-    storage_paths: RuntimeStoragePaths
+    storage_paths: StoragePaths
     storage: BackendStorage
     realtime_provider_factory: RealtimeProviderFactory
     vision_memory_runtime: VisionMemoryRuntime | None
@@ -68,24 +45,14 @@ class ConfigCheckResult:
         }
 
 
-def build_backend_storage(settings: Settings) -> tuple[RuntimeStoragePaths, BackendStorage]:
-    storage_paths = build_runtime_storage_paths(settings)
-    storage = BackendStorage(
-        paths=StoragePaths(
-            data_root=storage_paths.data_root,
-            user_root=storage_paths.user_root,
-            session_root=storage_paths.session_root,
-            vision_frames_root=storage_paths.vision_frames_root,
-            sqlite_path=storage_paths.sqlite_path,
-            user_profile_markdown_path=storage_paths.user_profile_markdown_path,
-            user_profile_json_path=storage_paths.user_profile_json_path,
-        )
-    )
+def build_backend_storage(settings: Settings) -> tuple[StoragePaths, BackendStorage]:
+    storage_paths = build_storage_paths(settings)
+    storage = BackendStorage(paths=storage_paths)
     return storage_paths, storage
 
 
-def build_runtime_storage_paths(settings: Settings) -> RuntimeStoragePaths:
-    return RuntimeStoragePaths(
+def build_storage_paths(settings: Settings) -> StoragePaths:
+    return StoragePaths(
         data_root=settings.backend_data_dir,
         user_root=settings.backend_data_dir / "user",
         session_root=settings.backend_data_dir / "session",

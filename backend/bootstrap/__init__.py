@@ -4,7 +4,6 @@ from backend.bootstrap.memory_export import cleanup_export_file, write_memory_ex
 from backend.bootstrap.runtime import (
     ConfigCheckResult,
     RuntimeDependencies,
-    RuntimeStoragePaths,
     build_backend_storage,
     build_runtime_dependencies,
     check_runtime_configuration,
@@ -13,7 +12,6 @@ from backend.bootstrap.runtime import (
 __all__ = [
     "ConfigCheckResult",
     "RuntimeDependencies",
-    "RuntimeStoragePaths",
     "build_backend_storage",
     "build_runtime_dependencies",
     "check_runtime_configuration",

@@ -22,7 +22,6 @@ from backend.memory.lifecycle import (
     SessionMemoryResetEligibility,
     SessionMemoryRetentionEligibility,
     allowed_profile_fields,
-    profile_onboarding_field_descriptions,
 )
 from backend.memory.materializer import (
     build_accepted_vision_event,
@@ -72,6 +71,5 @@ __all__ = [
     "empty_profile_markdown",
     "empty_profile_payload",
     "parse_profile_record",
-    "profile_onboarding_field_descriptions",
     "render_profile_markdown",
 ]

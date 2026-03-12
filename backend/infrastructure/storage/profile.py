@@ -68,9 +68,6 @@ class ProfileStorageMixin:
             return payload
         return payload
 
-    def read_user_profile_record(self):
-        return parse_profile_record(self.read_user_profile())
-
     def read_user_profile_markdown(self) -> str:
         return self.paths.user_profile_markdown_path.read_text(encoding="utf-8")
 

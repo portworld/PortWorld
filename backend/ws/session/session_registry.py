@@ -21,11 +21,6 @@ class SessionBridge(Protocol):
 
 
 @runtime_checkable
-class CaptureSummaryBridge(Protocol):
-    def capture_summary(self) -> dict[str, object]: ...
-
-
-@runtime_checkable
 class ClientEndTurnPolicyBridge(Protocol):
     def client_end_turn_ignore_reason(self) -> str | None: ...
 

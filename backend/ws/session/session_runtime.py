@@ -9,7 +9,7 @@ from fastapi import WebSocket
 
 from backend.core.storage import BackendStorage
 from backend.vision.runtime import VisionMemoryRuntime
-from backend.ws.session.session_registry import CaptureSummaryBridge, SessionRecord, session_registry
+from backend.ws.session.session_registry import SessionRecord, session_registry
 
 EXPECTED_CLIENT_AUDIO_ENCODING = "pcm_s16le"
 EXPECTED_CLIENT_AUDIO_CHANNELS = 1
@@ -86,15 +86,7 @@ async def deactivate_session(
     vision_memory_runtime: VisionMemoryRuntime | None = None,
     trace_ws_messages_enabled: bool = False,
 ) -> None:
-    if trace_ws_messages_enabled:
-        capture_summary = capture_summary_payload(active_session)
-        if capture_summary is not None:
-            await send_control(
-                "debug.capture.summary",
-                capture_summary,
-                target=active_session,
-            )
-
+    _ = trace_ws_messages_enabled
     await send_control(
         "session.state",
         {"state": "ended"},
@@ -154,22 +146,6 @@ async def deactivate_and_unregister_session(
                 "Failed unregistering session session=%s",
                 active_session.session_id,
             )
-
-
-def capture_summary_payload(active_session: SessionRecord) -> dict[str, Any] | None:
-    if not isinstance(active_session.bridge, CaptureSummaryBridge):
-        return None
-    try:
-        payload = active_session.bridge.capture_summary()
-    except Exception:
-        logger.exception(
-            "Failed building capture summary session=%s",
-            active_session.session_id,
-        )
-        return None
-    if not isinstance(payload, dict):
-        return None
-    return payload
 
 
 def trace_ws_message(

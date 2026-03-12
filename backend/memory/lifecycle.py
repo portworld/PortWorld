@@ -118,10 +118,6 @@ def allowed_profile_fields() -> tuple[str, ...]:
     return PROFILE_ALLOWLISTED_FIELDS
 
 
-def profile_onboarding_field_descriptions() -> dict[str, str]:
-    return dict(PROFILE_ONBOARDING_FIELD_DESCRIPTIONS)
-
-
 __all__ = [
     "DEFAULT_SESSION_MEMORY_RETENTION_DAYS",
     "EXPORTABLE_SESSION_ARTIFACT_KINDS",
@@ -146,5 +142,4 @@ __all__ = [
     "SessionMemoryResetEligibility",
     "SessionMemoryRetentionEligibility",
     "allowed_profile_fields",
-    "profile_onboarding_field_descriptions",
 ]

@@ -562,75 +562,50 @@ class IOSRealtimeBridge:
         async with self._turn_finalize_lock:
             await self._finalize_turn_if_needed(reason=reason)
 
-    async def _finalize_turn_if_needed(self, *, reason: str) -> None:
+    def _check_turn_finalize_blockers(self, reason: str) -> str | None:
+        """Return a blocker reason if turn finalization should be skipped, else None."""
         if not self._manual_turn_fallback_enabled:
-            if reason == "client_end_turn":
-                logger.debug(
-                    "Skipping turn finalize session=%s reason=%s manual_fallback=%s",
-                    self._session_id,
-                    reason,
-                    self._manual_turn_fallback_enabled,
-                )
-            return
+            return "manual_fallback_disabled"
 
         if reason in {"continuous_uplink_timeout", "speech_stopped"} and self._server_turn_detection_enabled:
-            return
+            return "server_turn_detection_active"
 
         if reason == "client_end_turn":
             ignore_reason = self.client_end_turn_ignore_reason()
             if ignore_reason is not None:
-                logger.debug(
-                    "Ignoring client end_turn under server VAD session=%s reason=%s",
-                    self._session_id,
-                    ignore_reason,
-                )
-                return
+                return f"client_end_turn_ignored:{ignore_reason}"
 
         if not self._current_turn_audio_seen:
-            if reason == "client_end_turn":
-                logger.debug(
-                    "Skipping turn finalize session=%s reason=%s audio_seen=%s",
-                    self._session_id,
-                    reason,
-                    self._current_turn_audio_seen,
-                )
-            return
+            return "no_audio_seen"
         if self._current_turn_response_started:
-            if reason == "client_end_turn":
-                logger.debug(
-                    "Skipping turn finalize session=%s reason=%s response_started=%s",
-                    self._session_id,
-                    reason,
-                    self._current_turn_response_started,
-                )
-            return
+            return "response_already_started"
         if self._manual_response_sent_for_turn:
-            if reason == "client_end_turn":
-                logger.debug(
-                    "Skipping turn finalize session=%s reason=%s manual_response_sent=%s",
-                    self._session_id,
-                    reason,
-                    self._manual_response_sent_for_turn,
-                )
-            return
+            return "manual_response_already_sent"
         if self._has_active_upstream_response:
-            if reason == "client_end_turn":
-                logger.debug(
-                    "Skipping turn finalize session=%s reason=%s active_upstream_response=%s",
-                    self._session_id,
-                    reason,
-                    self._has_active_upstream_response,
-                )
-            return
+            return "active_upstream_response"
 
         if reason == "continuous_uplink_timeout":
             if self._server_vad_speaking:
-                return
+                return "vad_speaking"
             if self._last_client_audio_at_monotonic is None:
-                return
+                return "no_audio_timestamp"
             inactivity = time.monotonic() - self._last_client_audio_at_monotonic
             if inactivity < self._manual_turn_fallback_delay_s:
-                return
+                return "inactivity_below_threshold"
+
+        return None
+
+    async def _finalize_turn_if_needed(self, *, reason: str) -> None:
+        blocker = self._check_turn_finalize_blockers(reason)
+        if blocker is not None:
+            if reason == "client_end_turn":
+                logger.debug(
+                    "Skipping turn finalize session=%s reason=%s blocker=%s",
+                    self._session_id,
+                    reason,
+                    blocker,
+                )
+            return
 
         self._audio_uplink.raise_if_failed()
         drained = await self._audio_uplink.wait_for_drain(timeout_seconds=1.5)

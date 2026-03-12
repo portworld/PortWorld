@@ -23,6 +23,17 @@ class StoragePaths:
     user_profile_markdown_path: Path
     user_profile_json_path: Path
 
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "data_root": str(self.data_root),
+            "user_root": str(self.user_root),
+            "session_root": str(self.session_root),
+            "vision_frames_root": str(self.vision_frames_root),
+            "sqlite_path": str(self.sqlite_path),
+            "user_profile_markdown_path": str(self.user_profile_markdown_path),
+            "user_profile_json_path": str(self.user_profile_json_path),
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class StorageBootstrapResult:

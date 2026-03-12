@@ -12,7 +12,6 @@ from backend.vision.contracts import (
     VisionFrameContext,
     VisionObservation,
 )
-from backend.vision.factory import build_vision_analyzer
 from backend.vision.policy.gating import (
     VisionGateError,
     VisionProviderBudgetState,
@@ -56,19 +55,6 @@ class VisionMemoryRuntime(
     _workers_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
     _shutdown_requested: bool = field(default=False, init=False, repr=False)
 
-    @classmethod
-    def from_settings(cls, settings: Settings, *, storage: BackendStorage) -> "VisionMemoryRuntime":
-        return cls(
-            settings=settings,
-            storage=storage,
-            analyzer=build_vision_analyzer(settings=settings),
-            provider_budget=VisionBudgetManager(
-                max_rps=settings.vision_provider_max_rps,
-                backoff_initial_seconds=settings.vision_provider_backoff_initial_seconds,
-                backoff_max_seconds=settings.vision_provider_backoff_max_seconds,
-            ),
-        )
-
     async def startup(self) -> None:
         await self.analyzer.startup()
         self._shutdown_requested = False
@@ -82,10 +68,6 @@ class VisionMemoryRuntime(
         self._shutdown_requested = True
         await self.analyzer.shutdown()
         self.started = False
-
-    @property
-    def enabled(self) -> bool:
-        return True
 
     @property
     def provider_name(self) -> str:

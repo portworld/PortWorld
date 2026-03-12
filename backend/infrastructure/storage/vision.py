@@ -8,6 +8,33 @@ from backend.infrastructure.storage.types import VisionFrameIndexRecord, VisionF
 _UNSET = object()
 
 
+def _resolve_next_retry_at_ms(
+    value: int | object | None,
+    existing_value: Any,
+) -> int | None:
+    """Resolve next_retry_at_ms with fallback to existing value if _UNSET."""
+    if isinstance(value, int):
+        return value
+    if value is _UNSET and existing_value is not None:
+        return int(existing_value)
+    return None
+
+
+def _resolve_error_details_json(
+    error_details: dict[str, Any] | object | None,
+    error_code: str | None,
+    existing_json: Any,
+) -> str | None:
+    """Resolve error_details_json with fallback to existing value if _UNSET."""
+    if isinstance(error_details, dict):
+        return json.dumps(error_details, ensure_ascii=True, sort_keys=True)
+    if error_details is None:
+        return None
+    if error_details is _UNSET and error_code is not None and existing_json is not None:
+        return str(existing_json)
+    return None
+
+
 class VisionFrameStorageMixin:
     def store_vision_frame_ingest(
         self,
@@ -179,14 +206,9 @@ class VisionFrameStorageMixin:
                     provider=provider,
                     model=model,
                     analyzed_at_ms=analyzed_at_ms,
-                    next_retry_at_ms=(
-                        int(next_retry_at_ms)
-                        if isinstance(next_retry_at_ms, int)
-                        else (
-                            int(existing["next_retry_at_ms"])
-                            if next_retry_at_ms is _UNSET and existing["next_retry_at_ms"] is not None
-                            else None
-                        )
+                    next_retry_at_ms=_resolve_next_retry_at_ms(
+                        next_retry_at_ms,
+                        existing["next_retry_at_ms"],
                     ),
                     attempt_count=(
                         int(attempt_count)
@@ -194,24 +216,10 @@ class VisionFrameStorageMixin:
                         else int(existing["attempt_count"] or 0)
                     ),
                     error_code=error_code,
-                    error_details_json=(
-                        json.dumps(error_details, ensure_ascii=True, sort_keys=True)
-                        if isinstance(error_details, dict)
-                        else (
-                            None
-                            if error_details is None
-                            else (
-                                (
-                                    str(existing["error_details_json"])
-                                    if (
-                                        error_details is _UNSET
-                                        and error_code is not None
-                                        and existing["error_details_json"] is not None
-                                    )
-                                    else None
-                                )
-                            )
-                        )
+                    error_details_json=_resolve_error_details_json(
+                        error_details,
+                        error_code,
+                        existing["error_details_json"],
                     ),
                     summary_snippet=summary_snippet,
                     routing_status=routing_status,

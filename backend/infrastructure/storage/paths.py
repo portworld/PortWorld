@@ -100,11 +100,6 @@ class StoragePathMixin:
     def _resolved_storage_dir(self, *, root: Path, raw_id: str) -> Path:
         return root / self._storage_component_for_id(raw_id)
 
-    def _is_legacy_storage_dir(self, *, root: Path, directory: Path, raw_id: str) -> bool:
-        legacy_dir = root / self._legacy_storage_component_for_id(raw_id)
-        hashed_dir = root / self._storage_component_for_id(raw_id)
-        return directory == legacy_dir and directory != hashed_dir
-
     def migrate_legacy_storage_layout(self) -> dict[str, Any]:
         self._ensure_directories()
         session_ids: set[str] = set()
