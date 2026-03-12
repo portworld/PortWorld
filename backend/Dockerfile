@@ -11,7 +11,6 @@ COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r ./backend/requirements.txt
 
 COPY backend/__init__.py ./backend/__init__.py
-COPY backend/app.py ./backend/app.py
 COPY backend/cli.py ./backend/cli.py
 COPY backend/api/ ./backend/api/
 COPY backend/bootstrap/ ./backend/bootstrap/
