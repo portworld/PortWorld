@@ -77,6 +77,7 @@ This keeps startup, storage, and provider selection under one explicit owner ins
 - does not connect to OpenAI
 - captures inbound audio only
 - useful for isolating iPhone -> backend transport issues
+- available from a source checkout, but intentionally not included in the production Docker image
 
 Mock capture is a backend debug mode, not a separate realtime provider.
 
@@ -439,6 +440,7 @@ It returns:
   default: `<BACKEND_DATA_DIR>/debug_audio`
 - `BACKEND_DEBUG_MOCK_CAPTURE_MODE`
   default: `false`
+  source-checkout/local debug mode only; excluded from the production Docker image
 - `BACKEND_DEBUG_TRACE_WS_MESSAGES`
   default: `false`
 - `VISION_MEMORY_ENABLED`
@@ -582,6 +584,13 @@ curl http://127.0.0.1:8080/readyz
 python3 -m compileall backend
 ```
 
+Dependency packaging:
+
+- `backend/requirements.in` is the human-edited top-level runtime dependency list
+- `backend/requirements.txt` is the pinned deploy set used by Docker and CLI-based installs
+  it improves determinism but is not yet a fully hashed cross-platform lockfile
+- refresh `backend/requirements.txt` intentionally when changing backend runtime dependencies
+
 When debugging websocket transport from the terminal, use the devtools probe:
 
 ```bash
@@ -609,6 +618,7 @@ python backend/devtools/ws_probe.py \
 - The backend now exposes a small operator CLI for `serve`, `check-config`, `bootstrap-storage`, and `export-memory`.
 - The active iPhone runtime no longer emits `wakeword.detected`; `session.activate` is the only required conversation-start control message.
 - Probe frames are a devtools-only compatibility surface and stay disabled unless `BACKEND_ENABLE_DEVTOOLS_PROTOCOL=true`.
+- The production image intentionally excludes `backend/devtools/`, `backend/debug/`, `backend/scripts/`, and `backend/var/`; Docker copies only the backend runtime packages needed to serve HTTP, WebSocket, storage, and provider integrations.
 - Automatic profile promotion from conversations or vision is still not active in the current backend slice.
 - MCP-backed tools are not active yet in the current backend slice.
 - Step 4A intentionally keeps the live session registry in memory. SQLite is persistent indexing, not live coordination.

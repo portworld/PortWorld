@@ -52,6 +52,8 @@ Start the backend:
 docker compose up --build
 ```
 
+The image installs the pinned backend runtime set from `backend/requirements.txt`. The editable top-level dependency list lives in `backend/requirements.in`. This improves install determinism, but it is not yet a fully hashed cross-platform lockfile.
+
 Verify process health:
 
 ```bash
@@ -106,6 +108,15 @@ The container image now boots through:
 ```bash
 python -m backend.cli serve
 ```
+
+The production image intentionally excludes:
+
+- `backend/devtools/`
+- `backend/debug/`
+- `backend/scripts/`
+- `backend/var/`
+
+`BACKEND_DEBUG_MOCK_CAPTURE_MODE=true` is therefore a source-checkout/local debug path, not a Dockerized self-host mode.
 
 ## Operator Reference
 
