@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from json import JSONDecodeError
 from typing import Protocol
@@ -14,6 +15,8 @@ from backend.tools.providers.tavily import TavilySearchProvider
 from backend.tools.registry import RealtimeToolRegistry, ToolRegistryError, UnknownToolError
 from backend.tools.search import SearchProvider
 from backend.tools.web_search import WebSearchToolExecutor
+
+logger = logging.getLogger(__name__)
 
 
 class SearchProviderBuilder(Protocol):
@@ -265,31 +268,51 @@ class RealtimeToolingRuntime:
                 error_message=f"Tool execution timed out after {self.tool_timeout_ms}ms",
             )
         except UnknownToolError as exc:
+            logger.warning(
+                "Unknown tool requested session_id=%s call_id=%s name=%s",
+                call.session_id,
+                call.call_id,
+                call.name,
+                exc_info=exc,
+            )
             return ToolResult(
                 ok=False,
                 name=call.name,
                 call_id=call.call_id,
                 payload={"session_id": call.session_id},
                 error_code="UNKNOWN_TOOL",
-                error_message=str(exc),
+                error_message="Unknown requested tool",
             )
         except ToolRegistryError as exc:
-            return ToolResult(
-                ok=False,
-                name=call.name,
-                call_id=call.call_id,
-                payload={"session_id": call.session_id},
-                error_code="TOOL_EXECUTION_FAILED",
-                error_message=str(exc),
+            logger.warning(
+                "Tool execution failed due to registry error session_id=%s call_id=%s name=%s",
+                call.session_id,
+                call.call_id,
+                call.name,
+                exc_info=exc,
             )
-        except Exception as exc:  # pragma: no cover - defensive fallback
             return ToolResult(
                 ok=False,
                 name=call.name,
                 call_id=call.call_id,
                 payload={"session_id": call.session_id},
                 error_code="TOOL_EXECUTION_FAILED",
-                error_message=str(exc),
+                error_message="Tool execution failed",
+            )
+        except Exception:  # pragma: no cover - defensive fallback
+            logger.exception(
+                "Unexpected tool execution failure session_id=%s call_id=%s name=%s",
+                call.session_id,
+                call.call_id,
+                call.name,
+            )
+            return ToolResult(
+                ok=False,
+                name=call.name,
+                call_id=call.call_id,
+                payload={"session_id": call.session_id},
+                error_code="TOOL_EXECUTION_FAILED",
+                error_message="Tool execution failed",
             )
 
     def build_session_instructions(self, *, base_instructions: str) -> str:

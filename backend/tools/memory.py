@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from json import JSONDecodeError
 
 from backend.core.storage import RealtimeReadOnlyStorageView
 from backend.tools.contracts import ToolCall, ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +24,13 @@ class MemoryToolExecutor:
             else:
                 raise ValueError(f"Unsupported memory scope: {self.memory_scope}")
         except (JSONDecodeError, OSError, ValueError) as exc:
+            logger.warning(
+                "Memory tool read failed session_id=%s call_id=%s scope=%s",
+                call.session_id,
+                call.call_id,
+                self.memory_scope,
+                exc_info=exc,
+            )
             return ToolResult(
                 ok=False,
                 name=call.name,
@@ -31,7 +41,7 @@ class MemoryToolExecutor:
                     "context": {},
                 },
                 error_code="MEMORY_READ_FAILED",
-                error_message=str(exc),
+                error_message="Memory context unavailable",
             )
 
         available = bool(context)
