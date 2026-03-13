@@ -14,24 +14,24 @@ struct CustomButton: View {
   let horizontalPadding: CGFloat?
   let action: () -> Void
 
-  enum ButtonStyle {
+  enum ButtonStyle: Equatable {
     case primary, destructive
 
     var backgroundColor: Color {
       switch self {
       case .primary:
-        return .appPrimary
+        return PWColor.primaryButtonFill
       case .destructive:
-        return .destructiveBackground
+        return PWColor.secondaryButtonFill
       }
     }
 
     var foregroundColor: Color {
       switch self {
       case .primary:
-        return .white
+        return PWColor.primaryButtonText
       case .destructive:
-        return .destructiveForeground
+        return PWColor.destructive
       }
     }
   }
@@ -59,14 +59,18 @@ struct CustomButton: View {
   var body: some View {
     Button(action: action) {
       Text(title)
-        .font(.system(size: 15, weight: .semibold))
+        .font(PWTypography.headline)
         .foregroundColor(style.foregroundColor)
         .frame(maxWidth: expandsHorizontally ? .infinity : nil)
         .frame(minHeight: minHeight)
     }
     .padding(.horizontal, horizontalPadding ?? 0)
     .background(style.backgroundColor)
-    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+    .overlay(
+      RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        .stroke(style == .destructive ? PWColor.destructive.opacity(0.55) : style.backgroundColor, lineWidth: 1)
+    )
+    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     .disabled(isDisabled)
     .opacity(isDisabled ? 0.6 : 1.0)
   }
