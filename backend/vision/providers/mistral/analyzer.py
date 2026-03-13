@@ -3,10 +3,12 @@ from __future__ import annotations
 import base64
 import datetime as dt
 import email.utils
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from pydantic import ValidationError
 
 from backend.core.settings import Settings
 from backend.vision.contracts import (
@@ -19,6 +21,9 @@ from backend.vision.contracts import (
 )
 
 DEFAULT_MISTRAL_BASE_URL = "https://api.mistral.ai"
+DEFAULT_VISION_TEMPERATURE = 0.0
+DEFAULT_VISION_TOP_P = 0.1
+DEFAULT_VISION_MAX_TOKENS = 280
 
 _SYSTEM_PROMPT = (
     "You are a vision observation service for a realtime wearable assistant. "
@@ -33,7 +38,7 @@ _SYSTEM_PROMPT = (
 
 
 def validate_mistral_vision_settings(settings: Settings) -> None:
-    settings.require_vision_provider_api_key()
+    settings.validate_vision_provider_credentials()
 
 
 def build_mistral_vision_analyzer(*, settings: Settings) -> "MistralVisionAnalyzer":
@@ -51,6 +56,7 @@ class MistralVisionAnalyzer:
     base_url: str | None = None
     provider_name: str = field(default="mistral", init=False)
     _client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
+    _supports_response_format: bool = field(default=True, init=False, repr=False)
 
     async def startup(self) -> None:
         if self._client is None:
@@ -60,7 +66,7 @@ class MistralVisionAnalyzer:
                     "Authorization": f"Bearer {self.api_key}",
                     "Accept": "application/json",
                 },
-                timeout=httpx.Timeout(30.0),
+                timeout=httpx.Timeout(connect=8.0, read=20.0, write=20.0, pool=8.0),
             )
 
     async def shutdown(self) -> None:
@@ -76,14 +82,71 @@ class MistralVisionAnalyzer:
         image_media_type: str = "image/jpeg",
     ) -> VisionObservation:
         client = await self._get_client()
-        response = await client.post(
-            "/v1/chat/completions",
-            json=self._build_request_body(
-                image_bytes=image_bytes,
-                frame_context=frame_context,
-                image_media_type=image_media_type,
-            ),
+        request_body = self._build_request_body(
+            image_bytes=image_bytes,
+            frame_context=frame_context,
+            image_media_type=image_media_type,
+            include_response_format=self._supports_response_format,
         )
+        try:
+            response = await self._post_completion(client=client, request_body=request_body)
+        except VisionProviderError as exc:
+            if self._supports_response_format and _is_unsupported_response_format_provider_error(exc):
+                self._supports_response_format = False
+                fallback_body = self._build_request_body(
+                    image_bytes=image_bytes,
+                    frame_context=frame_context,
+                    image_media_type=image_media_type,
+                    include_response_format=False,
+                )
+                response = await self._post_completion(client=client, request_body=fallback_body)
+            else:
+                raise
+
+        try:
+            response_json = response.json()
+        except ValueError as exc:
+            raise VisionProviderError(
+                status_code=response.status_code,
+                provider_error_code="provider_invalid_json_response",
+                provider_message="Vision provider returned a non-JSON response body",
+                payload_excerpt=response.text[:400] if response.text else None,
+            ) from exc
+
+        try:
+            payload = self._extract_provider_payload(response_json)
+        except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
+            raise VisionProviderError(
+                status_code=response.status_code,
+                provider_error_code="provider_payload_invalid_json",
+                provider_message=(
+                    "Vision provider returned an observation payload that could not be parsed"
+                ),
+                payload_excerpt=_extract_provider_content_excerpt(response_json),
+            ) from exc
+        return self._normalize_observation(payload=payload, frame_context=frame_context)
+
+    async def _post_completion(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        request_body: dict[str, Any],
+    ) -> httpx.Response:
+        try:
+            response = await client.post(
+                "/v1/chat/completions",
+                json=request_body,
+            )
+        except httpx.ReadTimeout as exc:
+            raise VisionProviderError(
+                provider_error_code="provider_read_timeout",
+                provider_message="Vision provider request timed out while waiting for a response",
+            ) from exc
+        except httpx.RequestError as exc:
+            raise VisionProviderError(
+                provider_error_code="provider_transport_error",
+                provider_message=f"{type(exc).__name__}: {exc}",
+            ) from exc
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -102,8 +165,7 @@ class MistralVisionAnalyzer:
                 provider_message=error_details["provider_message"],
                 payload_excerpt=error_details["payload_excerpt"],
             ) from exc
-        payload = self._extract_provider_payload(response.json())
-        return self._normalize_observation(payload=payload, frame_context=frame_context)
+        return response
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -117,10 +179,14 @@ class MistralVisionAnalyzer:
         image_bytes: bytes,
         frame_context: VisionFrameContext,
         image_media_type: str,
+        include_response_format: bool = True,
     ) -> dict[str, Any]:
         data_url = self._build_data_url(image_bytes=image_bytes, image_media_type=image_media_type)
-        return {
+        payload: dict[str, Any] = {
             "model": self.model_name,
+            "temperature": DEFAULT_VISION_TEMPERATURE,
+            "top_p": DEFAULT_VISION_TOP_P,
+            "max_tokens": DEFAULT_VISION_MAX_TOKENS,
             "messages": [
                 {
                     "role": "system",
@@ -143,6 +209,9 @@ class MistralVisionAnalyzer:
                 },
             ],
         }
+        if include_response_format:
+            payload["response_format"] = {"type": "json_object"}
+        return payload
 
     def _build_user_prompt(self, *, frame_context: VisionFrameContext) -> str:
         dimensions = []
@@ -274,3 +343,34 @@ def _extract_error_details(response: httpx.Response) -> dict[str, str | None]:
         "provider_message": provider_message,
         "payload_excerpt": payload_excerpt,
     }
+
+
+def _extract_provider_content_excerpt(response_json: dict[str, Any]) -> str | None:
+    choices = response_json.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return str(response_json)[:400]
+
+    first_choice = choices[0]
+    if not isinstance(first_choice, dict):
+        return str(first_choice)[:400]
+
+    message = first_choice.get("message")
+    if not isinstance(message, dict):
+        return str(first_choice)[:400]
+
+    content = message.get("content")
+    if content is None:
+        return None
+    return str(content)[:400]
+
+
+def _is_unsupported_response_format_provider_error(error: VisionProviderError) -> bool:
+    if error.status_code != 400:
+        return False
+    code = (error.provider_error_code or "").strip().lower()
+    message = (error.provider_message or "").strip().lower()
+    if "response_format" not in message:
+        return False
+    if not code:
+        return True
+    return "unknown_parameter" in code or "invalid_parameter" in code

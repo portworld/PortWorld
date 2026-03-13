@@ -297,12 +297,20 @@ class VisionAnalysisMixin:
                 error_details=error_details,
                 last_attempt_at_ms=now_ms(),
             )
-        logger.exception(
-            "VISION_ANALYSIS_FAILED session=%s frame=%s provider=%s model=%s",
+        provider_message = str(error_details.get("provider_message") or "").strip()
+        payload_excerpt = str(error_details.get("payload_excerpt") or "").strip()
+        logger.warning(
+            "VISION_ANALYSIS_FAILED session=%s frame=%s provider=%s model=%s status=%s provider_error_code=%s provider_message=%s payload_excerpt=%s session_closing=%s runtime_shutting_down=%s",
             session_id,
             frame_id,
             self.provider_name,
             self.model_name,
+            error_details.get("http_status"),
+            error_details.get("provider_error_code"),
+            provider_message[:220] if provider_message else None,
+            payload_excerpt[:220] if payload_excerpt else None,
+            worker.close_requested,
+            self._shutdown_requested,
         )
         await self._cleanup_ingest_artifacts(
             session_id=session_id,

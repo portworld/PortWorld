@@ -190,6 +190,20 @@ class Settings:
             "VISION_MEMORY_ENABLED=true"
         )
 
+    def validate_vision_provider_credentials(self) -> None:
+        key = self.require_vision_provider_api_key()
+        model_name = (self.vision_memory_model or "").strip()
+        if model_name and key == model_name:
+            raise RuntimeError(
+                "VISION_PROVIDER_API_KEY is invalid: it matches VISION_MEMORY_MODEL. "
+                "Set VISION_PROVIDER_API_KEY to your provider API key (not the model id)."
+            )
+        if key.lower().startswith("mistralai/"):
+            raise RuntimeError(
+                "VISION_PROVIDER_API_KEY looks like a model id, not an API key. "
+                "Set VISION_PROVIDER_API_KEY to your provider API key."
+            )
+
     def has_tavily_api_key(self) -> bool:
         return bool((self.tavily_api_key or "").strip())
 
