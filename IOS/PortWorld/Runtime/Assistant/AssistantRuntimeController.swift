@@ -35,6 +35,8 @@ final class AssistantRuntimeController {
   var status: AssistantRuntimeStatus
   var onStatusUpdated: ((AssistantRuntimeStatus) -> Void)?
   var onGlassesAudioModeUpdated: ((AssistantAudioMode, Bool) -> Void)?
+  var onWakeDetectedEvent: ((WakeWordDetectionEvent) -> Void)?
+  var onSleepDetectedEvent: ((WakeWordDetectionEvent) -> Void)?
 
   init(
     config: AssistantRuntimeConfig,
@@ -107,11 +109,13 @@ final class AssistantRuntimeController {
 
   func bindWakePhraseDetector() {
     wakePhraseDetector.onWakeDetected = { [weak self] event in
+      self?.onWakeDetectedEvent?(event)
       Task { @MainActor [weak self] in
         await self?.startConversation(from: event)
       }
     }
     wakePhraseDetector.onSleepDetected = { [weak self] event in
+      self?.onSleepDetectedEvent?(event)
       Task { @MainActor [weak self] in
         await self?.handleSleepDetected(event)
       }

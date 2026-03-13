@@ -75,6 +75,12 @@ final class OnboardingStore: ObservableObject {
     persist()
   }
 
+  func markWakePracticeCompleted() {
+    guard progress.wakePracticeCompleted == false else { return }
+    progress.wakePracticeCompleted = true
+    persist()
+  }
+
   private func persist() {
     guard let data = try? encoder.encode(progress) else { return }
     userDefaults.set(data, forKey: Self.progressKey)

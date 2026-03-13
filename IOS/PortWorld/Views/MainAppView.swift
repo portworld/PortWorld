@@ -49,6 +49,15 @@ struct MainAppView: View {
             route = nextOnboardingRoute()
           }
         )
+      case .wakePractice:
+        WakePracticeView(
+          wearablesRuntimeManager: wearablesRuntimeManager,
+          settings: appSettingsStore.settings,
+          onContinue: {
+            onboardingStore.markWakePracticeCompleted()
+            route = nextOnboardingRoute()
+          }
+        )
       case .legacyRuntime:
         LegacyRuntimeHostView(
           wearablesRuntimeManager: wearablesRuntimeManager,
@@ -112,6 +121,10 @@ private extension MainAppView {
       onboardingStore.progress.metaSkipped == false
     {
       return .metaConnection
+    }
+
+    if onboardingStore.progress.wakePracticeCompleted == false {
+      return .wakePractice
     }
 
     return .legacyRuntime

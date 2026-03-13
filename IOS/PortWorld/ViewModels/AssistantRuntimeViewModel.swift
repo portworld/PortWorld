@@ -6,6 +6,8 @@ import SwiftUI
 @MainActor
 final class AssistantRuntimeViewModel: ObservableObject {
   @Published private(set) var status: AssistantRuntimeStatus
+  @Published private(set) var wakeDetectionSequence: Int = 0
+  @Published private(set) var sleepDetectionSequence: Int = 0
 
   #if DEBUG
     private static let debugPhoneVisionPreferenceKey = "portworld.debug.phoneVisionEnabled"
@@ -147,6 +149,16 @@ final class AssistantRuntimeViewModel: ObservableObject {
       Task { @MainActor [weak self] in
         self?.wearablesRuntimeManager.setGlassesAudioMode(mode)
         self?.publishMergedStatus()
+      }
+    }
+    controller.onWakeDetectedEvent = { [weak self] _ in
+      Task { @MainActor [weak self] in
+        self?.wakeDetectionSequence += 1
+      }
+    }
+    controller.onSleepDetectedEvent = { [weak self] _ in
+      Task { @MainActor [weak self] in
+        self?.sleepDetectionSequence += 1
       }
     }
   }
