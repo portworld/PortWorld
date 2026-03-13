@@ -35,8 +35,20 @@ struct MainAppView: View {
       case .backendSetup:
         BackendSetupView(appSettingsStore: appSettingsStore) {
           onboardingStore.markBackendValidated()
-          route = .legacyRuntime
+          route = nextOnboardingRoute()
         }
+      case .metaConnection:
+        MetaConnectionView(
+          wearablesRuntimeManager: wearablesRuntimeManager,
+          onContinue: {
+            onboardingStore.markMetaCompleted()
+            route = nextOnboardingRoute()
+          },
+          onSkip: {
+            onboardingStore.markMetaSkipped()
+            route = nextOnboardingRoute()
+          }
+        )
       case .legacyRuntime:
         LegacyRuntimeHostView(
           wearablesRuntimeManager: wearablesRuntimeManager,
@@ -94,6 +106,12 @@ private extension MainAppView {
 
     if onboardingStore.progress.backendValidated == false {
       return .backendSetup
+    }
+
+    if onboardingStore.progress.metaCompleted == false &&
+      onboardingStore.progress.metaSkipped == false
+    {
+      return .metaConnection
     }
 
     return .legacyRuntime

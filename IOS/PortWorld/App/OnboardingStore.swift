@@ -62,6 +62,19 @@ final class OnboardingStore: ObservableObject {
     persist()
   }
 
+  func markMetaCompleted() {
+    guard progress.metaCompleted == false else { return }
+    progress.metaCompleted = true
+    progress.metaSkipped = false
+    persist()
+  }
+
+  func markMetaSkipped() {
+    guard progress.metaSkipped == false else { return }
+    progress.metaSkipped = true
+    persist()
+  }
+
   private func persist() {
     guard let data = try? encoder.encode(progress) else { return }
     userDefaults.set(data, forKey: Self.progressKey)

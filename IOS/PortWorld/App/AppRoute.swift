@@ -6,5 +6,6 @@ enum AppRoute {
   case features
   case connectAgents
   case backendSetup
+  case metaConnection
   case legacyRuntime
 }
