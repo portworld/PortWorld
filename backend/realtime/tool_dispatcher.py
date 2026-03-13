@@ -58,7 +58,7 @@ class ToolCallDispatcher:
         )
         if duplicate:
             self._saw_duplicate_tool_call_event_for_turn = True
-            logger.warning(
+            logger.debug(
                 "Ignoring duplicate tool call completion session=%s dedupe_key=%s event_type=%s",
                 self._session_id,
                 dedupe_key,

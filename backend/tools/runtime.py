@@ -357,12 +357,13 @@ class RealtimeToolingRuntime:
         ]
         if self.registry.has_tool("web_search"):
             guidance_lines.append(
-                "- Use web_search for fresh external facts or documentation lookups."
+                "- Use web_search only when the user explicitly asks for fresh external facts or documentation."
             )
         guidance_lines.extend(
             [
                 "- Do not claim visual context you have not retrieved through a tool.",
                 "- Do not ask for visual memory tools when the request does not depend on recent visual context.",
+                "- Prefer one relevant tool call, then answer directly instead of chaining tools.",
                 "- Keep answers concise after tool use.",
                 "- Do not mention internal tool names or backend execution details to the user.",
             ]
