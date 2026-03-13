@@ -201,7 +201,13 @@ class VisionMemoryRuntime(
 
         if worker.task is not None:
             try:
-                await worker.task
+                await asyncio.wait_for(worker.task, timeout=0.5)
+            except asyncio.TimeoutError:
+                worker.task.cancel()
+                try:
+                    await worker.task
+                except asyncio.CancelledError:
+                    pass
             except asyncio.CancelledError:
                 pass
 
