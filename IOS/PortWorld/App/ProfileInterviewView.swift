@@ -24,7 +24,7 @@ struct ProfileInterviewView: View {
     PWOnboardingScaffold(
       style: .centeredHero,
       title: "Let Mario get to know you",
-      subtitle: "He’ll welcome you, ask a few setup questions, and hand off to review when your profile is ready.",
+      subtitle: "He’ll welcome you, ask a few setup questions, and finish setup when he has enough to get started.",
       content: {
         VStack(spacing: PWSpace.hero) {
           VStack(spacing: PWSpace.md) {
@@ -62,6 +62,10 @@ struct ProfileInterviewView: View {
     .task {
       await viewModel.startInterviewIfNeeded()
     }
+    .onChange(of: viewModel.isProfileReadyForReview) { _, isReady in
+      guard isReady else { return }
+      continueIfNeeded()
+    }
     .onDisappear {
       if viewModel.isInterviewRunning {
         Task { await viewModel.stopInterview() }
@@ -93,7 +97,7 @@ private extension ProfileInterviewView {
     }
 
     if viewModel.isProfileReadyForReview {
-      return "Mario finished the interview. Review and edit the saved profile before you enter the app."
+      return "Mario finished the interview. Wrapping things up now."
     }
 
     if viewModel.isStarting {
@@ -113,7 +117,7 @@ private extension ProfileInterviewView {
 
   var primaryButtonTitle: String {
     if viewModel.isProfileReadyForReview {
-      return isContinuing ? "Wrapping up..." : "Review profile"
+      return "Wrapping up..."
     }
 
     if viewModel.canRetry {
@@ -128,22 +132,22 @@ private extension ProfileInterviewView {
       return true
     }
 
-    return viewModel.isStarting || isContinuing
+    return viewModel.isStarting || isContinuing || viewModel.isProfileReadyForReview
   }
 
   func primaryAction() {
-    if viewModel.isProfileReadyForReview {
-      isContinuing = true
-      Task {
-        await viewModel.stopInterview()
-        await MainActor.run {
-          onContinue()
-        }
-      }
-      return
-    }
-
     guard viewModel.canRetry else { return }
     Task { await viewModel.retryInterview() }
+  }
+
+  func continueIfNeeded() {
+    guard isContinuing == false else { return }
+    isContinuing = true
+    Task {
+      await viewModel.stopInterview()
+      await MainActor.run {
+        onContinue()
+      }
+    }
   }
 }

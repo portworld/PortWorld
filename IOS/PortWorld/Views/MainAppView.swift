@@ -63,13 +63,6 @@ struct MainAppView: View {
           wearablesRuntimeManager: wearablesRuntimeManager,
           settings: appSettingsStore.settings,
           onContinue: {
-            route = .profileConfirmation
-          }
-        )
-      case .profileConfirmation:
-        ProfileConfirmationView(
-          settings: appSettingsStore.settings,
-          onSave: {
             onboardingStore.markProfileCompleted()
             route = nextOnboardingRoute()
           }
@@ -159,7 +152,7 @@ private extension MainAppView {
     case .ready, .failed:
       if onboardingStore.progress.profileCompleted == false {
         switch route {
-        case .profileInterview, .profileConfirmation:
+        case .profileInterview:
           return
         default:
           break
