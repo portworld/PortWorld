@@ -99,8 +99,8 @@ def run_bootstrap_storage(cli_context: CLIContext) -> CommandResult:
         if not storage.is_local_backend:
             raise RuntimeError(
                 "portworld ops bootstrap-storage is only supported when "
-                "BACKEND_STORAGE_BACKEND=local. Managed mode runtime selection is available, "
-                "but managed bootstrap remains deferred."
+                "BACKEND_STORAGE_BACKEND=local. Managed metadata bootstrap now runs through "
+                "`portworld ops check-config --full` or normal runtime startup instead."
             )
         result = storage.bootstrap()
     except ProjectRootResolutionError as exc:

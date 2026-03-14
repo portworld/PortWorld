@@ -89,7 +89,7 @@ def build_backend_storage(settings: Settings) -> tuple[StorageInfo, BackendStora
         return storage.storage_info, storage
 
     storage = ManagedBackendStorage(
-        database_url_configured=bool(settings.backend_database_url),
+        database_url=settings.backend_database_url or "",
         object_store_provider=settings.backend_object_store_provider,
         object_store_bucket=settings.backend_object_store_bucket or "",
         object_store_prefix=settings.backend_object_store_prefix or "",

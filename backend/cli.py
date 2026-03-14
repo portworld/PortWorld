@@ -56,7 +56,8 @@ def _bootstrap_storage(_: argparse.Namespace) -> int:
     _, storage = build_backend_storage(Settings.from_env())
     if not storage.is_local_backend:
         raise RuntimeError(
-            "bootstrap-storage is only supported when BACKEND_STORAGE_BACKEND=local."
+            "bootstrap-storage is only supported when BACKEND_STORAGE_BACKEND=local. "
+            "Managed metadata bootstrap runs through check-config --full or normal runtime startup."
         )
     result = storage.bootstrap()
     _json_dump({"status": "ok", **result.to_dict()})

@@ -93,7 +93,7 @@ class BackendStorage:
         self,
         *,
         retention_days: int,
-        reference_ms: int | None = None,
+        reference_time_ms: int | None = None,
     ) -> list[SessionMemoryRetentionEligibility]:
         raise NotImplementedError
 
@@ -101,7 +101,7 @@ class BackendStorage:
         self,
         *,
         retention_days: int,
-        reference_ms: int | None = None,
+        reference_time_ms: int | None = None,
     ) -> list[SessionMemoryResetResult]:
         raise NotImplementedError
 
@@ -110,7 +110,7 @@ class BackendStorage:
         *,
         session_id: str,
         payload: dict[str, Any],
-        markdown: str,
+        markdown_text: str,
     ) -> None:
         raise NotImplementedError
 
@@ -119,7 +119,7 @@ class BackendStorage:
         *,
         session_id: str,
         payload: dict[str, Any],
-        markdown: str,
+        markdown_text: str,
     ) -> None:
         raise NotImplementedError
 
