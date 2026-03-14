@@ -45,6 +45,28 @@ class ConfigCheckResult:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class LocalDoctorRuntimeDetails:
+    storage_paths: dict[str, str]
+    realtime_provider: str
+    vision_provider: str | None
+    realtime_tooling_enabled: bool
+    web_search_provider: str | None
+    web_search_enabled: bool
+    storage_bootstrap_probe: bool | None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "storage_paths": self.storage_paths,
+            "realtime_provider": self.realtime_provider,
+            "vision_provider": self.vision_provider,
+            "realtime_tooling_enabled": self.realtime_tooling_enabled,
+            "web_search_provider": self.web_search_provider,
+            "web_search_enabled": self.web_search_enabled,
+            "storage_bootstrap_probe": self.storage_bootstrap_probe,
+        }
+
+
 def build_backend_storage(settings: Settings) -> tuple[StoragePaths, BackendStorage]:
     storage_paths = build_storage_paths(settings)
     storage = BackendStorage(paths=storage_paths)
@@ -142,4 +164,47 @@ def check_runtime_configuration(
         check_mode=check_mode,
         storage_bootstrap_probe=storage_bootstrap_probe,
         warnings=tuple(warnings),
+    )
+
+
+def collect_local_doctor_runtime_details(
+    settings: Settings,
+    *,
+    full_readiness: bool = False,
+) -> LocalDoctorRuntimeDetails:
+    settings.validate_production_posture()
+    storage_paths, storage = build_backend_storage(settings)
+
+    realtime_provider_factory = RealtimeProviderFactory(settings=settings)
+    realtime_provider_factory.validate_configuration()
+
+    vision_provider = None
+    if settings.vision_memory_enabled:
+        vision_factory = VisionAnalyzerFactory(settings=settings)
+        vision_factory.validate_configuration()
+        vision_provider = vision_factory.provider_name
+
+    web_search_provider = None
+    web_search_enabled = False
+    if settings.realtime_tooling_enabled:
+        tooling_runtime = RealtimeToolingRuntime.from_settings(
+            settings,
+            storage=storage,
+        )
+        web_search_provider = settings.realtime_web_search_provider
+        web_search_enabled = tooling_runtime.web_search_enabled
+
+    storage_bootstrap_probe: bool | None = None
+    if full_readiness:
+        storage.bootstrap()
+        storage_bootstrap_probe = True
+
+    return LocalDoctorRuntimeDetails(
+        storage_paths=storage_paths.to_dict(),
+        realtime_provider=realtime_provider_factory.provider_name,
+        vision_provider=vision_provider,
+        realtime_tooling_enabled=settings.realtime_tooling_enabled,
+        web_search_provider=web_search_provider,
+        web_search_enabled=web_search_enabled,
+        storage_bootstrap_probe=storage_bootstrap_probe,
     )
