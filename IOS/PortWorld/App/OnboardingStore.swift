@@ -81,6 +81,13 @@ final class OnboardingStore: ObservableObject {
     persist()
   }
 
+  func markProfileCompleted() {
+    guard progress.profileCompleted == false || progress.isFullyOnboarded == false else { return }
+    progress.profileCompleted = true
+    progress.isFullyOnboarded = true
+    persist()
+  }
+
   private func persist() {
     guard let data = try? encoder.encode(progress) else { return }
     userDefaults.set(data, forKey: Self.progressKey)

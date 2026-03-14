@@ -2,6 +2,68 @@
 import Foundation
 
 extension AssistantRuntimeController {
+  func startGuidedConversation(instructions: String) async {
+    guard status.assistantRuntimeState == .inactive else { return }
+
+    conversationMode = .guidedOnboarding
+    selectAudioIO(for: .phone)
+    wakeWarmupTask?.cancel()
+    wakeWarmupTask = nil
+    wakeListeningGeneration += 1
+    wakePhraseDetector.stop()
+
+    status.errorText = ""
+    status.infoText = "Preparing your onboarding interview."
+    publishStatus()
+
+    do {
+      try await activeAudioIO.prepareForArmedListening()
+    } catch {
+      conversationMode = .wakeTriggered
+      status.assistantRuntimeState = .inactive
+      status.errorText = error.localizedDescription
+      status.infoText = ""
+      await refreshSubsystemStatus()
+      publishStatus()
+      return
+    }
+
+    activeSessionID = "sess_\(UUID().uuidString)"
+    backendReady = false
+    firstUplinkAckReceived = false
+    hasLoggedUplinkDuringPlayback = false
+    isLocallyInterruptingAssistantPlayback = false
+    consecutiveLocalBargeInFrames = 0
+    awaitingFirstWakePCMFrame = false
+    activeConversationStartedAtMs = nil
+    pendingRealtimeFrames.removeAll(keepingCapacity: false)
+    status.assistantRuntimeState = .connectingConversation
+    status.sessionID = activeSessionID ?? "-"
+    status.transportStatusText = "connecting"
+    status.uplinkStatusText = "opening_onboarding_session"
+    status.playbackStatusText = "waiting_for_server_response"
+    status.infoText = "Mario is getting to know you."
+    publishStatus()
+
+    guard let activeSessionID else { return }
+    await backendSessionClient.connect(sessionID: activeSessionID)
+
+    do {
+      try await backendSessionClient.sendSessionActivate(
+        instructions: instructions,
+        autoStartResponse: true
+      )
+      debugLog("Guided session activate sent for session \(activeSessionID)")
+      markConversationReady(source: "guided_session_activate")
+    } catch {
+      status.errorText = "Failed to start onboarding interview: \(error.localizedDescription)"
+      await transitionToInactiveState(
+        infoText: "Interview unavailable.",
+        disconnectBackend: true
+      )
+    }
+  }
+
   func endConversation() async {
     guard status.assistantRuntimeState == .activeConversation || status.assistantRuntimeState == .connectingConversation else { return }
     do {
@@ -15,6 +77,7 @@ extension AssistantRuntimeController {
   func startConversation(from _: WakeWordDetectionEvent) async {
     guard status.assistantRuntimeState == .armedListening else { return }
 
+    conversationMode = .wakeTriggered
     wakeWarmupTask?.cancel()
     wakeWarmupTask = nil
     wakeListeningGeneration += 1
@@ -125,6 +188,7 @@ extension AssistantRuntimeController {
     }
 
     isResettingConversationToArmedState = true
+    conversationMode = .wakeTriggered
     activeAudioIO.cancelPlayback()
     activeSessionID = nil
     backendReady = false
@@ -150,13 +214,48 @@ extension AssistantRuntimeController {
     isResettingConversationToArmedState = false
   }
 
+  func transitionToInactiveState(
+    infoText: String,
+    disconnectBackend: Bool
+  ) async {
+    wakePhraseDetector.stop()
+    wakeWarmupTask?.cancel()
+    wakeWarmupTask = nil
+    wakeListeningGeneration += 1
+    awaitingFirstWakePCMFrame = false
+    activeAudioIO.cancelPlayback()
+    if disconnectBackend {
+      await backendSessionClient.disconnect(sendDeactivate: false)
+    }
+    await activeAudioIO.stop()
+    activeSessionID = nil
+    backendReady = false
+    firstUplinkAckReceived = false
+    hasLoggedUplinkDuringPlayback = false
+    isLocallyInterruptingAssistantPlayback = false
+    consecutiveLocalBargeInFrames = 0
+    activeConversationStartedAtMs = nil
+    pendingRealtimeFrames.removeAll(keepingCapacity: false)
+    conversationMode = .wakeTriggered
+    status.assistantRuntimeState = .inactive
+    status.sessionID = "-"
+    status.transportStatusText = "disconnected"
+    status.uplinkStatusText = "idle"
+    status.playbackStatusText = "idle"
+    status.infoText = infoText
+    await refreshSubsystemStatus()
+    publishStatus()
+  }
+
   func markConversationReady(source: String) {
     backendReady = true
     activeConversationStartedAtMs = Clocks.nowMs()
     awaitingFirstWakePCMFrame = false
     status.assistantRuntimeState = .activeConversation
     status.uplinkStatusText = firstUplinkAckReceived ? status.uplinkStatusText : "streaming_live_audio"
-    status.infoText = "Conversation active."
+    status.infoText = conversationMode == .guidedOnboarding
+      ? "Mario is getting to know you."
+      : "Conversation active."
     debugLog("Conversation active via \(source); pendingFrames=\(pendingRealtimeFrames.count)")
   }
 

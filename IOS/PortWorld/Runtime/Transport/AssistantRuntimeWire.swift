@@ -75,10 +75,14 @@ nonisolated struct AssistantSessionActivatePayload: Codable, Sendable {
 
   let session: SessionInfo
   let audioFormat: ClientAudioFormat
+  let instructions: String?
+  let autoStartResponse: Bool?
 
   private enum CodingKeys: String, CodingKey {
     case session
     case audioFormat = "audio_format"
+    case instructions
+    case autoStartResponse = "auto_start_response"
   }
 }
 

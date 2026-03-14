@@ -63,7 +63,14 @@ extension AssistantRuntimeController {
         break
       }
       if status.assistantRuntimeState == .activeConversation || status.assistantRuntimeState == .connectingConversation {
-        await resetConversationToArmedState(reason: "Connection closed. Listening for wake phrase again.")
+        if conversationMode == .guidedOnboarding {
+          await transitionToInactiveState(
+            infoText: "Interview ended.",
+            disconnectBackend: false
+          )
+        } else {
+          await resetConversationToArmedState(reason: "Connection closed. Listening for wake phrase again.")
+        }
       }
 
     case .error(let message):
@@ -84,7 +91,14 @@ extension AssistantRuntimeController {
       }
       status.errorText = message
       if status.assistantRuntimeState == .connectingConversation || status.assistantRuntimeState == .activeConversation {
-        await resetConversationToArmedState(reason: "Conversation failed. Listening for wake phrase again.")
+        if conversationMode == .guidedOnboarding {
+          await transitionToInactiveState(
+            infoText: "Interview unavailable.",
+            disconnectBackend: false
+          )
+        } else {
+          await resetConversationToArmedState(reason: "Conversation failed. Listening for wake phrase again.")
+        }
       }
     }
 

@@ -8,5 +8,7 @@ enum AppRoute {
   case backendSetup
   case metaConnection
   case wakePractice
+  case profileInterview
+  case profileConfirmation
   case legacyRuntime
 }

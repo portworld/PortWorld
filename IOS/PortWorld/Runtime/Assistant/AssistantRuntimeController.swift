@@ -3,6 +3,11 @@ import Foundation
 
 @MainActor
 final class AssistantRuntimeController {
+  enum ConversationMode {
+    case wakeTriggered
+    case guidedOnboarding
+  }
+
   struct PendingRealtimeFrame {
     let payload: Data
     let timestampMs: Int64
@@ -28,6 +33,7 @@ final class AssistantRuntimeController {
   var isLocallyInterruptingAssistantPlayback = false
   var consecutiveLocalBargeInFrames = 0
   var pendingRealtimeFrames: [PendingRealtimeFrame] = []
+  var conversationMode: ConversationMode = .wakeTriggered
   let maxPendingRealtimeFrames = 24
   let localBargeInRMSFloor: Double = 0.012
   let localBargeInFrameThreshold = 3

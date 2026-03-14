@@ -85,6 +85,19 @@ final class AssistantRuntimeViewModel: ObservableObject {
     await controller.endConversation()
   }
 
+  func startGuidedConversation(instructions: String) async {
+    pendingGlassesActivation = false
+    selectedRoute = .phone
+    wearablesRuntimeManager.setGlassesAudioMode(.inactive)
+    await controller.startGuidedConversation(instructions: instructions)
+    publishMergedStatus()
+  }
+
+  func stopGuidedConversation() async {
+    await controller.deactivate()
+    publishMergedStatus()
+  }
+
   func selectRoute(_ route: AssistantRoute) {
     guard controllerStatus.assistantRuntimeState == .inactive else { return }
     guard pendingGlassesActivation == false else { return }

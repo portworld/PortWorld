@@ -2,12 +2,17 @@
 import Foundation
 
 extension BackendSessionClient {
-  func sendSessionActivate() async throws {
+  func sendSessionActivate(
+    instructions: String? = nil,
+    autoStartResponse: Bool = false
+  ) async throws {
     guard let sessionID else { return }
     let sequence = nextOutboundSequence()
     let payload = AssistantSessionActivatePayload(
       session: .init(type: "realtime"),
-      audioFormat: .init(encoding: "pcm_s16le", channels: 1, sampleRate: 24_000)
+      audioFormat: .init(encoding: "pcm_s16le", channels: 1, sampleRate: 24_000),
+      instructions: instructions,
+      autoStartResponse: autoStartResponse ? true : nil
     )
     let text = try Self.encodeEnvelopeText(
       type: .sessionActivate,

@@ -74,6 +74,7 @@ extension AssistantRuntimeController {
     awaitingFirstWakePCMFrame = false
     activeConversationStartedAtMs = nil
     isResettingConversationToArmedState = false
+    conversationMode = .wakeTriggered
     status.assistantRuntimeState = .inactive
     status.sessionID = "-"
     status.transportStatusText = "disconnected"

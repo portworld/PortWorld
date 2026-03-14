@@ -58,6 +58,22 @@ struct MainAppView: View {
             route = nextOnboardingRoute()
           }
         )
+      case .profileInterview:
+        ProfileInterviewView(
+          wearablesRuntimeManager: wearablesRuntimeManager,
+          settings: appSettingsStore.settings,
+          onContinue: {
+            route = .profileConfirmation
+          }
+        )
+      case .profileConfirmation:
+        ProfileConfirmationView(
+          settings: appSettingsStore.settings,
+          onSave: {
+            onboardingStore.markProfileCompleted()
+            route = nextOnboardingRoute()
+          }
+        )
       case .legacyRuntime:
         LegacyRuntimeHostView(
           wearablesRuntimeManager: wearablesRuntimeManager,
@@ -127,6 +143,10 @@ private extension MainAppView {
       return .wakePractice
     }
 
+    if onboardingStore.progress.profileCompleted == false {
+      return .profileInterview
+    }
+
     return .legacyRuntime
   }
 
@@ -137,6 +157,14 @@ private extension MainAppView {
     case .idle, .configuring:
       route = .splash
     case .ready, .failed:
+      if onboardingStore.progress.profileCompleted == false {
+        switch route {
+        case .profileInterview, .profileConfirmation:
+          return
+        default:
+          break
+        }
+      }
       route = nextOnboardingRoute()
     }
   }
