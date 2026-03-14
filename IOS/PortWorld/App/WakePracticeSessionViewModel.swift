@@ -18,7 +18,6 @@ final class WakePracticeSessionViewModel: ObservableObject {
   enum FeedbackTone {
     case neutral
     case success
-    case retry
     case error
   }
 
@@ -183,14 +182,8 @@ final class WakePracticeSessionViewModel: ObservableObject {
       guard let self else { return }
       guard self.isListening else { return }
       guard self.stage != .completed else { return }
-      self.setFeedback(
-        title: "Try again",
-        detail: self.stage == .wake
-          ? "We didn’t catch \"\(self.displayWakePhrase)\" that time."
-          : "We didn’t catch \"\(self.displaySleepPhrase)\" that time.",
-        tone: .retry
-      )
-      self.scheduleFeedbackReset()
+      self.refreshNeutralFeedback()
+      self.scheduleAttemptTimeout()
     }
   }
 

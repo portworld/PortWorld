@@ -115,8 +115,6 @@ private extension WakePracticeView {
       return PWColor.textPrimary
     case .success:
       return PWColor.success
-    case .retry:
-      return PWColor.warning
     case .error:
       return PWColor.error
     }
