@@ -263,36 +263,28 @@ def _run_local_doctor(cli_context: CLIContext, *, full: bool) -> CommandResult:
 
     storage_probe_ran = False
     if full and settings is not None and storage is not None and vision_valid and tooling_valid:
-        if storage.is_local_backend:
-            try:
-                storage.bootstrap()
-                storage_probe_ran = True
-                checks.append(
-                    DiagnosticCheck(
-                        id="storage_bootstrap_probe",
-                        status="pass",
-                        message="Storage bootstrap probe succeeded",
-                    )
-                )
-            except Exception as exc:
-                checks.append(
-                    DiagnosticCheck(
-                        id="storage_bootstrap_probe",
-                        status="fail",
-                        message=str(exc),
-                        action="Fix the storage paths and permissions, then rerun `portworld doctor --full`.",
-                    )
-                )
-        else:
+        try:
+            storage.bootstrap()
+            storage_probe_ran = True
             checks.append(
                 DiagnosticCheck(
                     id="storage_bootstrap_probe",
-                    status="warn",
-                    message=(
-                        "Storage bootstrap probe is only available for "
-                        "BACKEND_STORAGE_BACKEND=local. Managed backend selection is valid, "
-                        "but bootstrap and persistence parity still depend on Tasks 11 and 12."
-                    ),
+                    status="pass",
+                    message="Storage bootstrap probe succeeded",
+                )
+            )
+        except Exception as exc:
+            action = (
+                "Fix the storage paths and permissions, then rerun `portworld doctor --full`."
+                if storage.is_local_backend
+                else "Fix the managed database connectivity and runtime storage settings, then rerun `portworld doctor --full`."
+            )
+            checks.append(
+                DiagnosticCheck(
+                    id="storage_bootstrap_probe",
+                    status="fail",
+                    message=str(exc),
+                    action=action,
                 )
             )
     if settings is not None and storage is not None:
