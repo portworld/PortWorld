@@ -73,3 +73,16 @@ def emit_result(cli_context: CLIContext, result: CommandResult) -> None:
 def exit_with_result(cli_context: CLIContext, result: CommandResult) -> None:
     emit_result(cli_context, result)
     raise click.exceptions.Exit(result.exit_code)
+
+
+def format_key_value_lines(*pairs: tuple[str, object | None]) -> str:
+    lines: list[str] = []
+    for key, value in pairs:
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            rendered = "yes" if value else "no"
+        else:
+            rendered = str(value)
+        lines.append(f"{key}: {rendered}")
+    return "\n".join(lines)

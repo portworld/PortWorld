@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 
-from backend.cli_app.commands.common import raise_not_implemented
 from backend.cli_app.context import CLIContext
+from backend.cli_app.ops_runtime import (
+    run_bootstrap_storage,
+    run_check_config,
+    run_export_memory,
+    run_migrate_storage_layout,
+)
+from backend.cli_app.output import exit_with_result
 
 
 @click.group("ops")
@@ -12,28 +20,46 @@ def ops_group() -> None:
 
 
 @ops_group.command("check-config")
+@click.option(
+    "--full-readiness",
+    is_flag=True,
+    default=False,
+    help="Run full readiness checks, including a storage bootstrap probe.",
+)
 @click.pass_obj
-def check_config_command(cli_context: CLIContext) -> None:
+def check_config_command(cli_context: CLIContext, full_readiness: bool) -> None:
     """Validate backend configuration."""
-    raise_not_implemented(cli_context, "portworld ops check-config")
+    exit_with_result(
+        cli_context,
+        run_check_config(cli_context, full_readiness=full_readiness),
+    )
 
 
 @ops_group.command("bootstrap-storage")
 @click.pass_obj
 def bootstrap_storage_command(cli_context: CLIContext) -> None:
     """Create storage directories and schema."""
-    raise_not_implemented(cli_context, "portworld ops bootstrap-storage")
+    exit_with_result(cli_context, run_bootstrap_storage(cli_context))
 
 
 @ops_group.command("export-memory")
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path, dir_okay=False, resolve_path=False),
+    default=None,
+    help="Write the export ZIP to a specific path.",
+)
 @click.pass_obj
-def export_memory_command(cli_context: CLIContext) -> None:
+def export_memory_command(cli_context: CLIContext, output: Path | None) -> None:
     """Export backend memory artifacts."""
-    raise_not_implemented(cli_context, "portworld ops export-memory")
+    exit_with_result(
+        cli_context,
+        run_export_memory(cli_context, output_path=output),
+    )
 
 
 @ops_group.command("migrate-storage-layout")
 @click.pass_obj
 def migrate_storage_layout_command(cli_context: CLIContext) -> None:
     """Migrate legacy storage layout artifacts."""
-    raise_not_implemented(cli_context, "portworld ops migrate-storage-layout")
+    exit_with_result(cli_context, run_migrate_storage_layout(cli_context))

@@ -19,8 +19,8 @@ class MissingOpenAIAPIKeyError(RuntimeError):
     pass
 
 
-def load_environment_files() -> None:
-    load_dotenv(dotenv_path=_BACKEND_ENV_PATH)
+def load_environment_files(backend_env_path: Path | None = None) -> None:
+    load_dotenv(dotenv_path=backend_env_path or _BACKEND_ENV_PATH)
     load_dotenv()
 
 
