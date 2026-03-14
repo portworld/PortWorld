@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.core.settings import Settings
-from backend.core.storage import BackendStorage, StoragePaths
+from backend.core.storage import BackendStorage, StorageInfo, StoragePaths
+from backend.infrastructure.storage.local import LocalBackendStorage
+from backend.infrastructure.storage.managed import ManagedBackendStorage
 from backend.realtime.factory import RealtimeProviderFactory
 from backend.tools.runtime import RealtimeToolingRuntime
 from backend.vision.factory import VisionAnalyzerFactory
@@ -12,7 +14,7 @@ from backend.vision.runtime import VisionBudgetManager, VisionMemoryRuntime
 
 @dataclass(frozen=True, slots=True)
 class RuntimeDependencies:
-    storage_paths: StoragePaths
+    storage_info: StorageInfo
     storage: BackendStorage
     realtime_provider_factory: RealtimeProviderFactory
     vision_memory_runtime: VisionMemoryRuntime | None
@@ -22,7 +24,9 @@ class RuntimeDependencies:
 @dataclass(frozen=True, slots=True)
 class ConfigCheckResult:
     ok: bool
-    storage_paths: dict[str, str]
+    storage_backend: str
+    storage_details: dict[str, str | bool]
+    storage_paths: dict[str, str] | None
     realtime_provider: str
     vision_provider: str | None
     realtime_tooling_enabled: bool
@@ -32,9 +36,10 @@ class ConfigCheckResult:
     warnings: tuple[str, ...]
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "ok": self.ok,
-            "storage_paths": self.storage_paths,
+            "storage_backend": self.storage_backend,
+            "storage_details": dict(self.storage_details),
             "realtime_provider": self.realtime_provider,
             "vision_provider": self.vision_provider,
             "realtime_tooling_enabled": self.realtime_tooling_enabled,
@@ -43,11 +48,16 @@ class ConfigCheckResult:
             "storage_bootstrap_probe": self.storage_bootstrap_probe,
             "warnings": list(self.warnings),
         }
+        if self.storage_paths is not None:
+            payload["storage_paths"] = dict(self.storage_paths)
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
-class LocalDoctorRuntimeDetails:
-    storage_paths: dict[str, str]
+class DoctorRuntimeDetails:
+    storage_backend: str
+    storage_details: dict[str, str | bool]
+    storage_paths: dict[str, str] | None
     realtime_provider: str
     vision_provider: str | None
     realtime_tooling_enabled: bool
@@ -56,8 +66,9 @@ class LocalDoctorRuntimeDetails:
     storage_bootstrap_probe: bool | None
 
     def to_dict(self) -> dict[str, object]:
-        return {
-            "storage_paths": self.storage_paths,
+        payload: dict[str, object] = {
+            "storage_backend": self.storage_backend,
+            "storage_details": dict(self.storage_details),
             "realtime_provider": self.realtime_provider,
             "vision_provider": self.vision_provider,
             "realtime_tooling_enabled": self.realtime_tooling_enabled,
@@ -65,19 +76,25 @@ class LocalDoctorRuntimeDetails:
             "web_search_enabled": self.web_search_enabled,
             "storage_bootstrap_probe": self.storage_bootstrap_probe,
         }
+        if self.storage_paths is not None:
+            payload["storage_paths"] = dict(self.storage_paths)
+        return payload
 
 
-def build_backend_storage(settings: Settings) -> tuple[StoragePaths, BackendStorage]:
+def build_backend_storage(settings: Settings) -> tuple[StorageInfo, BackendStorage]:
     settings.validate_storage_contract()
-    if settings.backend_storage_backend != "local":
-        raise RuntimeError(
-            "Managed storage backend "
-            f"{settings.backend_storage_backend!r} is configured but runtime selection "
-            "is not implemented yet. Task 10 will add the actual backend selection layer."
-        )
-    storage_paths = build_storage_paths(settings)
-    storage = BackendStorage(paths=storage_paths)
-    return storage_paths, storage
+    if settings.backend_storage_backend == "local":
+        storage_paths = build_storage_paths(settings)
+        storage = LocalBackendStorage(paths=storage_paths)
+        return storage.storage_info, storage
+
+    storage = ManagedBackendStorage(
+        database_url_configured=bool(settings.backend_database_url),
+        object_store_provider=settings.backend_object_store_provider,
+        object_store_bucket=settings.backend_object_store_bucket or "",
+        object_store_prefix=settings.backend_object_store_prefix or "",
+    )
+    return storage.storage_info, storage
 
 
 def build_storage_paths(settings: Settings) -> StoragePaths:
@@ -100,7 +117,7 @@ def build_storage_paths(settings: Settings) -> StoragePaths:
 def build_runtime_dependencies(settings: Settings) -> RuntimeDependencies:
     settings.validate_production_posture()
     settings.validate_storage_contract()
-    storage_paths, storage = build_backend_storage(settings)
+    storage_info, storage = build_backend_storage(settings)
     realtime_provider_factory = RealtimeProviderFactory(settings=settings)
     realtime_provider_factory.validate_startup_configuration()
 
@@ -127,7 +144,7 @@ def build_runtime_dependencies(settings: Settings) -> RuntimeDependencies:
         )
 
     return RuntimeDependencies(
-        storage_paths=storage_paths,
+        storage_info=storage_info,
         storage=storage,
         realtime_provider_factory=realtime_provider_factory,
         vision_memory_runtime=vision_memory_runtime,
@@ -167,9 +184,15 @@ def check_runtime_configuration(
                 "REALTIME_TOOLING_ENABLED is true but web_search is disabled because the configured search provider is not enabled by current credentials."
             )
 
+    storage_paths = None
+    if dependencies.storage.is_local_backend:
+        storage_paths = dependencies.storage.local_storage_paths().to_dict()
+
     return ConfigCheckResult(
         ok=True,
-        storage_paths=dependencies.storage_paths.to_dict(),
+        storage_backend=dependencies.storage_info.backend,
+        storage_details=dict(dependencies.storage_info.details),
+        storage_paths=storage_paths,
         realtime_provider=dependencies.realtime_provider_factory.provider_name,
         vision_provider=vision_provider,
         realtime_tooling_enabled=settings.realtime_tooling_enabled,
@@ -180,13 +203,13 @@ def check_runtime_configuration(
     )
 
 
-def collect_local_doctor_runtime_details(
+def collect_doctor_runtime_details(
     settings: Settings,
     *,
     full_readiness: bool = False,
-) -> LocalDoctorRuntimeDetails:
+) -> DoctorRuntimeDetails:
     settings.validate_production_posture()
-    storage_paths, storage = build_backend_storage(settings)
+    storage_info, storage = build_backend_storage(settings)
 
     realtime_provider_factory = RealtimeProviderFactory(settings=settings)
     realtime_provider_factory.validate_configuration()
@@ -212,8 +235,14 @@ def collect_local_doctor_runtime_details(
         storage.bootstrap()
         storage_bootstrap_probe = True
 
-    return LocalDoctorRuntimeDetails(
-        storage_paths=storage_paths.to_dict(),
+    storage_paths = None
+    if storage.is_local_backend:
+        storage_paths = storage.local_storage_paths().to_dict()
+
+    return DoctorRuntimeDetails(
+        storage_backend=storage_info.backend,
+        storage_details=dict(storage_info.details),
+        storage_paths=storage_paths,
         realtime_provider=realtime_provider_factory.provider_name,
         vision_provider=vision_provider,
         realtime_tooling_enabled=settings.realtime_tooling_enabled,
