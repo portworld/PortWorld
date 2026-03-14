@@ -36,11 +36,39 @@ class StoragePaths:
 
 
 @dataclass(frozen=True, slots=True)
+class StorageInfo:
+    backend: str
+    details: dict[str, str | bool]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "backend": self.backend,
+            "details": dict(self.details),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class StorageBootstrapResult:
-    sqlite_path: Path
-    user_profile_markdown_path: Path
-    user_profile_json_path: Path
+    storage_backend: str
+    sqlite_path: Path | None
+    user_profile_markdown_path: Path | None
+    user_profile_json_path: Path | None
     bootstrapped_at_ms: int
+    storage_details: dict[str, str | bool]
+
+    def to_dict(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "storage_backend": self.storage_backend,
+            "bootstrapped_at_ms": self.bootstrapped_at_ms,
+            "storage_details": dict(self.storage_details),
+        }
+        if self.sqlite_path is not None:
+            payload["sqlite_path"] = str(self.sqlite_path)
+        if self.user_profile_markdown_path is not None:
+            payload["user_profile_markdown_path"] = str(self.user_profile_markdown_path)
+        if self.user_profile_json_path is not None:
+            payload["user_profile_json_path"] = str(self.user_profile_json_path)
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
