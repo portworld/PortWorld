@@ -4,6 +4,9 @@ struct ProfileDraft: Equatable {
   var name: String = ""
   var job: String = ""
   var company: String = ""
+  var preferredLanguage: String = ""
+  var location: String = ""
+  var intendedUse: String = ""
   var preferencesText: String = ""
   var projectsText: String = ""
 
@@ -13,6 +16,9 @@ struct ProfileDraft: Equatable {
     name = profile.name ?? ""
     job = profile.job ?? ""
     company = profile.company ?? ""
+    preferredLanguage = profile.preferredLanguage ?? ""
+    location = profile.location ?? ""
+    intendedUse = profile.intendedUse ?? ""
     preferencesText = profile.preferences.joined(separator: ", ")
     projectsText = profile.projects.joined(separator: ", ")
   }
@@ -22,6 +28,9 @@ struct ProfileDraft: Equatable {
       name: normalizedString(name),
       job: normalizedString(job),
       company: normalizedString(company),
+      preferredLanguage: normalizedString(preferredLanguage),
+      location: normalizedString(location),
+      intendedUse: normalizedString(intendedUse),
       preferences: normalizedList(preferencesText),
       projects: normalizedList(projectsText)
     )
@@ -57,6 +66,9 @@ struct ProfileAPIClient {
     let name: String?
     let job: String?
     let company: String?
+    let preferredLanguage: String?
+    let location: String?
+    let intendedUse: String?
     let preferences: [String]
     let projects: [String]
 
@@ -65,28 +77,20 @@ struct ProfileAPIClient {
       name = try container.decodeIfPresent(String.self, forKey: .name)
       job = try container.decodeIfPresent(String.self, forKey: .job)
       company = try container.decodeIfPresent(String.self, forKey: .company)
+      preferredLanguage = try container.decodeIfPresent(String.self, forKey: .preferredLanguage)
+      location = try container.decodeIfPresent(String.self, forKey: .location)
+      intendedUse = try container.decodeIfPresent(String.self, forKey: .intendedUse)
       preferences = try container.decodeIfPresent([String].self, forKey: .preferences) ?? []
       projects = try container.decodeIfPresent([String].self, forKey: .projects) ?? []
-    }
-
-    init(
-      name: String? = nil,
-      job: String? = nil,
-      company: String? = nil,
-      preferences: [String] = [],
-      projects: [String] = []
-    ) {
-      self.name = name
-      self.job = job
-      self.company = company
-      self.preferences = preferences
-      self.projects = projects
     }
 
     private enum CodingKeys: String, CodingKey {
       case name
       case job
       case company
+      case preferredLanguage = "preferred_language"
+      case location
+      case intendedUse = "intended_use"
       case preferences
       case projects
     }
@@ -96,8 +100,22 @@ struct ProfileAPIClient {
     let name: String?
     let job: String?
     let company: String?
+    let preferredLanguage: String?
+    let location: String?
+    let intendedUse: String?
     let preferences: [String]
     let projects: [String]
+
+    private enum CodingKeys: String, CodingKey {
+      case name
+      case job
+      case company
+      case preferredLanguage = "preferred_language"
+      case location
+      case intendedUse = "intended_use"
+      case preferences
+      case projects
+    }
   }
 
   enum ClientError: LocalizedError {
@@ -191,8 +209,8 @@ struct ProfileAPIClient {
   ) throws -> URLRequest {
     let trimmedBaseURL = baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let baseURL = URL(string: trimmedBaseURL),
-          let scheme = baseURL.scheme,
-          scheme == "http" || scheme == "https"
+      let scheme = baseURL.scheme,
+      scheme == "http" || scheme == "https"
     else {
       throw ClientError.invalidBaseURL
     }

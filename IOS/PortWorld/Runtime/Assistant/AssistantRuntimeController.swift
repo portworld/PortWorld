@@ -41,6 +41,7 @@ final class AssistantRuntimeController {
   var status: AssistantRuntimeStatus
   var onStatusUpdated: ((AssistantRuntimeStatus) -> Void)?
   var onGlassesAudioModeUpdated: ((AssistantAudioMode, Bool) -> Void)?
+  var onProfileOnboardingReady: (() -> Void)?
 
   init(
     config: AssistantRuntimeConfig,

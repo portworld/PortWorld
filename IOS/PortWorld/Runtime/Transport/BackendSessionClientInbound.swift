@@ -51,6 +51,12 @@ extension BackendSessionClient {
       let envelope = try AssistantWSMessageCodec.decodeEnvelope(AssistantPlaybackControlPayload.self, from: data)
       lastPlaybackControlCommand = envelope.payload.command.rawValue
       yieldEvent(.playbackControl(envelope.payload))
+    case AssistantWSInboundType.onboardingProfileReady.rawValue:
+      let envelope = try AssistantWSMessageCodec.decodeEnvelope(
+        AssistantProfileOnboardingReadyPayload.self,
+        from: data
+      )
+      yieldEvent(.profileOnboardingReady(envelope.payload))
     case AssistantWSInboundType.error.rawValue:
       let envelope = try AssistantWSMessageCodec.decodeEnvelope(AssistantRuntimeErrorPayload.self, from: data)
       debugLog("Inbound error code=\(envelope.payload.code) message=\(envelope.payload.message)")

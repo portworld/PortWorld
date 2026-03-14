@@ -58,6 +58,10 @@ extension AssistantRuntimeController {
       }
       activeAudioIO.handlePlaybackControl(payload)
 
+    case .profileOnboardingReady:
+      debugLog("Received profile onboarding ready event#\(envelope.id)")
+      onProfileOnboardingReady?()
+
     case .closed:
       if isResettingConversationToArmedState {
         break
@@ -136,6 +140,8 @@ extension AssistantRuntimeController {
       return "server_audio bytes=\(data.count)"
     case .playbackControl(let payload):
       return "playback_control command=\(payload.command.rawValue)"
+    case .profileOnboardingReady:
+      return "profile_onboarding_ready"
     case .closed:
       return "closed"
     case .error(let message):

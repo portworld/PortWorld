@@ -56,6 +56,36 @@ struct ProfileConfirmationView: View {
             submitLabel: .next
           )
           .focused($focusedField, equals: .company)
+          .onSubmit { focusedField = .preferredLanguage }
+
+          PWTextFieldRow(
+            label: "Preferred Language",
+            placeholder: "English, French...",
+            text: $draft.preferredLanguage,
+            textInputAutocapitalization: .words,
+            submitLabel: .next
+          )
+          .focused($focusedField, equals: .preferredLanguage)
+          .onSubmit { focusedField = .location }
+
+          PWTextFieldRow(
+            label: "Location",
+            placeholder: "Paris, New York, Remote...",
+            text: $draft.location,
+            textInputAutocapitalization: .words,
+            submitLabel: .next
+          )
+          .focused($focusedField, equals: .location)
+          .onSubmit { focusedField = .intendedUse }
+
+          PWTextFieldRow(
+            label: "Intended Use",
+            placeholder: "How you plan to use PortWorld",
+            text: $draft.intendedUse,
+            textInputAutocapitalization: .sentences,
+            submitLabel: .next
+          )
+          .focused($focusedField, equals: .intendedUse)
           .onSubmit { focusedField = .preferences }
 
           PWTextFieldRow(
@@ -100,6 +130,9 @@ private extension ProfileConfirmationView {
     case name
     case job
     case company
+    case preferredLanguage
+    case location
+    case intendedUse
     case preferences
     case projects
   }

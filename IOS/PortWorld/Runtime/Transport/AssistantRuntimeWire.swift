@@ -54,6 +54,16 @@ nonisolated struct AssistantSessionStatePayload: Codable, Sendable {
   let detail: String?
 }
 
+nonisolated struct AssistantProfileOnboardingReadyPayload: Codable, Sendable {
+  let ready: Bool
+  let missingRequiredFields: [String]
+
+  private enum CodingKeys: String, CodingKey {
+    case ready
+    case missingRequiredFields = "missing_required_fields"
+  }
+}
+
 nonisolated struct AssistantEmptyPayload: Codable, Sendable {}
 
 nonisolated struct AssistantSessionActivatePayload: Codable, Sendable {
@@ -118,6 +128,7 @@ enum AssistantWSInboundType: String, Codable, Sendable {
   case sessionState = "session.state"
   case transportUplinkAcknowledged = "transport.uplink.ack"
   case assistantPlaybackControl = "assistant.playback.control"
+  case onboardingProfileReady = "onboarding.profile_ready"
   case error
 }
 

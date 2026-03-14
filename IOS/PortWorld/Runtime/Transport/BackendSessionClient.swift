@@ -20,6 +20,7 @@ actor BackendSessionClient {
     case uplinkAcknowledged(AssistantRealtimeUplinkAckPayload)
     case serverAudio(Data)
     case playbackControl(AssistantPlaybackControlPayload)
+    case profileOnboardingReady(AssistantProfileOnboardingReadyPayload)
     case closed
     case error(String)
   }
@@ -152,7 +153,7 @@ actor BackendSessionClient {
 
   func shouldLogEvent(_ event: Event) -> Bool {
     switch event {
-    case .stateChanged, .sessionReady, .playbackControl, .closed, .error:
+    case .stateChanged, .sessionReady, .playbackControl, .profileOnboardingReady, .closed, .error:
       return true
     case .uplinkAcknowledged, .serverAudio:
       return false
@@ -171,6 +172,8 @@ actor BackendSessionClient {
       return "server_audio bytes=\(data.count)"
     case .playbackControl(let payload):
       return "playback_control command=\(payload.command.rawValue)"
+    case .profileOnboardingReady:
+      return "profile_onboarding_ready"
     case .closed:
       return "closed"
     case .error(let message):

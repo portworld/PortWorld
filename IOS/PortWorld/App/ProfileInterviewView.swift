@@ -24,7 +24,7 @@ struct ProfileInterviewView: View {
     PWOnboardingScaffold(
       style: .centeredHero,
       title: "Let Mario get to know you",
-      subtitle: "A short voice conversation will set up your profile for the assistant.",
+      subtitle: "He’ll welcome you, ask a few setup questions, and hand off to review when your profile is ready.",
       content: {
         VStack(spacing: PWSpace.hero) {
           VStack(spacing: PWSpace.md) {
@@ -59,6 +59,9 @@ struct ProfileInterviewView: View {
         )
       }
     )
+    .task {
+      await viewModel.startInterviewIfNeeded()
+    }
     .onDisappear {
       if viewModel.isInterviewRunning {
         Task { await viewModel.stopInterview() }
@@ -69,65 +72,67 @@ struct ProfileInterviewView: View {
 
 private extension ProfileInterviewView {
   var headline: String {
+    if viewModel.status.errorText.isEmpty == false && viewModel.isProfileReadyForReview == false {
+      return "Interview interrupted"
+    }
+
+    if viewModel.isProfileReadyForReview {
+      return "Profile ready"
+    }
+
     if viewModel.isStarting {
-      return "Starting interview..."
+      return "Mario is joining"
     }
 
-    if viewModel.isInterviewRunning {
-      return "Mario is listening"
-    }
-
-    if viewModel.hasStartedInterview {
-      return viewModel.status.errorText.isEmpty ? "Profile ready to review" : "Try the interview again"
-    }
-
-    return "Ready when you are"
+    return "Mario is getting to know you"
   }
 
   var detailText: String {
-    if viewModel.isInterviewRunning {
-      return "Speak naturally. Mario will ask for your name, work, preferences, and projects one question at a time."
+    if viewModel.status.errorText.isEmpty == false && viewModel.isProfileReadyForReview == false {
+      return "The onboarding interview stopped before it could finish. Start it again and Mario will pick it up from the beginning."
     }
 
-    if viewModel.hasStartedInterview {
-      return viewModel.status.errorText.isEmpty
-        ? "When the conversation feels complete, continue to review and edit what was saved."
-        : "The interview stopped before it could finish. Start it again when you're ready."
+    if viewModel.isProfileReadyForReview {
+      return "Mario finished the interview. Review and edit the saved profile before you enter the app."
     }
 
-    return "This first conversation personalizes PortWorld before you enter the app."
+    if viewModel.isStarting {
+      return "Opening your onboarding session now. Mario will start speaking first."
+    }
+
+    return "Listen and answer naturally. Mario will keep the conversation focused on setting up your profile."
   }
 
   var headlineColor: Color {
-    if viewModel.status.errorText.isEmpty == false {
+    if viewModel.status.errorText.isEmpty == false && viewModel.isProfileReadyForReview == false {
       return PWColor.error
     }
 
-    return viewModel.isInterviewRunning ? PWColor.success : PWColor.textPrimary
+    return viewModel.isProfileReadyForReview ? PWColor.success : PWColor.textPrimary
   }
 
   var primaryButtonTitle: String {
-    if viewModel.isStarting {
-      return "Starting..."
+    if viewModel.isProfileReadyForReview {
+      return isContinuing ? "Wrapping up..." : "Review profile"
     }
 
-    if viewModel.isInterviewRunning {
-      return isContinuing ? "Wrapping up..." : "Continue to review"
+    if viewModel.canRetry {
+      return viewModel.isStarting ? "Restarting..." : "Try again"
     }
 
-    if viewModel.hasStartedInterview {
-      return "Start again"
-    }
-
-    return "Start interview"
+    return viewModel.isStarting ? "Starting..." : "Listening..."
   }
 
   var isPrimaryDisabled: Bool {
-    viewModel.isStarting || isContinuing
+    if viewModel.isProfileReadyForReview == false && viewModel.canRetry == false {
+      return true
+    }
+
+    return viewModel.isStarting || isContinuing
   }
 
   func primaryAction() {
-    if viewModel.isInterviewRunning {
+    if viewModel.isProfileReadyForReview {
       isContinuing = true
       Task {
         await viewModel.stopInterview()
@@ -138,6 +143,7 @@ private extension ProfileInterviewView {
       return
     }
 
-    Task { await viewModel.startInterview() }
+    guard viewModel.canRetry else { return }
+    Task { await viewModel.retryInterview() }
   }
 }

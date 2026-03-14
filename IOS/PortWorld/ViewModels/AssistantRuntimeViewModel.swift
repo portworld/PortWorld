@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 final class AssistantRuntimeViewModel: ObservableObject {
   @Published private(set) var status: AssistantRuntimeStatus
+  @Published private(set) var isProfileOnboardingReady = false
 
   #if DEBUG
     private static let debugPhoneVisionPreferenceKey = "portworld.debug.phoneVisionEnabled"
@@ -88,6 +89,7 @@ final class AssistantRuntimeViewModel: ObservableObject {
   func startGuidedConversation(instructions: String) async {
     pendingGlassesActivation = false
     selectedRoute = .phone
+    isProfileOnboardingReady = false
     wearablesRuntimeManager.setGlassesAudioMode(.inactive)
     await controller.startGuidedConversation(instructions: instructions)
     publishMergedStatus()
@@ -95,6 +97,7 @@ final class AssistantRuntimeViewModel: ObservableObject {
 
   func stopGuidedConversation() async {
     await controller.deactivate()
+    isProfileOnboardingReady = false
     publishMergedStatus()
   }
 
@@ -160,6 +163,11 @@ final class AssistantRuntimeViewModel: ObservableObject {
       Task { @MainActor [weak self] in
         self?.wearablesRuntimeManager.setGlassesAudioMode(mode)
         self?.publishMergedStatus()
+      }
+    }
+    controller.onProfileOnboardingReady = { [weak self] in
+      Task { @MainActor [weak self] in
+        self?.isProfileOnboardingReady = true
       }
     }
   }

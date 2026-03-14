@@ -39,6 +39,7 @@ final class WakePracticeSessionViewModel: ObservableObject {
   private let wakePhraseDetector: WakePhraseDetector
   private var feedbackResetTask: Task<Void, Never>?
   private var attemptTimeoutTask: Task<Void, Never>?
+  private var isStopping = false
 
   init(config: AssistantRuntimeConfig) {
     self.wakePhrase = config.wakePhrase
@@ -63,14 +64,18 @@ final class WakePracticeSessionViewModel: ObservableObject {
 
     wakePhraseDetector.onError = { [weak self] message in
       Task { @MainActor [weak self] in
-        self?.errorText = message
-        self?.setFeedback(title: "Try again", detail: message, tone: .error)
+        guard let self else { return }
+        guard self.shouldAcceptDetectorUpdates else { return }
+        self.errorText = message
+        self.setFeedback(title: "Try again", detail: message, tone: .error)
       }
     }
 
     wakePhraseDetector.onStatusChanged = { [weak self] status in
       Task { @MainActor [weak self] in
-        self?.handleStatusChanged(status)
+        guard let self else { return }
+        guard self.shouldAcceptDetectorUpdates else { return }
+        self.handleStatusChanged(status)
       }
     }
   }
@@ -103,11 +108,13 @@ final class WakePracticeSessionViewModel: ObservableObject {
   }
 
   func stopListening() async {
+    isStopping = true
     feedbackResetTask?.cancel()
     attemptTimeoutTask?.cancel()
     wakePhraseDetector.stop()
     await phoneAudioIO.stop()
     isListening = false
+    isStopping = false
     if stage != .completed {
       refreshNeutralFeedback()
     }
@@ -137,6 +144,8 @@ final class WakePracticeSessionViewModel: ObservableObject {
     showSuccessFeedback(detail: "\(sleepCount) of 3 complete")
 
     if sleepCount == 3 {
+      feedbackResetTask?.cancel()
+      attemptTimeoutTask?.cancel()
       stage = .completed
       setFeedback(title: "All set", detail: "Both phrases were detected three times.", tone: .success)
       Task { await stopListening() }
@@ -170,6 +179,7 @@ final class WakePracticeSessionViewModel: ObservableObject {
     feedbackResetTask = Task { @MainActor [weak self] in
       try? await Task.sleep(nanoseconds: 900_000_000)
       guard let self else { return }
+      guard self.shouldAcceptDetectorUpdates else { return }
       self.refreshNeutralFeedback()
       self.scheduleAttemptTimeout()
     }
@@ -181,7 +191,7 @@ final class WakePracticeSessionViewModel: ObservableObject {
       try? await Task.sleep(nanoseconds: 6_000_000_000)
       guard let self else { return }
       guard self.isListening else { return }
-      guard self.stage != .completed else { return }
+      guard self.shouldAcceptDetectorUpdates else { return }
       self.refreshNeutralFeedback()
       self.scheduleAttemptTimeout()
     }
@@ -219,6 +229,10 @@ final class WakePracticeSessionViewModel: ObservableObject {
 
   private func setFeedback(title: String, detail: String, tone: FeedbackTone) {
     feedback = Feedback(title: title, detail: detail, tone: tone)
+  }
+
+  private var shouldAcceptDetectorUpdates: Bool {
+    stage != .completed && isStopping == false
   }
 
   private var displayWakePhrase: String {
