@@ -68,19 +68,24 @@ struct MainAppView: View {
             }
           )
         case .home:
-          HomeHostView(
+          PostOnboardingShellView(
+            appSettingsStore: appSettingsStore,
             wearablesRuntimeManager: wearablesRuntimeManager,
-            settings: appSettingsStore.settings,
-            onOpenBackendSetup: {
-              route = .backendSetup
-            },
             onOpenMetaSetup: {
               route = .metaConnection
+            },
+            onOpenWakePractice: {
+              route = .wakePractice
+            },
+            onOpenProfileInterview: {
+              route = .profileInterview
+            },
+            onResetOnboarding: {
+              onboardingStore.reset()
+              route = nextOnboardingRoute()
             }
           )
           .id(runtimeHostIdentity)
-        case .settings, .help:
-          Color.clear
         }
 
         if route == .splash {

@@ -88,6 +88,11 @@ final class OnboardingStore: ObservableObject {
     persist()
   }
 
+  func reset() {
+    progress = Progress()
+    persist()
+  }
+
   private func persist() {
     guard let data = try? encoder.encode(progress) else { return }
     userDefaults.set(data, forKey: Self.progressKey)

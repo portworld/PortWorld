@@ -2,47 +2,41 @@ import SwiftUI
 
 struct HomeView: View {
   @ObservedObject private var viewModel: AssistantRuntimeViewModel
-  let settings: AppSettingsStore.Settings
+  @ObservedObject private var appSettingsStore: AppSettingsStore
   @ObservedObject private var wearablesRuntimeManager: WearablesRuntimeManager
-  let onOpenBackendSetup: () -> Void
-  let onOpenMetaSetup: () -> Void
+  let onOpenBackendSettings: () -> Void
+  let onOpenGlassesSettings: () -> Void
 
   init(
     viewModel: AssistantRuntimeViewModel,
-    settings: AppSettingsStore.Settings,
+    appSettingsStore: AppSettingsStore,
     wearablesRuntimeManager: WearablesRuntimeManager,
-    onOpenBackendSetup: @escaping () -> Void,
-    onOpenMetaSetup: @escaping () -> Void
+    onOpenBackendSettings: @escaping () -> Void,
+    onOpenGlassesSettings: @escaping () -> Void
   ) {
     self.viewModel = viewModel
-    self.settings = settings
+    self.appSettingsStore = appSettingsStore
     self.wearablesRuntimeManager = wearablesRuntimeManager
-    self.onOpenBackendSetup = onOpenBackendSetup
-    self.onOpenMetaSetup = onOpenMetaSetup
+    self.onOpenBackendSettings = onOpenBackendSettings
+    self.onOpenGlassesSettings = onOpenGlassesSettings
   }
 
   var body: some View {
     let readiness = HomeReadinessState(
-      settings: settings,
+      settings: appSettingsStore.settings,
       runtimeStatus: viewModel.status,
       wearablesRuntimeManager: wearablesRuntimeManager
     )
 
-    PWScreen(topPadding: PWSpace.md) {
+    PWScreen(title: "Home", topPadding: PWSpace.md) {
       ScrollView(showsIndicators: false) {
         VStack(alignment: .leading, spacing: PWSpace.section) {
           heroCard(readiness: readiness)
-          primaryControlCard(readiness: readiness)
-          phrasesCard
           readinessCard(readiness: readiness)
+          phrasesCard
         }
         .padding(.bottom, PWSpace.hero)
       }
-    }
-    .navigationTitle("Home")
-    .navigationBarTitleDisplayMode(.inline)
-    .onAppear {
-      viewModel.selectRoute(.glasses)
     }
   }
 }
@@ -59,34 +53,6 @@ private extension HomeView {
           .font(PWTypography.body)
           .foregroundStyle(PWColor.textSecondary)
           .fixedSize(horizontal: false, vertical: true)
-      }
-    }
-  }
-
-  func primaryControlCard(readiness: HomeReadinessState) -> some View {
-    PWCard {
-      VStack(alignment: .leading, spacing: PWSpace.md) {
-        Text("Assistant")
-          .font(PWTypography.headline)
-          .foregroundStyle(PWColor.textPrimary)
-
-        if isDeactivateState {
-          PWPrimaryButton(title: "Deactivate Assistant", action: deactivateAssistant)
-        } else {
-          PWPrimaryButton(
-            title: primaryButtonTitle,
-            isDisabled: readiness.canActivateAssistant == false || isBusyStopping,
-            action: activateAssistant
-          )
-        }
-
-        if let recoveryAction = readiness.recoveryAction,
-           shouldShowRecoveryAction(readiness: readiness)
-        {
-          PWSecondaryButton(title: recoveryAction.title) {
-            handleRecoveryAction(recoveryAction)
-          }
-        }
       }
     }
   }
@@ -120,52 +86,23 @@ private extension HomeView {
           .font(PWTypography.headline)
           .foregroundStyle(PWColor.textPrimary)
 
-        HomeStatusRowView(state: readiness.backendStatus)
-        HomeStatusRowView(state: readiness.glassesStatus)
+        HomeStatusRowView(state: readiness.backendStatus) { action in
+          handleRowAction(action)
+        }
+
+        HomeStatusRowView(state: readiness.glassesStatus) { action in
+          handleRowAction(action)
+        }
       }
     }
   }
 
-  var isDeactivateState: Bool {
-    viewModel.status.canDeactivate
-  }
-
-  var isBusyStopping: Bool {
-    viewModel.status.assistantRuntimeState == .deactivating
-  }
-
-  var primaryButtonTitle: String {
-    if isBusyStopping {
-      return "Stopping…"
-    }
-
-    return "Activate Assistant"
-  }
-
-  func shouldShowRecoveryAction(readiness: HomeReadinessState) -> Bool {
-    readiness.canActivateAssistant == false &&
-      viewModel.status.assistantRuntimeState == .inactive
-  }
-
-  func activateAssistant() {
-    viewModel.selectRoute(.glasses)
-    Task {
-      await viewModel.activateAssistant()
-    }
-  }
-
-  func deactivateAssistant() {
-    Task {
-      await viewModel.deactivateAssistant()
-    }
-  }
-
-  func handleRecoveryAction(_ action: HomeReadinessState.RecoveryAction) {
+  func handleRowAction(_ action: HomeStatusRowState.Action) {
     switch action {
-    case .openBackendSetup:
-      onOpenBackendSetup()
-    case .connectGlasses:
-      onOpenMetaSetup()
+    case .openBackendSettings:
+      onOpenBackendSettings()
+    case .openGlassesSettings:
+      onOpenGlassesSettings()
     }
   }
 }
@@ -203,6 +140,7 @@ private struct PhraseRow: View {
 
 private struct HomeStatusRowView: View {
   let state: HomeStatusRowState
+  let onTapAction: (HomeStatusRowState.Action) -> Void
 
   var body: some View {
     HStack(alignment: .top, spacing: PWSpace.md) {
@@ -224,6 +162,16 @@ private struct HomeStatusRowView: View {
           .font(PWTypography.caption)
           .foregroundStyle(PWColor.textSecondary)
           .fixedSize(horizontal: false, vertical: true)
+
+        if let action = state.action {
+          Button(action.title) {
+            onTapAction(action)
+          }
+          .buttonStyle(.plain)
+          .font(PWTypography.subbody)
+          .foregroundStyle(PWColor.textSecondary)
+          .padding(.top, PWSpace.xs)
+        }
       }
 
       Spacer(minLength: 0)

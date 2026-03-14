@@ -10,6 +10,4 @@ enum AppRoute {
   case wakePractice
   case profileInterview
   case home
-  case settings
-  case help
 }

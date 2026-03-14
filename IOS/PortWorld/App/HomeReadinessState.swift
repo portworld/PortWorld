@@ -2,32 +2,32 @@ import Foundation
 import MWDATCore
 
 struct HomeStatusRowState {
-  let title: String
-  let label: String
-  let detail: String
-  let tone: PWStatusTone
-  let systemImage: String
-}
-
-struct HomeReadinessState {
-  enum RecoveryAction {
-    case openBackendSetup
-    case connectGlasses
+  enum Action {
+    case openBackendSettings
+    case openGlassesSettings
 
     var title: String {
       switch self {
-      case .openBackendSetup:
-        return "Open Backend Setup"
-      case .connectGlasses:
+      case .openBackendSettings:
+        return "Open Settings"
+      case .openGlassesSettings:
         return "Connect Glasses"
       }
     }
   }
 
+  let title: String
+  let label: String
+  let detail: String
+  let tone: PWStatusTone
+  let systemImage: String
+  let action: Action?
+}
+
+struct HomeReadinessState {
   let assistantSummary: String
   let assistantDetail: String
   let canActivateAssistant: Bool
-  let recoveryAction: RecoveryAction?
   let backendStatus: HomeStatusRowState
   let glassesStatus: HomeStatusRowState
 
@@ -53,10 +53,6 @@ struct HomeReadinessState {
       wearablesRuntimeManager: wearablesRuntimeManager
     )
     self.canActivateAssistant = isBackendReady && areGlassesReady
-    self.recoveryAction = HomeReadinessState.makeRecoveryAction(
-      isBackendReady: isBackendReady,
-      areGlassesReady: areGlassesReady
-    )
 
     let hero = HomeReadinessState.makeHeroState(
       runtimeStatus: runtimeStatus,
@@ -70,21 +66,6 @@ struct HomeReadinessState {
 }
 
 private extension HomeReadinessState {
-  static func makeRecoveryAction(
-    isBackendReady: Bool,
-    areGlassesReady: Bool
-  ) -> RecoveryAction? {
-    if isBackendReady == false {
-      return .openBackendSetup
-    }
-
-    if areGlassesReady == false {
-      return .connectGlasses
-    }
-
-    return nil
-  }
-
   static func areGlassesReady(
     wearablesRuntimeManager: WearablesRuntimeManager
   ) -> Bool {
@@ -106,7 +87,8 @@ private extension HomeReadinessState {
         label: "Connecting",
         detail: "PortWorld is opening a live backend session now.",
         tone: .neutral,
-        systemImage: "network"
+        systemImage: "network",
+        action: nil
       )
 
     case .activeConversation:
@@ -115,7 +97,8 @@ private extension HomeReadinessState {
         label: "Ready",
         detail: "Your backend session is active.",
         tone: .success,
-        systemImage: "checkmark.circle"
+        systemImage: "checkmark.circle",
+        action: nil
       )
 
     case .inactive, .armedListening, .pausedByHardware, .deactivating:
@@ -129,7 +112,8 @@ private extension HomeReadinessState {
         label: "Ready",
         detail: "Your backend was verified and is ready to use.",
         tone: .success,
-        systemImage: "checkmark.circle"
+        systemImage: "checkmark.circle",
+        action: nil
       )
 
     case .invalid:
@@ -138,7 +122,8 @@ private extension HomeReadinessState {
         label: "Needs attention",
         detail: "Backend validation failed. Check your URL or token.",
         tone: .error,
-        systemImage: "exclamationmark.triangle"
+        systemImage: "exclamationmark.triangle",
+        action: .openBackendSettings
       )
 
     case .unknown:
@@ -154,7 +139,8 @@ private extension HomeReadinessState {
         label: "Needs setup",
         detail: detail,
         tone: .warning,
-        systemImage: "gearshape"
+        systemImage: "gearshape",
+        action: .openBackendSettings
       )
     }
   }
@@ -169,7 +155,8 @@ private extension HomeReadinessState {
         label: "Needs attention",
         detail: compatibilityMessage,
         tone: .warning,
-        systemImage: "exclamationmark.triangle"
+        systemImage: "exclamationmark.triangle",
+        action: .openGlassesSettings
       )
     }
 
@@ -180,7 +167,8 @@ private extension HomeReadinessState {
         label: "Connecting",
         detail: "Preparing Meta wearables support for the app.",
         tone: .neutral,
-        systemImage: "gearshape"
+        systemImage: "gearshape",
+        action: .openGlassesSettings
       )
 
     case .failed:
@@ -189,7 +177,8 @@ private extension HomeReadinessState {
         label: "Needs attention",
         detail: wearablesRuntimeManager.configurationErrorMessage ?? "Meta wearables support failed to initialize.",
         tone: .error,
-        systemImage: "xmark.octagon"
+        systemImage: "xmark.octagon",
+        action: .openGlassesSettings
       )
 
     case .ready:
@@ -202,7 +191,8 @@ private extension HomeReadinessState {
         label: "Needs attention",
         detail: "Your glasses session paused. Reconnect your glasses or deactivate the assistant.",
         tone: .warning,
-        systemImage: "pause.circle"
+        systemImage: "pause.circle",
+        action: .openGlassesSettings
       )
     }
 
@@ -212,7 +202,8 @@ private extension HomeReadinessState {
         label: "Not connected",
         detail: "Authorize PortWorld in the Meta app before starting the assistant.",
         tone: .warning,
-        systemImage: "eyeglasses"
+        systemImage: "eyeglasses",
+        action: .openGlassesSettings
       )
     }
 
@@ -222,7 +213,8 @@ private extension HomeReadinessState {
         label: "Not connected",
         detail: "Bring your paired glasses nearby and reconnect.",
         tone: .warning,
-        systemImage: "antenna.radiowaves.left.and.right"
+        systemImage: "antenna.radiowaves.left.and.right",
+        action: .openGlassesSettings
       )
     }
 
@@ -233,7 +225,8 @@ private extension HomeReadinessState {
         label: "Connecting",
         detail: "Starting a live glasses session now.",
         tone: .neutral,
-        systemImage: "dot.radiowaves.left.and.right"
+        systemImage: "dot.radiowaves.left.and.right",
+        action: nil
       )
 
     case .running:
@@ -242,7 +235,8 @@ private extension HomeReadinessState {
         label: "Ready",
         detail: "Your glasses session is active.",
         tone: .success,
-        systemImage: "checkmark.circle"
+        systemImage: "checkmark.circle",
+        action: nil
       )
 
     case .failed:
@@ -251,7 +245,8 @@ private extension HomeReadinessState {
         label: "Needs attention",
         detail: wearablesRuntimeManager.glassesSessionErrorMessage ?? "The glasses session could not start.",
         tone: .error,
-        systemImage: "xmark.octagon"
+        systemImage: "xmark.octagon",
+        action: .openGlassesSettings
       )
 
     case .paused:
@@ -260,7 +255,8 @@ private extension HomeReadinessState {
         label: "Needs attention",
         detail: "Your glasses session is paused right now.",
         tone: .warning,
-        systemImage: "pause.circle"
+        systemImage: "pause.circle",
+        action: .openGlassesSettings
       )
 
     case .waitingForDevice:
@@ -269,7 +265,8 @@ private extension HomeReadinessState {
         label: "Connecting",
         detail: "Waiting for your glasses to become available nearby.",
         tone: .warning,
-        systemImage: "antenna.radiowaves.left.and.right"
+        systemImage: "antenna.radiowaves.left.and.right",
+        action: .openGlassesSettings
       )
 
     case .inactive, .stopping:
@@ -278,7 +275,8 @@ private extension HomeReadinessState {
         label: "Ready",
         detail: "Your glasses are connected and available.",
         tone: .success,
-        systemImage: "checkmark.circle"
+        systemImage: "checkmark.circle",
+        action: nil
       )
     }
   }
