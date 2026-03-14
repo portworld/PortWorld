@@ -9,5 +9,7 @@ enum AppRoute {
   case metaConnection
   case wakePractice
   case profileInterview
-  case legacyRuntime
+  case home
+  case settings
+  case help
 }

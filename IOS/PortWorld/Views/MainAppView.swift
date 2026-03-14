@@ -5,7 +5,6 @@ struct MainAppView: View {
   @StateObject private var appSettingsStore = AppSettingsStore()
   @StateObject private var onboardingStore = OnboardingStore()
   @ObservedObject private var wearablesRuntimeManager: WearablesRuntimeManager
-  @State private var isPresentingFutureHardwareSetup = false
   @State private var route: AppRoute = .splash
 
   init(wearablesRuntimeManager: WearablesRuntimeManager) {
@@ -13,80 +12,84 @@ struct MainAppView: View {
   }
 
   var body: some View {
-    ZStack {
-      switch route {
-      case .splash:
-        Color.clear
-      case .welcome:
-        WelcomeShellView {
-          onboardingStore.markWelcomeSeen()
-          route = nextOnboardingRoute()
-        }
-      case .features:
-        FeatureHighlightsView {
-          onboardingStore.markFeaturesSeen()
-          route = nextOnboardingRoute()
-        }
-      case .connectAgents:
-        ConnectAgentsIntroView {
-          onboardingStore.markBackendIntroSeen()
-          route = nextOnboardingRoute()
-        }
-      case .backendSetup:
-        BackendSetupView(appSettingsStore: appSettingsStore) {
-          onboardingStore.markBackendValidated()
-          route = nextOnboardingRoute()
-        }
-      case .metaConnection:
-        MetaConnectionView(
-          wearablesRuntimeManager: wearablesRuntimeManager,
-          onContinue: {
-            onboardingStore.markMetaCompleted()
-            route = nextOnboardingRoute()
-          },
-          onSkip: {
-            onboardingStore.markMetaSkipped()
+    NavigationStack {
+      ZStack {
+        switch route {
+        case .splash:
+          Color.clear
+        case .welcome:
+          WelcomeShellView {
+            onboardingStore.markWelcomeSeen()
             route = nextOnboardingRoute()
           }
-        )
-      case .wakePractice:
-        WakePracticeView(
-          wearablesRuntimeManager: wearablesRuntimeManager,
-          settings: appSettingsStore.settings,
-          onContinue: {
-            onboardingStore.markWakePracticeCompleted()
+        case .features:
+          FeatureHighlightsView {
+            onboardingStore.markFeaturesSeen()
             route = nextOnboardingRoute()
           }
-        )
-      case .profileInterview:
-        ProfileInterviewView(
-          wearablesRuntimeManager: wearablesRuntimeManager,
-          settings: appSettingsStore.settings,
-          onContinue: {
-            onboardingStore.markProfileCompleted()
+        case .connectAgents:
+          ConnectAgentsIntroView {
+            onboardingStore.markBackendIntroSeen()
             route = nextOnboardingRoute()
           }
-        )
-      case .legacyRuntime:
-        LegacyRuntimeHostView(
-          wearablesRuntimeManager: wearablesRuntimeManager,
-          settings: appSettingsStore.settings,
-          onOpenFutureHardwareSetup: {
-            isPresentingFutureHardwareSetup = true
+        case .backendSetup:
+          BackendSetupView(appSettingsStore: appSettingsStore) {
+            onboardingStore.markBackendValidated()
+            route = nextOnboardingRoute()
           }
-        )
-        .id(runtimeHostIdentity)
-      }
+        case .metaConnection:
+          MetaConnectionView(
+            wearablesRuntimeManager: wearablesRuntimeManager,
+            onContinue: {
+              onboardingStore.markMetaCompleted()
+              route = nextOnboardingRoute()
+            },
+            onSkip: {
+              onboardingStore.markMetaSkipped()
+              route = nextOnboardingRoute()
+            }
+          )
+        case .wakePractice:
+          WakePracticeView(
+            wearablesRuntimeManager: wearablesRuntimeManager,
+            settings: appSettingsStore.settings,
+            onContinue: {
+              onboardingStore.markWakePracticeCompleted()
+              route = nextOnboardingRoute()
+            }
+          )
+        case .profileInterview:
+          ProfileInterviewView(
+            wearablesRuntimeManager: wearablesRuntimeManager,
+            settings: appSettingsStore.settings,
+            onContinue: {
+              onboardingStore.markProfileCompleted()
+              route = nextOnboardingRoute()
+            }
+          )
+        case .home:
+          HomeHostView(
+            wearablesRuntimeManager: wearablesRuntimeManager,
+            settings: appSettingsStore.settings,
+            onOpenBackendSetup: {
+              route = .backendSetup
+            },
+            onOpenMetaSetup: {
+              route = .metaConnection
+            }
+          )
+          .id(runtimeHostIdentity)
+        case .settings, .help:
+          Color.clear
+        }
 
-      if route == .splash {
-        StartupLoadingView()
-          .transition(.opacity)
+        if route == .splash {
+          StartupLoadingView()
+            .transition(.opacity)
+        }
       }
     }
     .animation(.easeOut(duration: 0.24), value: route)
-    .sheet(isPresented: $isPresentingFutureHardwareSetup) {
-      FutureHardwareSetupView(wearablesRuntimeManager: wearablesRuntimeManager)
-    }
     .onAppear {
       resolveRoute(for: wearablesRuntimeManager.configurationState)
     }
@@ -140,7 +143,7 @@ private extension MainAppView {
       return .profileInterview
     }
 
-    return .legacyRuntime
+    return .home
   }
 
   func resolveRoute(
