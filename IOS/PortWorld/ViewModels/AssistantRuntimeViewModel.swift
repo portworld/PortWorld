@@ -86,12 +86,12 @@ final class AssistantRuntimeViewModel: ObservableObject {
     await controller.endConversation()
   }
 
-  func startGuidedConversation(instructions: String) async {
+  func startGuidedConversation() async {
     pendingGlassesActivation = false
     selectedRoute = .phone
     isProfileOnboardingReady = false
     wearablesRuntimeManager.setGlassesAudioMode(.inactive)
-    await controller.startGuidedConversation(instructions: instructions)
+    await controller.startGuidedConversation()
     publishMergedStatus()
   }
 

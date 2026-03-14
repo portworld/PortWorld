@@ -64,6 +64,11 @@ nonisolated struct AssistantProfileOnboardingReadyPayload: Codable, Sendable {
   }
 }
 
+enum AssistantSessionMode: String, Codable, Sendable {
+  case standard = "default"
+  case profileOnboarding = "profile_onboarding"
+}
+
 nonisolated struct AssistantEmptyPayload: Codable, Sendable {}
 
 nonisolated struct AssistantSessionActivatePayload: Codable, Sendable {
@@ -85,12 +90,14 @@ nonisolated struct AssistantSessionActivatePayload: Codable, Sendable {
 
   let session: SessionInfo
   let audioFormat: ClientAudioFormat
+  let mode: AssistantSessionMode?
   let instructions: String?
   let autoStartResponse: Bool?
 
   private enum CodingKeys: String, CodingKey {
     case session
     case audioFormat = "audio_format"
+    case mode
     case instructions
     case autoStartResponse = "auto_start_response"
   }

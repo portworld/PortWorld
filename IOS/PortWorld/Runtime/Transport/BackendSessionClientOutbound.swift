@@ -3,6 +3,7 @@ import Foundation
 
 extension BackendSessionClient {
   func sendSessionActivate(
+    mode: AssistantSessionMode? = nil,
     instructions: String? = nil,
     autoStartResponse: Bool = false
   ) async throws {
@@ -11,6 +12,7 @@ extension BackendSessionClient {
     let payload = AssistantSessionActivatePayload(
       session: .init(type: "realtime"),
       audioFormat: .init(encoding: "pcm_s16le", channels: 1, sampleRate: 24_000),
+      mode: mode,
       instructions: instructions,
       autoStartResponse: autoStartResponse ? true : nil
     )

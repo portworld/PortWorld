@@ -2,7 +2,7 @@
 import Foundation
 
 extension AssistantRuntimeController {
-  func startGuidedConversation(instructions: String) async {
+  func startGuidedConversation() async {
     guard status.assistantRuntimeState == .inactive else { return }
 
     conversationMode = .guidedOnboarding
@@ -50,7 +50,7 @@ extension AssistantRuntimeController {
 
     do {
       try await backendSessionClient.sendSessionActivate(
-        instructions: instructions,
+        mode: .profileOnboarding,
         autoStartResponse: true
       )
       debugLog("Guided session activate sent for session \(activeSessionID)")
