@@ -128,11 +128,6 @@ def run_export_memory(cli_context: CLIContext, *, output_path: Path | None) -> C
     try:
         settings = _build_settings(cli_context)
         _, storage = build_backend_storage(settings)
-        if not storage.is_local_backend:
-            raise RuntimeError(
-                "portworld ops export-memory is only supported when "
-                "BACKEND_STORAGE_BACKEND=local. Managed memory export still depends on Task 12."
-            )
         storage.bootstrap()
         artifacts = storage.list_memory_export_artifacts()
         final_output_path = output_path or (Path.cwd() / f"portworld-memory-export-{now_ms()}.zip")

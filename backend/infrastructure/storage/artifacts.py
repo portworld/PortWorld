@@ -72,9 +72,9 @@ class ArtifactStorageMixin:
                     session_id=None,
                     artifact_kind=artifact_kind,
                     relative_path=str(artifact_path.relative_to(self.paths.data_root)),
-                    absolute_path=artifact_path,
                     content_type=content_type,
                     created_at_ms=None,
+                    read_bytes=lambda artifact_path=artifact_path: artifact_path.read_bytes(),
                 )
             )
 
@@ -100,9 +100,9 @@ class ArtifactStorageMixin:
                     session_id=str(row["session_id"]) if row["session_id"] is not None else None,
                     artifact_kind=str(row["artifact_kind"]),
                     relative_path=str(row["relative_path"]),
-                    absolute_path=absolute_path,
                     content_type=str(row["content_type"]),
                     created_at_ms=int(row["created_at_ms"]),
+                    read_bytes=lambda absolute_path=absolute_path: absolute_path.read_bytes(),
                 )
             )
         return artifacts

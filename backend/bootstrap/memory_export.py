@@ -113,7 +113,10 @@ def write_memory_export_zip(
     try:
         with zipfile.ZipFile(export_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
             for artifact in artifacts:
-                archive.write(artifact.absolute_path, arcname=_validated_arcname(artifact=artifact))
+                archive.writestr(
+                    _validated_arcname(artifact=artifact),
+                    artifact.read_bytes(),
+                )
             archive.writestr(
                 "manifest.json",
                 json.dumps(asdict(manifest), ensure_ascii=True, indent=2) + "\n",

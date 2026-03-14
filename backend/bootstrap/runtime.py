@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from backend.core.settings import Settings
 from backend.core.storage import BackendStorage, StorageInfo, StoragePaths
+from backend.infrastructure.storage.object_store import build_object_store
 from backend.infrastructure.storage.local import LocalBackendStorage
 from backend.infrastructure.storage.managed import ManagedBackendStorage
 from backend.realtime.factory import RealtimeProviderFactory
@@ -90,9 +91,11 @@ def build_backend_storage(settings: Settings) -> tuple[StorageInfo, BackendStora
 
     storage = ManagedBackendStorage(
         database_url=settings.backend_database_url or "",
-        object_store_provider=settings.backend_object_store_provider,
-        object_store_bucket=settings.backend_object_store_bucket or "",
-        object_store_prefix=settings.backend_object_store_prefix or "",
+        object_store=build_object_store(
+            provider=settings.backend_object_store_provider,
+            bucket_name=settings.backend_object_store_bucket or "",
+            key_prefix=settings.backend_object_store_prefix or "",
+        ),
     )
     return storage.storage_info, storage
 

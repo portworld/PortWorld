@@ -67,10 +67,6 @@ def _bootstrap_storage(_: argparse.Namespace) -> int:
 def _export_memory(args: argparse.Namespace) -> int:
     settings = Settings.from_env()
     _, storage = build_backend_storage(settings)
-    if not storage.is_local_backend:
-        raise RuntimeError(
-            "export-memory is only supported when BACKEND_STORAGE_BACKEND=local."
-        )
     storage.bootstrap()
     artifacts = storage.list_memory_export_artifacts()
     output_path = (

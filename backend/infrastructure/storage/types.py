@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from time import time_ns
 from typing import TYPE_CHECKING, Any
@@ -125,9 +126,9 @@ class MemoryExportArtifact:
     session_id: str | None
     artifact_kind: str
     relative_path: str
-    absolute_path: Path
     content_type: str
     created_at_ms: int | None
+    read_bytes: Callable[[], bytes] = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from backend.core.storage import BackendStorage
 from backend.infrastructure.storage.errors import SessionNotFoundError
+from backend.infrastructure.storage.object_store import ObjectStore, normalize_object_store_relative_path
 from backend.infrastructure.storage.postgres import PostgresMetadataStore
 from backend.infrastructure.storage.types import (
     ArtifactRecord,
@@ -21,7 +22,10 @@ from backend.infrastructure.storage.types import (
     VisionFrameIngestResult,
     now_ms,
 )
+from backend.memory.events import AcceptedVisionEvent, coerce_accepted_vision_event
 from backend.memory.lifecycle import (
+    EXPORTABLE_SESSION_ARTIFACT_KINDS,
+    PROFILE_ARTIFACT_FILE_NAMES,
     SESSION_MEMORY_JSON_FILE_NAME,
     SESSION_MEMORY_MARKDOWN_FILE_NAME,
     SHORT_TERM_MEMORY_JSON_FILE_NAME,
@@ -44,6 +48,8 @@ logger = logging.getLogger(__name__)
 
 _STORAGE_ID_PREFIX_MAX_LENGTH = 24
 _UNSET = object()
+_PROFILE_MARKDOWN_RELATIVE_PATH = f"user/{PROFILE_ARTIFACT_FILE_NAMES[0]}"
+_PROFILE_JSON_RELATIVE_PATH = f"user/{PROFILE_ARTIFACT_FILE_NAMES[1]}"
 
 
 def _resolve_next_retry_at_ms(
@@ -72,34 +78,31 @@ def _resolve_error_details_json(
 
 
 class ManagedBackendStorage(BackendStorage):
-    """Managed storage backed by Postgres metadata with object storage deferred."""
+    """Managed storage backed by Postgres metadata and object-store artifacts."""
 
     def __init__(
         self,
         *,
         database_url: str,
-        object_store_provider: str,
-        object_store_bucket: str,
-        object_store_prefix: str,
+        object_store: ObjectStore,
     ) -> None:
-        self.object_store_provider = object_store_provider
-        self.object_store_bucket = object_store_bucket
-        self.object_store_prefix = object_store_prefix
+        self.object_store = object_store
         self.metadata_store = PostgresMetadataStore(database_url=database_url)
         super().__init__(
             storage_info=StorageInfo(
                 backend="postgres_gcs",
                 details={
                     "database_url_configured": bool(database_url),
-                    "object_store_provider": object_store_provider,
-                    "object_store_bucket": object_store_bucket,
-                    "object_store_prefix": object_store_prefix,
+                    "object_store_provider": object_store.provider_name,
+                    "object_store_bucket": object_store.bucket_name,
+                    "object_store_prefix": object_store.key_prefix,
                 },
             )
         )
 
     def bootstrap(self) -> StorageBootstrapResult:
         self.metadata_store.initialize_schema()
+        self._ensure_profile_artifacts()
         return StorageBootstrapResult(
             storage_backend=self.backend_name,
             sqlite_path=None,
@@ -113,6 +116,10 @@ class ManagedBackendStorage(BackendStorage):
         session_storage = self.get_session_storage_paths(session_id=session_id)
         self.metadata_store.ensure_session_memory_documents(session_id=session_id)
         self._register_session_artifacts(
+            session_id=session_id,
+            session_storage=session_storage,
+        )
+        self._ensure_session_artifacts(
             session_id=session_id,
             session_storage=session_storage,
         )
@@ -157,19 +164,26 @@ class ManagedBackendStorage(BackendStorage):
         )
 
     def read_user_profile(self) -> dict[str, object]:
-        document = self.metadata_store.read_profile_document()
-        return self._load_json_payload(
-            document.get("json_text"),
-            default_payload=empty_profile_payload(),
-            context="managed profile document",
+        payload = self._read_json_artifact(
+            relative_path=_PROFILE_JSON_RELATIVE_PATH,
+            context="managed profile artifact",
         )
+        if payload is not None:
+            return payload
+        document = self.metadata_store.read_profile_document()
+        fallback = self._parse_json_payload(
+            self._coerce_text(document.get("json_text")),
+            context="managed profile fallback document",
+        )
+        return fallback if fallback is not None else empty_profile_payload()
 
     def read_user_profile_markdown(self) -> str:
-        document = self.metadata_store.read_profile_document()
-        markdown_text = document.get("markdown_text")
-        if isinstance(markdown_text, str):
+        markdown_text = self.object_store.get_text(relative_path=_PROFILE_MARKDOWN_RELATIVE_PATH)
+        if markdown_text is not None:
             return markdown_text
-        return empty_profile_markdown()
+        document = self.metadata_store.read_profile_document()
+        fallback = self._coerce_text(document.get("markdown_text"))
+        return fallback if fallback is not None else empty_profile_markdown()
 
     def write_user_profile(
         self,
@@ -188,18 +202,42 @@ class ManagedBackendStorage(BackendStorage):
         if not normalized_payload:
             return self.reset_user_profile()
 
+        json_text = json.dumps(normalized_payload, ensure_ascii=True, indent=2) + "\n"
+        markdown_text = render_profile_markdown(parse_profile_record(normalized_payload))
+        self.object_store.put_text(
+            relative_path=_PROFILE_JSON_RELATIVE_PATH,
+            content=json_text,
+            content_type="application/json",
+        )
+        self.object_store.put_text(
+            relative_path=_PROFILE_MARKDOWN_RELATIVE_PATH,
+            content=markdown_text,
+            content_type="text/markdown",
+        )
         self.metadata_store.upsert_profile_document(
-            json_text=json.dumps(normalized_payload, ensure_ascii=True, indent=2) + "\n",
-            markdown_text=render_profile_markdown(parse_profile_record(normalized_payload)),
+            json_text=json_text,
+            markdown_text=markdown_text,
             updated_at_ms=timestamp_ms,
         )
         return normalized_payload
 
     def reset_user_profile(self) -> dict[str, object]:
         payload = empty_profile_payload()
+        json_text = json.dumps(payload, ensure_ascii=True, indent=2) + "\n"
+        markdown_text = empty_profile_markdown()
+        self.object_store.put_text(
+            relative_path=_PROFILE_JSON_RELATIVE_PATH,
+            content=json_text,
+            content_type="application/json",
+        )
+        self.object_store.put_text(
+            relative_path=_PROFILE_MARKDOWN_RELATIVE_PATH,
+            content=markdown_text,
+            content_type="text/markdown",
+        )
         self.metadata_store.upsert_profile_document(
-            json_text=json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
-            markdown_text=empty_profile_markdown(),
+            json_text=json_text,
+            markdown_text=markdown_text,
             updated_at_ms=now_ms(),
         )
         return payload
@@ -215,6 +253,7 @@ class ManagedBackendStorage(BackendStorage):
             payload_json=json.dumps(event, ensure_ascii=True, sort_keys=True),
             created_at_ms=now_ms(),
         )
+        self._sync_session_event_log_artifact(session_id=session_id, log_kind="vision_events")
 
     def append_vision_routing_event(self, *, session_id: str, event: dict[str, Any]) -> None:
         self.ensure_session_storage(session_id=session_id)
@@ -224,38 +263,62 @@ class ManagedBackendStorage(BackendStorage):
             payload_json=json.dumps(event, ensure_ascii=True, sort_keys=True),
             created_at_ms=now_ms(),
         )
+        self._sync_session_event_log_artifact(session_id=session_id, log_kind="vision_routing_events")
 
-    def read_vision_events(self, *, session_id: str) -> list[dict[str, Any]]:
+    def read_vision_events(self, *, session_id: str) -> list[AcceptedVisionEvent]:
         self._require_session_persisted(session_id=session_id)
-        return list(self.metadata_store.list_accepted_vision_events(session_id=session_id))
+        raw_events = self._read_session_event_payloads(
+            session_id=session_id,
+            log_kind="vision_events",
+        )
+        valid_events: list[AcceptedVisionEvent] = []
+        for payload in raw_events:
+            event, _ = coerce_accepted_vision_event(payload)
+            if event is not None:
+                valid_events.append(event)
+        return valid_events
 
     def read_session_memory(self, *, session_id: str) -> dict[str, Any]:
         self._require_session_persisted(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        payload = self._read_json_artifact(
+            relative_path=self._relative_path(session_storage.session_memory_json_path),
+            context=f"managed session memory artifact session_id={session_id}",
+        )
+        if payload is not None:
+            return payload
         document = self.metadata_store.read_session_memory_document(
             session_id=session_id,
             memory_scope="session",
         )
         if document is None:
             return {}
-        return self._load_json_payload(
-            document.get("json_text"),
-            default_payload={},
-            context=f"managed session memory session_id={session_id}",
+        fallback = self._parse_json_payload(
+            self._coerce_text(document.get("json_text")),
+            context=f"managed session memory fallback session_id={session_id}",
         )
+        return fallback if fallback is not None else {}
 
     def read_short_term_memory(self, *, session_id: str) -> dict[str, Any]:
         self._require_session_persisted(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        payload = self._read_json_artifact(
+            relative_path=self._relative_path(session_storage.short_term_memory_json_path),
+            context=f"managed short-term memory artifact session_id={session_id}",
+        )
+        if payload is not None:
+            return payload
         document = self.metadata_store.read_session_memory_document(
             session_id=session_id,
             memory_scope="short_term",
         )
         if document is None:
             return {}
-        return self._load_json_payload(
-            document.get("json_text"),
-            default_payload={},
-            context=f"managed short-term memory session_id={session_id}",
+        fallback = self._parse_json_payload(
+            self._coerce_text(document.get("json_text")),
+            context=f"managed short-term memory fallback session_id={session_id}",
         )
+        return fallback if fallback is not None else {}
 
     def write_short_term_memory(
         self,
@@ -264,11 +327,22 @@ class ManagedBackendStorage(BackendStorage):
         payload: dict[str, Any],
         markdown_text: str,
     ) -> None:
-        self.ensure_session_storage(session_id=session_id)
+        session_storage = self.ensure_session_storage(session_id=session_id)
+        json_text = json.dumps(payload, ensure_ascii=True, indent=2) + "\n"
+        self.object_store.put_text(
+            relative_path=self._relative_path(session_storage.short_term_memory_json_path),
+            content=json_text,
+            content_type="application/json",
+        )
+        self.object_store.put_text(
+            relative_path=self._relative_path(session_storage.short_term_memory_markdown_path),
+            content=markdown_text,
+            content_type="text/markdown",
+        )
         self.metadata_store.upsert_session_memory_document(
             session_id=session_id,
             memory_scope="short_term",
-            json_text=json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
+            json_text=json_text,
             markdown_text=markdown_text,
             updated_at_ms=now_ms(),
         )
@@ -280,11 +354,22 @@ class ManagedBackendStorage(BackendStorage):
         payload: dict[str, Any],
         markdown_text: str,
     ) -> None:
-        self.ensure_session_storage(session_id=session_id)
+        session_storage = self.ensure_session_storage(session_id=session_id)
+        json_text = json.dumps(payload, ensure_ascii=True, indent=2) + "\n"
+        self.object_store.put_text(
+            relative_path=self._relative_path(session_storage.session_memory_json_path),
+            content=json_text,
+            content_type="application/json",
+        )
+        self.object_store.put_text(
+            relative_path=self._relative_path(session_storage.session_memory_markdown_path),
+            content=markdown_text,
+            content_type="text/markdown",
+        )
         self.metadata_store.upsert_session_memory_document(
             session_id=session_id,
             memory_scope="session",
-            json_text=json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
+            json_text=json_text,
             markdown_text=markdown_text,
             updated_at_ms=now_ms(),
         )
@@ -336,6 +421,20 @@ class ManagedBackendStorage(BackendStorage):
             raise RuntimeError(f"Cannot reset memory for active session {session_id!r}")
         if not eligibility.has_persisted_memory:
             raise KeyError(f"No persisted memory found for session {session_id!r}")
+
+        relative_paths = {
+            self._relative_path(self.get_session_storage_paths(session_id=session_id).short_term_memory_markdown_path),
+            self._relative_path(self.get_session_storage_paths(session_id=session_id).short_term_memory_json_path),
+            self._relative_path(self.get_session_storage_paths(session_id=session_id).session_memory_markdown_path),
+            self._relative_path(self.get_session_storage_paths(session_id=session_id).session_memory_json_path),
+            self._relative_path(self.get_session_storage_paths(session_id=session_id).vision_events_log_path),
+            self._relative_path(self.get_session_storage_paths(session_id=session_id).vision_routing_events_log_path),
+        }
+        for artifact in self.metadata_store.list_artifact_records_for_session(session_id=session_id):
+            relative_paths.add(artifact.relative_path)
+        for relative_path in sorted(relative_paths):
+            self.object_store.delete(relative_path=relative_path)
+
         deleted = self.metadata_store.delete_session_metadata(session_id=session_id)
         return SessionMemoryResetResult(
             session_id=session_id,
@@ -410,7 +509,7 @@ class ManagedBackendStorage(BackendStorage):
         session_row = self.metadata_store.get_session_row(session_id=session_id)
         short_term_memory = self.read_short_term_memory(session_id=session_id)
         session_memory = self.read_session_memory(session_id=session_id)
-        accepted_events = self.metadata_store.list_accepted_vision_events(session_id=session_id)
+        accepted_events = self.read_vision_events(session_id=session_id)
         recent_records = self.metadata_store.list_recent_vision_frame_records(
             session_id=session_id,
             limit=max(1, recent_limit),
@@ -532,16 +631,147 @@ class ManagedBackendStorage(BackendStorage):
         height: int,
         frame_bytes: bytes,
     ) -> VisionFrameIngestResult:
-        _ = (session_id, frame_id, ts_ms, capture_ts_ms, width, height, frame_bytes)
-        raise self._task12_error("vision frame ingest")
+        self.ensure_session_storage(session_id=session_id)
+        frame_relative_path, metadata_relative_path = self._vision_frame_relative_paths(
+            session_id=session_id,
+            frame_id=frame_id,
+        )
+        ingest_ts_ms = now_ms()
+        artifact_metadata = {
+            "session_id": session_id,
+            "frame_id": frame_id,
+            "ts_ms": ts_ms,
+            "capture_ts_ms": capture_ts_ms,
+            "width": width,
+            "height": height,
+            "stored_bytes": len(frame_bytes),
+        }
+        metadata_payload = {
+            **artifact_metadata,
+            "relative_path": frame_relative_path,
+            "object_key": self.object_store.resolve_location(relative_path=frame_relative_path),
+        }
+        ingest_record = VisionFrameIndexRecord(
+            session_id=session_id,
+            frame_id=frame_id,
+            capture_ts_ms=capture_ts_ms,
+            ingest_ts_ms=ingest_ts_ms,
+            width=width,
+            height=height,
+            processing_status="queued",
+            gate_status=None,
+            gate_reason=None,
+            phash=None,
+            provider=None,
+            model=None,
+            analyzed_at_ms=None,
+            next_retry_at_ms=None,
+            attempt_count=0,
+            error_code=None,
+            error_details_json=None,
+            summary_snippet=None,
+            routing_status=None,
+            routing_reason=None,
+            routing_score=None,
+            routing_metadata_json=None,
+        )
+        metadata_text = json.dumps(metadata_payload, ensure_ascii=True, indent=2) + "\n"
+        uploaded_paths: list[str] = []
+        try:
+            self.object_store.put_bytes(
+                relative_path=frame_relative_path,
+                content=frame_bytes,
+                content_type="image/jpeg",
+            )
+            uploaded_paths.append(frame_relative_path)
+            self.object_store.put_text(
+                relative_path=metadata_relative_path,
+                content=metadata_text,
+                content_type="application/json",
+            )
+            uploaded_paths.append(metadata_relative_path)
+            self.metadata_store.register_vision_frame_ingest(
+                frame_artifact=ArtifactRecord(
+                    artifact_id=f"{session_id}:vision_frame_jpeg:{frame_id}",
+                    session_id=session_id,
+                    artifact_kind="vision_frame_jpeg",
+                    relative_path=frame_relative_path,
+                    content_type="image/jpeg",
+                    metadata_json=json.dumps(artifact_metadata, ensure_ascii=True, sort_keys=True),
+                    created_at_ms=ingest_ts_ms,
+                ),
+                metadata_artifact=ArtifactRecord(
+                    artifact_id=f"{session_id}:vision_frame_metadata:{frame_id}",
+                    session_id=session_id,
+                    artifact_kind="vision_frame_metadata",
+                    relative_path=metadata_relative_path,
+                    content_type="application/json",
+                    metadata_json=json.dumps(artifact_metadata, ensure_ascii=True, sort_keys=True),
+                    created_at_ms=ingest_ts_ms,
+                ),
+                ingest_record=ingest_record,
+            )
+        except Exception:
+            for relative_path in reversed(uploaded_paths):
+                try:
+                    self.object_store.delete(relative_path=relative_path)
+                except Exception:
+                    logger.warning(
+                        "Failed cleaning up partial managed ingest artifact path=%s",
+                        relative_path,
+                        exc_info=True,
+                    )
+            raise
+
+        return VisionFrameIngestResult(
+            frame_path=Path(frame_relative_path),
+            metadata_path=Path(metadata_relative_path),
+            stored_bytes=len(frame_bytes),
+        )
 
     def delete_vision_ingest_artifacts(self, *, session_id: str, frame_id: str) -> None:
-        _ = session_id
-        _ = frame_id
-        raise self._task12_error("vision frame artifact deletion")
+        for relative_path in self._vision_frame_relative_paths(
+            session_id=session_id,
+            frame_id=frame_id,
+        ):
+            self.object_store.delete(relative_path=relative_path)
 
     def list_memory_export_artifacts(self) -> list[MemoryExportArtifact]:
-        raise self._task12_error("memory export artifacts")
+        artifacts: list[MemoryExportArtifact] = [
+            MemoryExportArtifact(
+                artifact_id=None,
+                session_id=None,
+                artifact_kind="user_profile_markdown",
+                relative_path=_PROFILE_MARKDOWN_RELATIVE_PATH,
+                content_type="text/markdown",
+                created_at_ms=None,
+                read_bytes=lambda: self._read_profile_markdown_export_bytes(),
+            ),
+            MemoryExportArtifact(
+                artifact_id=None,
+                session_id=None,
+                artifact_kind="user_profile_json",
+                relative_path=_PROFILE_JSON_RELATIVE_PATH,
+                content_type="application/json",
+                created_at_ms=None,
+                read_bytes=lambda: self._read_profile_json_export_bytes(),
+            ),
+        ]
+        for artifact in self.metadata_store.list_artifact_records_by_kinds(
+            artifact_kinds=EXPORTABLE_SESSION_ARTIFACT_KINDS,
+        ):
+            artifacts.append(
+                MemoryExportArtifact(
+                    artifact_id=artifact.artifact_id,
+                    session_id=artifact.session_id,
+                    artifact_kind=artifact.artifact_kind,
+                    relative_path=artifact.relative_path,
+                    content_type=artifact.content_type,
+                    created_at_ms=artifact.created_at_ms,
+                    read_bytes=lambda artifact=artifact: self._read_export_artifact_bytes(artifact),
+                )
+            )
+        return artifacts
 
     def migrate_legacy_storage_layout(self) -> dict[str, Any]:
         raise RuntimeError(
@@ -605,6 +835,282 @@ class ManagedBackendStorage(BackendStorage):
             metadata=artifact_metadata,
         )
 
+    def _ensure_profile_artifacts(self) -> None:
+        document = self.metadata_store.read_profile_document()
+        profile_json = self._coerce_text(document.get("json_text")) or (
+            json.dumps(empty_profile_payload(), ensure_ascii=True, indent=2) + "\n"
+        )
+        profile_markdown = self._coerce_text(document.get("markdown_text")) or empty_profile_markdown()
+        self._ensure_text_artifact(
+            relative_path=_PROFILE_JSON_RELATIVE_PATH,
+            fallback_text=profile_json,
+            content_type="application/json",
+        )
+        self._ensure_text_artifact(
+            relative_path=_PROFILE_MARKDOWN_RELATIVE_PATH,
+            fallback_text=profile_markdown,
+            content_type="text/markdown",
+        )
+
+    def _ensure_session_artifacts(
+        self,
+        *,
+        session_id: str,
+        session_storage: SessionStorageResult,
+    ) -> None:
+        short_term_document = self.metadata_store.read_session_memory_document(
+            session_id=session_id,
+            memory_scope="short_term",
+        ) or {}
+        session_document = self.metadata_store.read_session_memory_document(
+            session_id=session_id,
+            memory_scope="session",
+        ) or {}
+        self._ensure_text_artifact(
+            relative_path=self._relative_path(session_storage.short_term_memory_json_path),
+            fallback_text=self._coerce_text(short_term_document.get("json_text"))
+            or (json.dumps({}, ensure_ascii=True, indent=2) + "\n"),
+            content_type="application/json",
+        )
+        self._ensure_text_artifact(
+            relative_path=self._relative_path(session_storage.short_term_memory_markdown_path),
+            fallback_text=self._coerce_text(short_term_document.get("markdown_text"))
+            or "# Short-Term Visual Memory\n\n",
+            content_type="text/markdown",
+        )
+        self._ensure_text_artifact(
+            relative_path=self._relative_path(session_storage.session_memory_json_path),
+            fallback_text=self._coerce_text(session_document.get("json_text"))
+            or (json.dumps({}, ensure_ascii=True, indent=2) + "\n"),
+            content_type="application/json",
+        )
+        self._ensure_text_artifact(
+            relative_path=self._relative_path(session_storage.session_memory_markdown_path),
+            fallback_text=self._coerce_text(session_document.get("markdown_text"))
+            or "# Session Memory\n\n",
+            content_type="text/markdown",
+        )
+        self._ensure_text_artifact(
+            relative_path=self._relative_path(session_storage.vision_events_log_path),
+            fallback_text=self._render_ndjson(
+                self.metadata_store.list_session_events(
+                    session_id=session_id,
+                    log_kind="vision_events",
+                )
+            ),
+            content_type="application/x-ndjson",
+        )
+        self._ensure_text_artifact(
+            relative_path=self._relative_path(session_storage.vision_routing_events_log_path),
+            fallback_text=self._render_ndjson(
+                self.metadata_store.list_session_events(
+                    session_id=session_id,
+                    log_kind="vision_routing_events",
+                )
+            ),
+            content_type="application/x-ndjson",
+        )
+
+    def _ensure_text_artifact(
+        self,
+        *,
+        relative_path: str,
+        fallback_text: str,
+        content_type: str,
+    ) -> None:
+        if self.object_store.exists(relative_path=relative_path):
+            return
+        self.object_store.put_text(
+            relative_path=relative_path,
+            content=fallback_text,
+            content_type=content_type,
+        )
+
+    def _sync_session_event_log_artifact(self, *, session_id: str, log_kind: str) -> None:
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        relative_path = self._relative_path(
+            session_storage.vision_events_log_path
+            if log_kind == "vision_events"
+            else session_storage.vision_routing_events_log_path
+        )
+        self.object_store.put_text(
+            relative_path=relative_path,
+            content=self._render_ndjson(
+                self.metadata_store.list_session_events(
+                    session_id=session_id,
+                    log_kind=log_kind,
+                )
+            ),
+            content_type="application/x-ndjson",
+        )
+
+    def _read_session_event_payloads(
+        self,
+        *,
+        session_id: str,
+        log_kind: str,
+    ) -> list[dict[str, Any]]:
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        relative_path = self._relative_path(
+            session_storage.vision_events_log_path
+            if log_kind == "vision_events"
+            else session_storage.vision_routing_events_log_path
+        )
+        from_object = self._read_ndjson_artifact(
+            relative_path=relative_path,
+            context=f"managed {log_kind} artifact session_id={session_id}",
+        )
+        if from_object is not None:
+            return from_object
+        return self.metadata_store.list_session_events(
+            session_id=session_id,
+            log_kind=log_kind,
+        )
+
+    def _read_json_artifact(
+        self,
+        *,
+        relative_path: str,
+        context: str,
+    ) -> dict[str, object] | None:
+        raw_json = self.object_store.get_text(relative_path=relative_path)
+        if raw_json is None:
+            return None
+        payload = self._parse_json_payload(raw_json, context=context)
+        if payload is None:
+            logger.warning("Failed decoding %s from object store; falling back", context)
+            return None
+        return payload
+
+    def _read_ndjson_artifact(
+        self,
+        *,
+        relative_path: str,
+        context: str,
+    ) -> list[dict[str, Any]] | None:
+        raw_text = self.object_store.get_text(relative_path=relative_path)
+        if raw_text is None:
+            return None
+        payloads: list[dict[str, Any]] = []
+        for index, line in enumerate(raw_text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                logger.warning("Failed decoding %s line=%s; falling back", context, index)
+                return None
+            if not isinstance(payload, dict):
+                logger.warning("Invalid NDJSON root for %s line=%s; falling back", context, index)
+                return None
+            payloads.append(payload)
+        return payloads
+
+    def _parse_json_payload(
+        self,
+        raw_json: str | None,
+        *,
+        context: str,
+    ) -> dict[str, object] | None:
+        if raw_json is None:
+            return None
+        try:
+            payload = json.loads(raw_json)
+        except json.JSONDecodeError:
+            logger.warning("Failed decoding %s", context)
+            return None
+        if not isinstance(payload, dict):
+            logger.warning("Invalid JSON root for %s", context)
+            return None
+        return payload
+
+    def _read_profile_markdown_export_bytes(self) -> bytes:
+        markdown_text = self.object_store.get_text(relative_path=_PROFILE_MARKDOWN_RELATIVE_PATH)
+        if markdown_text is not None:
+            return markdown_text.encode("utf-8")
+        document = self.metadata_store.read_profile_document()
+        fallback = self._coerce_text(document.get("markdown_text")) or empty_profile_markdown()
+        return fallback.encode("utf-8")
+
+    def _read_profile_json_export_bytes(self) -> bytes:
+        payload = self.object_store.get_bytes(relative_path=_PROFILE_JSON_RELATIVE_PATH)
+        if payload is not None:
+            return payload
+        document = self.metadata_store.read_profile_document()
+        fallback = self._coerce_text(document.get("json_text")) or (
+            json.dumps(empty_profile_payload(), ensure_ascii=True, indent=2) + "\n"
+        )
+        return fallback.encode("utf-8")
+
+    def _read_export_artifact_bytes(self, artifact: ArtifactRecord) -> bytes:
+        payload = self.object_store.get_bytes(relative_path=artifact.relative_path)
+        if payload is not None:
+            return payload
+        if artifact.session_id is None:
+            raise FileNotFoundError(
+                f"Managed export artifact missing and cannot be synthesized artifact_id={artifact.artifact_id!r}"
+            )
+        return self._build_session_export_fallback_bytes(
+            session_id=artifact.session_id,
+            artifact_kind=artifact.artifact_kind,
+        )
+
+    def _build_session_export_fallback_bytes(
+        self,
+        *,
+        session_id: str,
+        artifact_kind: str,
+    ) -> bytes:
+        if artifact_kind == "short_term_memory_json":
+            document = self.metadata_store.read_session_memory_document(
+                session_id=session_id,
+                memory_scope="short_term",
+            )
+            fallback = self._coerce_text((document or {}).get("json_text")) or (
+                json.dumps({}, ensure_ascii=True, indent=2) + "\n"
+            )
+            return fallback.encode("utf-8")
+        if artifact_kind == "short_term_memory_markdown":
+            document = self.metadata_store.read_session_memory_document(
+                session_id=session_id,
+                memory_scope="short_term",
+            )
+            fallback = self._coerce_text((document or {}).get("markdown_text")) or "# Short-Term Visual Memory\n\n"
+            return fallback.encode("utf-8")
+        if artifact_kind == "session_memory_json":
+            document = self.metadata_store.read_session_memory_document(
+                session_id=session_id,
+                memory_scope="session",
+            )
+            fallback = self._coerce_text((document or {}).get("json_text")) or (
+                json.dumps({}, ensure_ascii=True, indent=2) + "\n"
+            )
+            return fallback.encode("utf-8")
+        if artifact_kind == "session_memory_markdown":
+            document = self.metadata_store.read_session_memory_document(
+                session_id=session_id,
+                memory_scope="session",
+            )
+            fallback = self._coerce_text((document or {}).get("markdown_text")) or "# Session Memory\n\n"
+            return fallback.encode("utf-8")
+        if artifact_kind == "vision_event_log":
+            return self._render_ndjson(
+                self.metadata_store.list_session_events(
+                    session_id=session_id,
+                    log_kind="vision_events",
+                )
+            ).encode("utf-8")
+        if artifact_kind == "vision_routing_event_log":
+            return self._render_ndjson(
+                self.metadata_store.list_session_events(
+                    session_id=session_id,
+                    log_kind="vision_routing_events",
+                )
+            ).encode("utf-8")
+        raise FileNotFoundError(
+            f"Unsupported managed export artifact fallback session_id={session_id!r} artifact_kind={artifact_kind!r}"
+        )
+
     def _require_session_persisted(self, *, session_id: str) -> None:
         eligibility = self.get_session_memory_reset_eligibility(session_id=session_id)
         if not eligibility.has_persisted_memory:
@@ -612,50 +1118,39 @@ class ManagedBackendStorage(BackendStorage):
 
     def _resolve_relative_path(self, artifact_path: Any) -> str:
         if isinstance(artifact_path, Path):
-            candidate = artifact_path.as_posix()
             if artifact_path.is_absolute():
                 raise ValueError(
                     "Managed storage artifact paths must be relative logical paths, not absolute paths."
                 )
-            return self._validate_relative_path(candidate)
+            return normalize_object_store_relative_path(artifact_path.as_posix())
         if isinstance(artifact_path, str):
-            return self._validate_relative_path(artifact_path)
+            return normalize_object_store_relative_path(artifact_path)
         raise TypeError(f"Unsupported managed artifact path type: {type(artifact_path).__name__}")
 
-    def _validate_relative_path(self, raw_path: str) -> str:
-        candidate = raw_path.strip().replace("\\", "/")
-        if not candidate or candidate.startswith("/"):
-            raise ValueError("Managed storage artifact path must be a relative non-empty path.")
-        if "\x00" in candidate:
-            raise ValueError("Managed storage artifact path cannot contain null bytes.")
-        if len(candidate) >= 2 and candidate[1] == ":" and candidate[0].isalpha():
-            raise ValueError("Managed storage artifact path cannot be drive-prefixed.")
-        parts = candidate.split("/")
-        if any(part in {"", ".", ".."} for part in parts):
-            raise ValueError(
-                "Managed storage artifact path cannot contain empty, current-directory, "
-                "or parent-directory segments."
-            )
-        return "/".join(parts)
+    def _coerce_text(self, value: object) -> str | None:
+        if isinstance(value, str):
+            return value
+        return None
 
-    def _load_json_payload(
-        self,
-        raw_json: object,
-        *,
-        default_payload: dict[str, object],
-        context: str,
-    ) -> dict[str, object]:
-        if not isinstance(raw_json, str):
-            return dict(default_payload)
-        try:
-            payload = json.loads(raw_json)
-        except json.JSONDecodeError:
-            logger.warning("Failed decoding %s; returning default payload", context)
-            return dict(default_payload)
-        if not isinstance(payload, dict):
-            logger.warning("Invalid JSON root for %s; returning default payload", context)
-            return dict(default_payload)
-        return payload
+    def _render_ndjson(self, payloads: list[dict[str, Any]]) -> str:
+        if not payloads:
+            return ""
+        return "".join(
+            json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n"
+            for payload in payloads
+        )
+
+    def _relative_path(self, path: Path) -> str:
+        return normalize_object_store_relative_path(path.as_posix())
+
+    def _vision_frame_relative_paths(self, *, session_id: str, frame_id: str) -> tuple[str, str]:
+        session_component = self._storage_component_for_id(session_id)
+        frame_component = self._storage_component_for_id(frame_id)
+        root = Path("vision_frames") / session_component
+        return (
+            self._relative_path(root / f"{frame_component}.jpg"),
+            self._relative_path(root / f"{frame_component}.json"),
+        )
 
     def _recent_frame_payload(self, record: VisionFrameIndexRecord) -> dict[str, object]:
         error_details: dict[str, object] | None = None
@@ -690,9 +1185,3 @@ class ManagedBackendStorage(BackendStorage):
         prefix = prefix[:_STORAGE_ID_PREFIX_MAX_LENGTH]
         digest = sha256(raw_id.encode("utf-8")).hexdigest()
         return f"{prefix}--{digest}"
-
-    def _task12_error(self, capability: str) -> RuntimeError:
-        return RuntimeError(
-            f"Managed storage backend {self.backend_name!r} selected successfully, but "
-            f"{capability} still require the Task 12 GCS artifact implementation."
-        )
