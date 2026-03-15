@@ -1,0 +1,47 @@
+name: CLI Smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  cli-smoke:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pipx
+        run: |
+          python -m pip install --user pipx
+          python -m pipx ensurepath
+          echo "$(python -m pipx environment --value PIPX_BIN_DIR)" >> "$GITHUB_PATH"
+
+      - name: Package install smoke
+        run: |
+          python -m pipx install .
+          portworld --help
+          portworld init --help
+          portworld providers list
+          portworld update cli --json
+
+      - name: Installer syntax check
+        run: bash -n install.sh
+
+      - name: Installer smoke
+        run: |
+          PORTWORLD_INSTALL_SOURCE_URL="$GITHUB_WORKSPACE" \
+          PORTWORLD_NO_INIT=1 \
+          PORTWORLD_NON_INTERACTIVE=1 \
+          bash install.sh --no-init --non-interactive
+          portworld --help

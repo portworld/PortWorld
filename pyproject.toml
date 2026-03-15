@@ -4,10 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "portworld"
-version = "0.1.0"
+dynamic = ["version"]
 description = "PortWorld backend CLI and runtime"
 readme = "backend/README.md"
 requires-python = ">=3.11"
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet",
+  "Topic :: Software Development :: Build Tools",
+  "Topic :: System :: Installation/Setup",
+]
 dependencies = [
   "annotated-types==0.7.0",
   "anyio==4.11.0",
@@ -37,6 +49,14 @@ dependencies = [
 [project.scripts]
 portworld = "portworld_cli.main:main"
 
+[project.urls]
+Repository = "https://github.com/armapidus/PortWorld"
+Issues = "https://github.com/armapidus/PortWorld/issues"
+Documentation = "https://github.com/armapidus/PortWorld/blob/main/backend/README.md"
+
 [tool.setuptools.packages.find]
 include = ["backend*", "portworld_cli*"]
 exclude = ["backend.var*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "backend.__version__"}

@@ -26,13 +26,13 @@ Optional, depending on enabled features:
 Public install path:
 
 ```bash
-curl -fsSL https://openclaw.ai/install.sh | bash
+curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash
 ```
 
-Manual install fallback:
+Manual install fallback for a pinned release tag:
 
 ```bash
-python3 -m pipx install --force "https://github.com/armapidus/PortWorld/archive/refs/heads/main.zip"
+python3 -m pipx install --force "https://github.com/armapidus/PortWorld/archive/refs/tags/<tag>.zip"
 portworld init
 ```
 
@@ -88,7 +88,7 @@ Optional operator CLI commands from the repo root:
 
 ```bash
 # Install or update the public CLI
-curl -fsSL https://openclaw.ai/install.sh | bash
+curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash
 
 portworld doctor --target local
 portworld ops check-config
@@ -97,11 +97,23 @@ portworld ops bootstrap-storage
 portworld ops export-memory --output /tmp/portworld-memory-export.zip
 ```
 
+You can pin the installer to a specific tagged release:
+
+```bash
+curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash -s -- --version <tag>
+```
+
 For CLI updates without rerunning the installer, the manual fallback is:
 
 ```bash
-python3 -m pipx install --force "https://github.com/armapidus/PortWorld/archive/refs/heads/main.zip"
+python3 -m pipx install --force "https://github.com/armapidus/PortWorld/archive/refs/tags/<tag>.zip"
 ```
+
+Public installer flags:
+
+- `--version <tag|latest>` installs a specific release tag or the latest GitHub release
+- `--no-init` installs the CLI without running `portworld init`
+- `--non-interactive` installs the CLI without attempting interactive setup
 
 Legacy compatibility path:
 
