@@ -43,6 +43,8 @@ The next CLI phase should add:
 
 ## Phase A: Config Foundation
 
+`Status: Complete`
+
 ### Goal
 
 Introduce a stable CLI-owned project configuration layer without breaking the current runtime compatibility model.
@@ -70,6 +72,32 @@ Introduce a stable CLI-owned project configuration layer without breaking the cu
   - `.portworld/project.json` for non-secret project choices
   - `.portworld/state/*.json` for deploy metadata
   - `backend/.env` for generated/runtime compatibility output
+
+### Implementation notes
+
+- Added `backend/cli_app/project_config.py` as the schema-versioned config layer for `.portworld/project.json`.
+- Phase A schema is intentionally minimal and high-level:
+  - providers: realtime, vision, tooling
+  - security: backend profile, CORS origins, allowed hosts
+  - deploy defaults: preferred target plus `gcp_cloud_run` defaults
+- `portworld init` is now the Phase A writer for `.portworld/project.json` and still rewrites `backend/.env` canonically.
+- When `.portworld/project.json` is missing, `init` derives it from the current `backend/.env` plus remembered deploy state before writing it.
+- `backend/.env` remains the runtime-compatible artifact and secret input source:
+  - secrets stay in `backend/.env`
+  - advanced runtime tuning stays in `backend/.env`
+  - unknown custom overrides are preserved on rewrite
+- `.portworld/state/gcp-cloud-run.json` remains deploy metadata only and is still written by deploy, not by init or doctor.
+- Phase A command precedence is now:
+  - explicit CLI flags
+  - `.portworld/project.json`
+  - existing local/machine state such as `gcloud` config
+  - remembered deploy state where applicable
+  - hard defaults
+- Current Phase A command behavior:
+  - `init` reads/writes project config and refreshes `backend/.env`
+  - `deploy gcp-cloud-run` reads project config for deploy defaults and still writes deploy state only
+  - `doctor --target gcp-cloud-run` reads project config for project/region fallback
+  - local doctor and `ops` remain env-driven for compatibility
 
 ## Phase B: Setup And Config UX Expansion
 
