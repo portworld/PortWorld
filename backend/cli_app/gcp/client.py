@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from backend.cli_app.gcp.artifact_registry import ArtifactRegistryAdapter
 from backend.cli_app.gcp.auth import AuthAdapter
 from backend.cli_app.gcp.cloud_build import CloudBuildAdapter
+from backend.cli_app.gcp.cloud_run import CloudRunAdapter
 from backend.cli_app.gcp.cloud_sql import CloudSQLAdapter
 from backend.cli_app.gcp.executor import GCloudExecutor
 from backend.cli_app.gcp.gcs import GCSAdapter
@@ -21,6 +22,7 @@ class GCPAdapters:
     iam: IAMAdapter
     artifact_registry: ArtifactRegistryAdapter
     cloud_build: CloudBuildAdapter
+    cloud_run: CloudRunAdapter
     secret_manager: SecretManagerAdapter
     cloud_sql: CloudSQLAdapter
     gcs: GCSAdapter
@@ -35,6 +37,7 @@ class GCPAdapters:
             iam=IAMAdapter(resolved_executor),
             artifact_registry=ArtifactRegistryAdapter(resolved_executor),
             cloud_build=CloudBuildAdapter(resolved_executor),
+            cloud_run=CloudRunAdapter(resolved_executor),
             secret_manager=SecretManagerAdapter(resolved_executor),
             cloud_sql=CloudSQLAdapter(resolved_executor),
             gcs=GCSAdapter(resolved_executor),

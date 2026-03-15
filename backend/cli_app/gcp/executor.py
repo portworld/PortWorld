@@ -147,8 +147,14 @@ def _classify_gcloud_error(stderr: str) -> tuple[str, str | None]:
         return "not_authenticated", "Run `gcloud auth login` and select the intended account."
     if "permission" in normalized or "permission_denied" in normalized or "does not have permission" in normalized:
         return "permission_denied", "Use an account with the required IAM permissions for this project."
-    if "not found" in normalized or "was not found" in normalized or "could not be found" in normalized:
+    if (
+        "not found" in normalized
+        or "not_found" in normalized
+        or "was not found" in normalized
+        or "could not be found" in normalized
+        or "unknown service account" in normalized
+    ):
         return "not_found", None
-    if "already exists" in normalized or "status=[409]" in normalized:
+    if "already exists" in normalized or "already_exists" in normalized or "status=[409]" in normalized:
         return "already_exists", None
     return "command_failed", None

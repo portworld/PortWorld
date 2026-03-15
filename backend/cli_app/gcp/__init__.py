@@ -2,6 +2,7 @@ from backend.cli_app.gcp.artifact_registry import ArtifactRegistryAdapter, Artif
 from backend.cli_app.gcp.auth import AuthAdapter, GCloudAccount, GCloudInstallation, resolve_project_id, resolve_region
 from backend.cli_app.gcp.client import GCPAdapters
 from backend.cli_app.gcp.cloud_build import CloudBuildAdapter, CloudBuildSubmission
+from backend.cli_app.gcp.cloud_run import CloudRunAdapter, CloudRunServiceRef
 from backend.cli_app.gcp.cloud_sql import CloudSQLAdapter, CloudSQLDatabaseRef, CloudSQLInstanceRef, CloudSQLUserRef, build_postgres_url
 from backend.cli_app.gcp.constants import REQUIRED_GCP_SERVICES
 from backend.cli_app.gcp.executor import GCloudExecutor
@@ -18,6 +19,8 @@ __all__ = [
     "AuthAdapter",
     "CloudBuildAdapter",
     "CloudBuildSubmission",
+    "CloudRunAdapter",
+    "CloudRunServiceRef",
     "CloudSQLAdapter",
     "CloudSQLDatabaseRef",
     "CloudSQLInstanceRef",

@@ -14,6 +14,7 @@ class CloudSQLInstanceRef:
     instance_name: str
     database_version: str | None = None
     connection_name: str | None = None
+    primary_ip_address: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +97,7 @@ class CloudSQLAdapter:
             instance_name=instance_name,
             database_version=database_version,
             connection_name=None,
+            primary_ip_address=None,
         )
         return GCPResult.success(MutationOutcome(action="created", resource=resource))
 
@@ -297,10 +299,26 @@ def build_postgres_url(
 
 
 def _instance_from_payload(payload: dict[str, object], *, project_id: str) -> CloudSQLInstanceRef:
+    primary_ip_address = None
+    ip_addresses = payload.get("ipAddresses")
+    if isinstance(ip_addresses, list):
+        for item in ip_addresses:
+            if not isinstance(item, dict):
+                continue
+            candidate_ip = str(item.get("ipAddress", "")).strip() or None
+            candidate_type = str(item.get("type", "")).strip().upper()
+            if candidate_ip is None:
+                continue
+            if candidate_type == "PRIMARY":
+                primary_ip_address = candidate_ip
+                break
+            if primary_ip_address is None:
+                primary_ip_address = candidate_ip
     return CloudSQLInstanceRef(
         project_id=project_id,
         region=str(payload.get("region", "")).strip(),
         instance_name=str(payload.get("name", "")).strip(),
         database_version=str(payload.get("databaseVersion", "")).strip() or None,
         connection_name=str(payload.get("connectionName", "")).strip() or None,
+        primary_ip_address=primary_ip_address,
     )
