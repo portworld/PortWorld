@@ -11,7 +11,9 @@ from backend.cli_app.commands.doctor import doctor_command
 from backend.cli_app.commands.init import init_command
 from backend.cli_app.commands.logs import logs_group
 from backend.cli_app.commands.ops import ops_group
+from backend.cli_app.commands.providers import providers_group
 from backend.cli_app.commands.status import status_command
+from backend.cli_app.commands.update import update_group
 from backend.cli_app.context import CLIContext
 
 
@@ -62,6 +64,8 @@ cli.add_command(deploy_group)
 cli.add_command(status_command)
 cli.add_command(logs_group)
 cli.add_command(config_group)
+cli.add_command(providers_group)
+cli.add_command(update_group)
 cli.add_command(ops_group)
 
 
