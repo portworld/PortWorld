@@ -174,6 +174,8 @@ Expand setup beyond the current narrow init flow and let users edit one configur
 
 Add public read-oriented commands for deployed-project inspection before adding heavier lifecycle behavior.
 
+Status: done
+
 ### Deliverables
 
 - add `portworld status`
@@ -191,6 +193,29 @@ Add public read-oriented commands for deployed-project inspection before adding 
 - a user can inspect the last known deploy target and service URL without re-running deploy
 - a user can retrieve managed logs through a public command shape
 - `status` supports JSON output with structured deploy and health summary data
+
+### Implementation notes
+
+- Added a shared read-only inspection layer in `backend/cli_app` so `status` and `logs` reuse the same project-root, project-config, env, and remembered deploy-state resolution path.
+- Extracted deploy metadata handling into a shared `DeployState` module instead of keeping it embedded only in deploy runtime code.
+- `status` is state-first and opportunistically enriches from live Cloud Run only when project, region, and service name are all resolvable.
+- Live `status` enrichment uses the existing Cloud Run service describe adapter plus short `/livez` and `/readyz` HTTP probes.
+- Live inspection failures do not fail `status`; they are surfaced as warning data while preserving the last-known deploy summary.
+- Added a new GCP logging adapter backed by `gcloud logging read`, and exposed it publicly through `portworld logs gcp-cloud-run`.
+- `logs gcp-cloud-run` is fetch-only in this phase:
+  - no follow/tail mode yet
+  - context resolves from explicit flags first, then remembered deploy state, then project config
+- `status` JSON now includes:
+  - project mode and cloud provider
+  - active target
+  - last-known deploy summary
+  - live service summary when available
+  - health probe results
+  - non-secret secret-readiness booleans
+- Phase C stayed additive:
+  - existing `init`, `doctor`, `deploy`, `config`, and `ops` behavior remains intact
+  - no command-tree redesign
+  - no mutation of `.portworld/project.json`, `.portworld/state/*.json`, or `backend/.env` from the new inspection commands
 
 ## Phase D: Provider Discovery And Lifecycle Commands
 
@@ -340,6 +365,7 @@ The implementation plan should require acceptance checks by phase, not only one 
 - `status` works from `.portworld/state` without requiring live provider queries
 - `logs gcp-cloud-run` works through the current GCP adapter layer
 - `status` emits stable JSON output
+- `status` and `logs` are now implemented and wired into the public CLI
 
 ### Phase D
 
