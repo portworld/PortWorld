@@ -11,13 +11,33 @@ FastAPI + Uvicorn backend that relays realtime voice sessions to OpenAI, with op
 - **Bearer token auth** — all non-health endpoints can require `Authorization: Bearer <token>`; production mode enforces this at startup
 - **Rate limiting** — sliding-window limits on WebSocket setup, session activation, vision ingest, and protected profile/memory-admin HTTP routes
 - **Memory export** — `GET /memory/export` streams a ZIP of all session and profile memory
-- **Operator CLI** — `python -m backend.cli` for serving, config validation, storage bootstrap, and memory export
+- **Operator CLI** — `portworld` for init, doctor, deploy, and `ops` workflows; `python -m backend.cli` remains available as a compatibility path for serving and legacy operator commands
 
 ## Requirements
 
 - Python 3.11+
 - Docker and Docker Compose (for the Docker path)
 - An [OpenAI API key](https://platform.openai.com/api-keys) with Realtime API access
+
+## CLI-first quick start
+
+From the repo root:
+
+```bash
+pipx install .
+portworld init
+portworld doctor --target local
+docker compose up --build
+```
+
+For managed deploys, the public path is:
+
+```bash
+portworld doctor --target gcp-cloud-run --project <project> --region <region>
+portworld deploy gcp-cloud-run --project <project> --region <region> --cors-origins https://app.example.com
+```
+
+Repeat Cloud Run deploys reuse `.portworld/state/gcp-cloud-run.json` after explicit flags and current `gcloud` config.
 
 ## Running locally
 
@@ -44,9 +64,11 @@ python -m backend.cli serve
 ### Verify
 
 ```bash
-curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/livez
 # → {"status":"ok","service":"portworld-backend"}
 ```
+
+Use `/livez` for public and Cloud Run liveness checks. `/healthz` remains available as a compatibility alias for older local tooling.
 
 ## Configuration
 
@@ -98,7 +120,8 @@ openssl rand -hex 32
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/healthz` | None | Liveness probe |
+| `GET` | `/livez` | None | Public liveness probe |
+| `GET` | `/healthz` | None | Compatibility liveness alias |
 | `GET` | `/readyz` | Bearer | Readiness probe — checks storage and provider config |
 | `WS` | `/ws/session` | Bearer | Realtime voice session |
 | `POST` | `/vision/frame` | Bearer | Ingest a base64-encoded JPEG frame |
@@ -114,17 +137,32 @@ Protected profile and memory-admin HTTP routes are IP-rate-limited when `BACKEND
 ## Operator CLI
 
 ```bash
+# Initialize/update backend/.env through the public CLI
+portworld init
+
+# Validate local or Cloud Run readiness
+portworld doctor --target local
+portworld doctor --target gcp-cloud-run --project <project> --region <region>
+
+# Deploy to Cloud Run
+portworld deploy gcp-cloud-run --project <project> --region <region> --cors-origins https://app.example.com
+
+# Wrap legacy operator actions through the public CLI
+portworld ops check-config
+portworld ops check-config --full-readiness
+portworld ops bootstrap-storage
+portworld ops export-memory --output /tmp/portworld-memory-export.zip
+```
+
+Legacy compatibility path:
+
+```bash
 # Start the server
 python -m backend.cli serve
 
-# Validate configuration (add --full-readiness for a storage + provider probe)
+# Legacy operator entrypoints still work during migration
 python -m backend.cli check-config
-python -m backend.cli check-config --full-readiness
-
-# Bootstrap SQLite schema and storage layout
 python -m backend.cli bootstrap-storage
-
-# Export all memory to a ZIP
 python -m backend.cli export-memory --output /tmp/portworld-memory-export.zip
 ```
 
