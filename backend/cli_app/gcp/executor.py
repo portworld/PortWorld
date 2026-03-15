@@ -153,6 +153,9 @@ def _classify_gcloud_error(stderr: str) -> tuple[str, str | None]:
         or "was not found" in normalized
         or "could not be found" in normalized
         or "unknown service account" in normalized
+        or "httperror 404" in normalized
+        or "http error 404" in normalized
+        or "status=[404]" in normalized
     ):
         return "not_found", None
     if "already exists" in normalized or "already_exists" in normalized or "status=[409]" in normalized:

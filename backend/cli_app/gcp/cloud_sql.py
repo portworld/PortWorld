@@ -79,6 +79,7 @@ class CloudSQLAdapter:
                 instance_name,
                 f"--project={project_id}",
                 f"--database-version={database_version}",
+                "--edition=ENTERPRISE",
                 f"--cpu={cpu_count}",
                 f"--memory={memory}",
                 f"--region={region}",
