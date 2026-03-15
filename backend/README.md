@@ -21,13 +21,26 @@ FastAPI + Uvicorn backend that relays realtime voice sessions to OpenAI, with op
 
 ## CLI-first quick start
 
-From the repo root:
+Public install path:
 
 ```bash
-pipx install .
-portworld init
+curl -fsSL https://openclaw.ai/install.sh | bash
 portworld doctor --target local
 docker compose up --build
+```
+
+Manual install fallback:
+
+```bash
+python3 -m pipx install --force "https://github.com/armapidus/PortWorld/archive/refs/heads/main.zip"
+portworld init
+```
+
+Source-checkout developer path:
+
+```bash
+pipx install . --force
+portworld init
 ```
 
 For managed deploys, the public path is:
@@ -38,6 +51,12 @@ portworld deploy gcp-cloud-run --project <project> --region <region> --cors-orig
 ```
 
 Repeat Cloud Run deploys reuse `.portworld/state/gcp-cloud-run.json` after explicit flags and current `gcloud` config.
+
+For CLI updates, rerun the installer:
+
+```bash
+curl -fsSL https://openclaw.ai/install.sh | bash
+```
 
 ## Running locally
 
@@ -137,6 +156,9 @@ Protected profile and memory-admin HTTP routes are IP-rate-limited when `BACKEND
 ## Operator CLI
 
 ```bash
+# Install or update the public CLI
+curl -fsSL https://openclaw.ai/install.sh | bash
+
 # Initialize/update backend/.env through the public CLI
 portworld init
 

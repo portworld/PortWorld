@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import json
 from pathlib import Path
 import shutil
@@ -17,6 +16,12 @@ from backend.cli_app.project_config import GCP_CLOUD_RUN_TARGET, ProjectConfigEr
 from backend.cli_app.state import CLIStateDecodeError, CLIStateTypeError
 
 
+INSTALLER_COMMAND = "curl -fsSL https://openclaw.ai/install.sh | bash"
+ARCHIVE_INSTALL_COMMAND = (
+    'python3 -m pipx install --force '
+    '"https://github.com/armapidus/PortWorld/archive/refs/heads/main.zip"'
+)
+SOURCE_CHECKOUT_INSTALL_COMMAND = "pipx install . --force"
 UPDATE_CLI_COMMAND_NAME = "portworld update cli"
 UPDATE_DEPLOY_COMMAND_NAME = "portworld update deploy"
 WRAPPED_DEPLOY_COMMAND = "portworld deploy gcp-cloud-run"
@@ -101,11 +106,13 @@ def run_update_deploy(
     wrapped_data = dict(result.data)
     wrapped_data["target"] = GCP_CLOUD_RUN_TARGET
     wrapped_data["wrapped_command"] = WRAPPED_DEPLOY_COMMAND
-    return replace(
-        result,
+    return CommandResult(
+        ok=result.ok,
         command=UPDATE_DEPLOY_COMMAND_NAME,
         message=wrapped_message,
         data=wrapped_data,
+        checks=result.checks,
+        exit_code=result.exit_code,
     )
 
 
@@ -121,16 +128,13 @@ def _try_resolve_repo_paths(cli_context: CLIContext) -> ProjectPaths | None:
 
 def _detect_cli_update_mode(repo_paths: ProjectPaths | None) -> tuple[str, list[str]]:
     if repo_paths is not None and _looks_like_source_checkout(repo_paths.project_root):
-        return "source_checkout", ["pipx install . --force"]
+        return "source_checkout", [SOURCE_CHECKOUT_INSTALL_COMMAND]
 
     pipx_install = _detect_pipx_install()
     if pipx_install:
-        return "pipx", ["pipx upgrade portworld"]
+        return "installer_archive", [INSTALLER_COMMAND, ARCHIVE_INSTALL_COMMAND]
 
-    commands = ["pipx upgrade portworld"]
-    if repo_paths is not None and _looks_like_source_checkout(repo_paths.project_root):
-        commands.append("pipx install . --force")
-    return "unknown", commands
+    return "unknown", [INSTALLER_COMMAND, ARCHIVE_INSTALL_COMMAND]
 
 
 def _looks_like_source_checkout(project_root: Path) -> bool:
