@@ -4,7 +4,8 @@ import Security
 
 enum KeychainCredentialStore {
   private static let service = "com.portworld.ios.credentials"
-  private static let account = "api-key"
+  private static let apiKeyAccount = "api-key"
+  private static let bearerTokenAccount = "bearer-token"
 
   enum KeychainError: Error, Equatable {
     case duplicateItem
@@ -32,7 +33,31 @@ enum KeychainCredentialStore {
   }
 
   static func store(apiKey: String) throws {
-    guard let data = apiKey.data(using: .utf8) else {
+    try store(value: apiKey, account: apiKeyAccount)
+  }
+
+  static func storeBearerToken(_ bearerToken: String) throws {
+    try store(value: bearerToken, account: bearerTokenAccount)
+  }
+
+  static func retrieve() throws -> String? {
+    try retrieveValue(account: apiKeyAccount)
+  }
+
+  static func retrieveBearerToken() throws -> String? {
+    try retrieveValue(account: bearerTokenAccount)
+  }
+
+  static func clearBearerToken() throws {
+    try clearValue(account: bearerTokenAccount)
+  }
+
+  static func clear() throws {
+    try clearValue(account: apiKeyAccount)
+  }
+
+  private static func store(value: String, account: String) throws {
+    guard let data = value.data(using: .utf8) else {
       throw KeychainError.encodingFailed
     }
 
@@ -62,7 +87,7 @@ enum KeychainCredentialStore {
     }
   }
 
-  static func retrieve() throws -> String? {
+  private static func retrieveValue(account: String) throws -> String? {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
@@ -77,10 +102,10 @@ enum KeychainCredentialStore {
     switch status {
     case errSecSuccess:
       guard let data = item as? Data,
-            let apiKey = String(data: data, encoding: .utf8) else {
+            let value = String(data: data, encoding: .utf8) else {
         throw KeychainError.invalidItemData
       }
-      return apiKey
+      return value
     case errSecItemNotFound:
       return nil
     default:
@@ -88,7 +113,7 @@ enum KeychainCredentialStore {
     }
   }
 
-  static func clear() throws {
+  private static func clearValue(account: String) throws {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,

@@ -10,13 +10,11 @@ struct SettingsView: View {
   let onOpenMetaSetup: () -> Void
   let onOpenWakePractice: () -> Void
   let onOpenProfileInterview: () -> Void
-  let onResetOnboarding: () -> Void
 
   @State private var backendBaseURL: String
   @State private var bearerToken: String
   @State private var backendErrorMessage = ""
   @State private var isValidatingBackend = false
-  @State private var isShowingResetAlert = false
   @FocusState private var focusedField: Field?
 
   private let validationClient = BackendValidationClient()
@@ -28,8 +26,7 @@ struct SettingsView: View {
     scrollTarget: Binding<SettingsScrollTarget?>,
     onOpenMetaSetup: @escaping () -> Void,
     onOpenWakePractice: @escaping () -> Void,
-    onOpenProfileInterview: @escaping () -> Void,
-    onResetOnboarding: @escaping () -> Void
+    onOpenProfileInterview: @escaping () -> Void
   ) {
     self.appSettingsStore = appSettingsStore
     self.viewModel = viewModel
@@ -38,7 +35,6 @@ struct SettingsView: View {
     self.onOpenMetaSetup = onOpenMetaSetup
     self.onOpenWakePractice = onOpenWakePractice
     self.onOpenProfileInterview = onOpenProfileInterview
-    self.onResetOnboarding = onResetOnboarding
     _backendBaseURL = State(initialValue: appSettingsStore.settings.backendBaseURL)
     _bearerToken = State(initialValue: appSettingsStore.settings.bearerToken)
   }
@@ -61,7 +57,6 @@ struct SettingsView: View {
             practiceSection
             helpSection
               .id(SettingsScrollTarget.help)
-            resetSection
           }
           .padding(.bottom, PWSpace.hero)
         }
@@ -73,16 +68,6 @@ struct SettingsView: View {
           scrollTarget = nil
         }
       }
-    }
-    .alert("Restart onboarding?", isPresented: $isShowingResetAlert) {
-      Button("Cancel", role: .cancel) {}
-      Button("Restart", role: .destructive) {
-        Task {
-          await performNavigationAction(onResetOnboarding)
-        }
-      }
-    } message: {
-      Text("This restarts onboarding and keeps your saved backend settings.")
     }
   }
 }
@@ -126,7 +111,7 @@ private extension SettingsView {
           label: "Bearer Token",
           placeholder: "Optional",
           text: $bearerToken,
-          message: "Optional. Leave blank if your backend does not require bearer auth.",
+          message: "Optional. Leave blank if your backend does not require bearer auth. PortWorld stores this token securely in Keychain.",
           isSecure: true,
           textInputAutocapitalization: .never,
           submitLabel: .go
@@ -235,24 +220,6 @@ private extension SettingsView {
           title: "Speech recognition denied",
           detail: "Allow microphone and speech recognition access in iPhone Settings before replaying wake practice."
         )
-      }
-    }
-  }
-
-  var resetSection: some View {
-    PWCard {
-      VStack(alignment: .leading, spacing: PWSpace.lg) {
-        Text("Reset")
-          .font(PWTypography.headline)
-          .foregroundStyle(PWColor.textPrimary)
-
-        Text("Restart onboarding from the beginning without removing your saved backend settings.")
-          .font(PWTypography.caption)
-          .foregroundStyle(PWColor.textSecondary)
-
-        PWDestructiveButton(title: "Restart Onboarding") {
-          isShowingResetAlert = true
-        }
       }
     }
   }

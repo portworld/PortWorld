@@ -18,7 +18,6 @@ struct PostOnboardingShellView: View {
   let onOpenMetaSetup: () -> Void
   let onOpenWakePractice: () -> Void
   let onOpenProfileInterview: () -> Void
-  let onResetOnboarding: () -> Void
 
   @StateObject private var viewModel: AssistantRuntimeViewModel
   @State private var selectedTab: AppTab = .home
@@ -29,15 +28,13 @@ struct PostOnboardingShellView: View {
     wearablesRuntimeManager: WearablesRuntimeManager,
     onOpenMetaSetup: @escaping () -> Void,
     onOpenWakePractice: @escaping () -> Void,
-    onOpenProfileInterview: @escaping () -> Void,
-    onResetOnboarding: @escaping () -> Void
+    onOpenProfileInterview: @escaping () -> Void
   ) {
     self.appSettingsStore = appSettingsStore
     self.wearablesRuntimeManager = wearablesRuntimeManager
     self.onOpenMetaSetup = onOpenMetaSetup
     self.onOpenWakePractice = onOpenWakePractice
     self.onOpenProfileInterview = onOpenProfileInterview
-    self.onResetOnboarding = onResetOnboarding
 
     let config = AssistantRuntimeConfig.load(
       backendBaseURLOverride: appSettingsStore.settings.backendBaseURL,
@@ -86,8 +83,7 @@ struct PostOnboardingShellView: View {
         scrollTarget: $settingsScrollTarget,
         onOpenMetaSetup: onOpenMetaSetup,
         onOpenWakePractice: onOpenWakePractice,
-        onOpenProfileInterview: onOpenProfileInterview,
-        onResetOnboarding: onResetOnboarding
+        onOpenProfileInterview: onOpenProfileInterview
       )
       .tabItem {
         Label("Settings", systemImage: "gearshape")
