@@ -67,6 +67,7 @@ SENSITIVE_ENV_KEYS: tuple[str, ...] = (
 LOCAL_ONLY_ENV_KEYS: tuple[str, ...] = (
     "BACKEND_DATA_DIR",
     "BACKEND_SQLITE_PATH",
+    "PORT",
 )
 
 
@@ -950,7 +951,7 @@ def _ensure_cloud_sql(
             action=_gcp_error_action(user_result.error, "Verify Cloud SQL permissions and retry."),
         )
 
-    if not instance_ref.primary_ip_address:
+    if not instance_ref.connection_name or not instance_ref.primary_ip_address:
         refreshed = adapters.cloud_sql.get_instance(
             project_id=config.project_id,
             instance_name=config.sql_instance_name,
@@ -963,19 +964,27 @@ def _ensure_cloud_sql(
             )
         if refreshed.value is not None:
             instance_ref = refreshed.value
-    if not instance_ref.primary_ip_address:
+
+    if instance_ref.connection_name:
+        database_url = build_postgres_url(
+            username=DEFAULT_SQL_USER_NAME,
+            password=db_password,
+            database_name=config.database_name,
+            unix_socket_path=f"/cloudsql/{instance_ref.connection_name}",
+        )
+    elif instance_ref.primary_ip_address:
+        database_url = build_postgres_url(
+            username=DEFAULT_SQL_USER_NAME,
+            password=db_password,
+            database_name=config.database_name,
+            host=instance_ref.primary_ip_address,
+        )
+    else:
         raise DeployStageError(
             stage="cloud_sql_setup",
-            message="Cloud SQL instance does not expose a primary IP address yet.",
+            message="Cloud SQL instance does not expose a connection name or primary IP address yet.",
             action="Wait for the instance to finish provisioning, then rerun deploy.",
         )
-
-    database_url = build_postgres_url(
-        username=DEFAULT_SQL_USER_NAME,
-        password=db_password,
-        database_name=config.database_name,
-        host=instance_ref.primary_ip_address,
-    )
     database_url_secret_name = _service_secret_name(config.service_name, "backend-database-url")
     _ensure_secret_version(
         adapters=adapters,

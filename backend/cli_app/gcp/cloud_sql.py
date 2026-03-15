@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from backend.cli_app.gcp.executor import GCloudExecutor
 from backend.cli_app.gcp.types import GCPResult, MutationOutcome
@@ -290,12 +290,20 @@ def build_postgres_url(
     username: str,
     password: str,
     database_name: str,
-    host: str,
+    host: str | None = None,
+    unix_socket_path: str | None = None,
     port: int = 5432,
 ) -> str:
+    if bool(host) == bool(unix_socket_path):
+        raise ValueError("Exactly one of host or unix_socket_path must be provided.")
+
     quoted_user = quote(username, safe="")
     quoted_password = quote(password, safe="")
     quoted_database = quote(database_name, safe="")
+    if unix_socket_path:
+        query_string = urlencode({"host": unix_socket_path})
+        return f"postgresql://{quoted_user}:{quoted_password}@/{quoted_database}?{query_string}"
+    assert host is not None
     return f"postgresql://{quoted_user}:{quoted_password}@{host}:{port}/{quoted_database}"
 
 
