@@ -18,7 +18,7 @@ The source-of-truth design inputs are:
 Default choices locked for this plan:
 
 - the first implementation slice is the config foundation
-- the CLI stays in `backend/cli_app` until later extraction
+- the CLI now lives in `portworld_cli` after the later extraction phase
 - `status` and `logs` start from `.portworld/state` plus current GCP adapters
 - installer and distribution work follow the config foundation and core command expansion
 
@@ -75,7 +75,7 @@ Introduce a stable CLI-owned project configuration layer without breaking the cu
 
 ### Implementation notes
 
-- Added `backend/cli_app/project_config.py` as the schema-versioned config layer for `.portworld/project.json`.
+- Added `portworld_cli/project_config.py` as the schema-versioned config layer for `.portworld/project.json`.
 - Phase A schema is intentionally minimal and high-level:
   - providers: realtime, vision, tooling
   - security: backend profile, CORS origins, allowed hosts
@@ -130,7 +130,7 @@ Expand setup beyond the current narrow init flow and let users edit one configur
 
 ### Implementation notes
 
-- Added a shared config UX/runtime layer in `backend/cli_app/config_runtime.py` so `init` and `config edit ...` use the same section logic and env/project-config sync path.
+- Added a shared config UX/runtime layer in `portworld_cli/config_runtime.py` so `init` and `config edit ...` use the same section logic and env/project-config sync path.
 - Added the public `portworld config` surface:
   - `portworld config show`
   - `portworld config edit providers`
@@ -196,7 +196,7 @@ Status: done
 
 ### Implementation notes
 
-- Added a shared read-only inspection layer in `backend/cli_app` so `status` and `logs` reuse the same project-root, project-config, env, and remembered deploy-state resolution path.
+- Added a shared read-only inspection layer in `portworld_cli` so `status` and `logs` reuse the same project-root, project-config, env, and remembered deploy-state resolution path.
 - Extracted deploy metadata handling into a shared `DeployState` module instead of keeping it embedded only in deploy runtime code.
 - `status` is state-first and opportunistically enriches from live Cloud Run only when project, region, and service name are all resolvable.
 - Live `status` enrichment uses the existing Cloud Run service describe adapter plus short `/livez` and `/readyz` HTTP probes.
@@ -322,6 +322,8 @@ Status: done
 
 ## Phase F: Extraction From `backend/`
 
+`Status: Complete`
+
 ### Goal
 
 Move the public CLI into a clearer package boundary after the command and config model stabilize.
@@ -343,6 +345,23 @@ Move the public CLI into a clearer package boundary after the command and config
 - the public CLI no longer reads as backend-internal code
 - the command surface remains stable across the extraction
 - current users do not need to relearn command names due only to internal repo movement
+
+### Implementation notes
+
+- Added a new top-level `portworld_cli/` package as the authoritative home for the public `portworld` CLI.
+- Moved the current public CLI implementation into `portworld_cli/`, including:
+  - command wiring
+  - config/init/deploy/status/logs/providers/update runtimes
+  - the CLI-owned GCP adapter package
+- Removed the temporary `backend/cli_app/` compatibility shim after the extraction landed cleanly and no live code paths depended on it anymore.
+- Repointed the packaged console script to `portworld_cli.main:main` while keeping the public command name `portworld` unchanged.
+- Updated packaging and container wiring so installs and images now include `portworld_cli/` as the public CLI package.
+- Preserved the current user-facing behavior:
+  - no command renames
+  - no command-tree changes
+  - no config/state/env ownership changes
+  - no install/update UX changes beyond the internal package move
+- Kept `backend/cli.py` in `backend/` as the backend operator/runtime CLI; Phase F only extracted the public framework-facing CLI.
 
 ## Public Interfaces And Ownership
 
@@ -438,5 +457,4 @@ The implementation plan should require acceptance checks by phase, not only one 
 - the product direction and command contract are already accepted and should not be renegotiated inside this plan
 - GCP remains the only fully concrete managed provider during this implementation plan
 - installer and distribution work are important, but not the first implementation slice
-- `backend/cli_app` remains the implementation base until later extraction
 - `status` and `logs` should begin as pragmatic inspection commands, not a full remote-control plane

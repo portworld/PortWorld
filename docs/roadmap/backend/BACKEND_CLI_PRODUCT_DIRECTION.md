@@ -336,11 +336,11 @@ If missing, the CLI should explain the fix clearly and guide the login flow rath
 
 ## Repo Structure Direction
 
-The current CLI lives under:
+The public CLI now lives under:
 
-- `backend/cli_app/`
+- `portworld_cli/`
 
-This was a pragmatic choice for the current implementation phase, but it is likely the wrong long-term home if `portworld` becomes the public framework entrypoint.
+It originally lived under `backend/cli_app/` during the early implementation phases, but has now been extracted so the public CLI no longer reads as backend-internal code.
 
 ### Short term
 

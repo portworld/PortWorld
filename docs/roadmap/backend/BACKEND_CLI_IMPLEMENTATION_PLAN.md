@@ -57,7 +57,7 @@ Owned paths:
 
 - `pyproject.toml`
 - `backend/cli.py`
-- `backend/cli_app/`
+- `portworld_cli/`
 
 Responsibilities:
 
@@ -131,7 +131,7 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 ### Owner area
 
 - `pyproject.toml`
-- `backend/cli_app/`
+- `portworld_cli/`
 - `backend/cli.py`
 
 ### Deliverables
@@ -155,7 +155,7 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 ### Implementation notes
 
 - `pyproject.toml` now defines the installable `portworld` console script
-- `backend/cli_app/` contains the public Click CLI scaffold and root options
+- `portworld_cli/` contains the public Click CLI scaffold and root options
 - `python -m backend.cli` remains intact as the legacy/internal operator path
 - `backend/Dockerfile` installs from the packaged project
 
@@ -165,10 +165,10 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 
 ### Owner area
 
-- `backend/cli_app/context.py`
-- `backend/cli_app/output.py`
-- `backend/cli_app/paths.py`
-- `backend/cli_app/state.py`
+- `portworld_cli/context.py`
+- `portworld_cli/output.py`
+- `portworld_cli/paths.py`
+- `portworld_cli/state.py`
 
 ### Deliverables
 
@@ -200,7 +200,7 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 
 ### Owner area
 
-- `backend/cli_app/envfile.py`
+- `portworld_cli/envfile.py`
 - `backend/.env.example`
 
 ### Deliverables
@@ -219,7 +219,7 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 
 ### Implementation notes
 
-- `backend/cli_app/envfile.py` is the canonical env template/parser/writer module
+- `portworld_cli/envfile.py` is the canonical env template/parser/writer module
 - legacy aliases such as `MISTRAL_API_KEY` and `MISTRAL_BASE_URL` are read and preserved
 - unknown keys are retained under a `Custom overrides` section on rewrite
 - canonical writes always rewrite the full file in template order
@@ -230,7 +230,7 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 
 ### Owner area
 
-- `backend/cli_app/commands/ops.py`
+- `portworld_cli/commands/ops.py`
 - `backend/cli.py`
 - `backend/bootstrap/runtime.py`
 - `backend/bootstrap/memory_export.py`
@@ -264,8 +264,8 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 
 ### Owner area
 
-- `backend/cli_app/commands/init.py`
-- `backend/cli_app/envfile.py`
+- `portworld_cli/commands/init.py`
+- `portworld_cli/envfile.py`
 
 ### Deliverables
 
@@ -306,7 +306,7 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 
 ### Owner area
 
-- `backend/cli_app/commands/doctor.py`
+- `portworld_cli/commands/doctor.py`
 - `backend/bootstrap/runtime.py`
 
 ### Deliverables
@@ -341,7 +341,7 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 
 ### Owner area
 
-- `backend/cli_app/gcp/`
+- `portworld_cli/gcp/`
 
 ### Deliverables
 
@@ -364,7 +364,7 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 
 ### Implementation notes
 
-- Added `backend/cli_app/gcp/` as the shared adapter package for `gcloud` execution and typed GCP helper results
+- Added `portworld_cli/gcp/` as the shared adapter package for `gcloud` execution and typed GCP helper results
 - Landed read-only and mutating helper surfaces now so Task 8 and Task 13 can reuse the same adapter contract
 - Kept CLI prompts, summaries, and `.portworld/state` handling outside the adapter layer
 
@@ -374,8 +374,8 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 
 ### Owner area
 
-- `backend/cli_app/commands/doctor.py`
-- `backend/cli_app/gcp/`
+- `portworld_cli/commands/doctor.py`
+- `portworld_cli/gcp/`
 
 ### Deliverables
 
@@ -519,9 +519,9 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 
 ### Owner area
 
-- `backend/cli_app/commands/deploy.py`
-- `backend/cli_app/gcp/`
-- `backend/cli_app/state.py`
+- `portworld_cli/commands/deploy.py`
+- `portworld_cli/gcp/`
+- `portworld_cli/state.py`
 
 ### Deliverables
 
@@ -648,7 +648,7 @@ This order avoids building deploy orchestration on top of an unstable CLI surfac
 
 ## Assumptions And Defaults
 
-- the public CLI implementation lives under a new `backend/cli_app/` package
+- the public CLI implementation now lives under the top-level `portworld_cli/` package
 - `click` is the CLI framework for v1
 - `backend/.env` remains the runtime source of truth
 - `.portworld/` stores only CLI metadata and should be gitignored

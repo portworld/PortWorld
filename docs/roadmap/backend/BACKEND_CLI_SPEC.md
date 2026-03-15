@@ -47,7 +47,7 @@ Available today:
 - `portworld ops ...`
 - `portworld init`
 - `portworld doctor --target local`
-- GCP adapter layer under `backend/cli_app/gcp/`
+- GCP adapter layer under `portworld_cli/gcp/`
 - `portworld doctor --target gcp-cloud-run`
 - `portworld deploy gcp-cloud-run`
 - managed-storage env parsing and validation contract
