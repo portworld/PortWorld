@@ -79,10 +79,6 @@ struct MainAppView: View {
             },
             onOpenProfileInterview: {
               route = .profileInterview
-            },
-            onResetOnboarding: {
-              onboardingStore.reset()
-              route = nextOnboardingRoute()
             }
           )
           .id(runtimeHostIdentity)
