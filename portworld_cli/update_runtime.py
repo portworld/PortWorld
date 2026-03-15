@@ -17,24 +17,28 @@ from portworld_cli.inspection_runtime import load_inspection_session
 from portworld_cli.output import CommandResult, format_key_value_lines
 from portworld_cli.paths import ProjectPaths, ProjectRootResolutionError, resolve_project_paths
 from portworld_cli.project_config import GCP_CLOUD_RUN_TARGET, ProjectConfigError
+from portworld_cli.release_identity import (
+    INSTALLER_SCRIPT_URL,
+    LATEST_RELEASE_API_URL,
+    active_pypi_package_name,
+    package_name_candidates,
+    tagged_archive_url,
+)
 from portworld_cli.state import CLIStateDecodeError, CLIStateTypeError
 
-
-INSTALLER_COMMAND = "curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash"
+INSTALLER_COMMAND = f"curl -fsSL --proto '=https' --tlsv1.2 {INSTALLER_SCRIPT_URL} | bash"
 INSTALLER_COMMAND_WITH_VERSION = (
-    "curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | "
+    f"curl -fsSL --proto '=https' --tlsv1.2 {INSTALLER_SCRIPT_URL} | "
     "bash -s -- --version {tag}"
 )
-ARCHIVE_INSTALL_COMMAND = (
-    'python3 -m pipx install --force '
-    '"https://github.com/armapidus/PortWorld/archive/refs/tags/{tag}.zip"'
-)
+ARCHIVE_INSTALL_COMMAND = 'python3 -m pipx install --force "{archive_url}"'
 SOURCE_CHECKOUT_INSTALL_COMMAND = "pipx install . --force"
+PYPI_INSTALL_COMMAND = "python3 -m pipx install {package_name}"
+PYPI_UPGRADE_COMMAND = "python3 -m pipx upgrade {package_name}"
 UPDATE_CLI_COMMAND_NAME = "portworld update cli"
 UPDATE_DEPLOY_COMMAND_NAME = "portworld update deploy"
 WRAPPED_DEPLOY_COMMAND = "portworld deploy gcp-cloud-run"
 SELF_HOST_DOCS_HINT = "See backend/README.md and docs/BACKEND_SELF_HOSTING.md."
-LATEST_RELEASE_API_URL = "https://api.github.com/repos/armapidus/PortWorld/releases/latest"
 
 
 class UpdateUsageError(RuntimeError):
@@ -49,13 +53,13 @@ class ReleaseLookupResult:
 
 
 def run_update_cli(cli_context: CLIContext) -> CommandResult:
+    package_name = active_pypi_package_name()
     repo_paths = _try_resolve_repo_paths(cli_context)
-    detected_mode, recommended_commands, source_checkout_root, release_lookup = _detect_cli_update_mode(
-        repo_paths
-    )
+    detected_mode, recommended_commands, source_checkout_root, release_lookup = _detect_cli_update_mode(repo_paths)
     message_lines = [
         format_key_value_lines(
             ("current_version", __version__),
+            ("package_name", package_name),
             ("detected_install_mode", detected_mode),
             ("release_lookup_status", release_lookup.status),
         )
@@ -84,6 +88,7 @@ def run_update_cli(cli_context: CLIContext) -> CommandResult:
         message="\n".join(message_lines),
         data={
             "current_version": __version__,
+            "package_name": package_name,
             "detected_install_mode": detected_mode,
             "target_version": release_lookup.target_version,
             "release_lookup_status": release_lookup.status,
@@ -181,11 +186,15 @@ def _detect_cli_update_mode(
 
     release_lookup = _lookup_latest_release()
     if release_lookup.status == "ok" and release_lookup.target_version is not None:
+        archive_url = tagged_archive_url(release_lookup.target_version)
+        package_name = active_pypi_package_name()
         return (
             "installer_archive",
             [
                 INSTALLER_COMMAND_WITH_VERSION.format(tag=release_lookup.target_version),
-                ARCHIVE_INSTALL_COMMAND.format(tag=release_lookup.target_version),
+                ARCHIVE_INSTALL_COMMAND.format(archive_url=archive_url),
+                PYPI_INSTALL_COMMAND.format(package_name=package_name),
+                PYPI_UPGRADE_COMMAND.format(package_name=package_name),
             ],
             None,
             release_lookup,
@@ -193,9 +202,28 @@ def _detect_cli_update_mode(
 
     pipx_install = _detect_pipx_install()
     if pipx_install:
-        return "installer_archive", [INSTALLER_COMMAND], None, release_lookup
+        package_name = active_pypi_package_name()
+        return (
+            "installer_archive",
+            [
+                INSTALLER_COMMAND,
+                PYPI_INSTALL_COMMAND.format(package_name=package_name),
+                PYPI_UPGRADE_COMMAND.format(package_name=package_name),
+            ],
+            None,
+            release_lookup,
+        )
 
-    return "unknown", [INSTALLER_COMMAND], None, release_lookup
+    package_name = active_pypi_package_name()
+    return (
+        "unknown",
+        [
+            INSTALLER_COMMAND,
+            PYPI_INSTALL_COMMAND.format(package_name=package_name),
+        ],
+        None,
+        release_lookup,
+    )
 
 
 def _looks_like_source_checkout(project_root: Path) -> bool:
@@ -233,21 +261,29 @@ def _detect_pipx_install() -> bool:
         payload = json.loads(completed.stdout or "{}")
     except json.JSONDecodeError:
         return False
-    return _payload_has_pipx_portworld(payload)
+    return _payload_has_supported_pypi_package(payload)
 
 
-def _payload_has_pipx_portworld(payload: object) -> bool:
+def _payload_has_supported_pypi_package(payload: object) -> bool:
     if not isinstance(payload, dict):
         return False
+    candidates = package_name_candidates()
     venvs = payload.get("venvs")
-    if isinstance(venvs, dict) and "portworld" in venvs:
-        return True
+    if isinstance(venvs, dict):
+        for candidate in candidates:
+            if candidate in venvs:
+                return True
     packages = payload.get("packages")
-    if isinstance(packages, dict) and "portworld" in packages:
-        return True
+    if isinstance(packages, dict):
+        for candidate in candidates:
+            if candidate in packages:
+                return True
     if isinstance(venvs, list):
         for entry in venvs:
-            if isinstance(entry, dict) and entry.get("package") == "portworld":
+            if not isinstance(entry, dict):
+                continue
+            package_name = entry.get("package")
+            if isinstance(package_name, str) and package_name in candidates:
                 return True
     return False
 
