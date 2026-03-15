@@ -8,6 +8,7 @@ from backend.cli_app.gcp.constants import REQUIRED_GCP_SERVICES
 from backend.cli_app.gcp.executor import GCloudExecutor
 from backend.cli_app.gcp.gcs import GCSAdapter, GCSBucketRef
 from backend.cli_app.gcp.iam import IAMAdapter, IAMBindingRef, ServiceAccountRef, build_service_account_email
+from backend.cli_app.gcp.logging import CloudRunLogEntry, GCPLoggingAdapter
 from backend.cli_app.gcp.secret_manager import SecretManagerAdapter, SecretRef, SecretVersionRef
 from backend.cli_app.gcp.service_usage import APIStatus, ServiceUsageAdapter
 from backend.cli_app.gcp.types import CommandOutput, GCPError, GCPResult, MutationOutcome, ResolvedValue
@@ -19,6 +20,7 @@ __all__ = [
     "AuthAdapter",
     "CloudBuildAdapter",
     "CloudBuildSubmission",
+    "CloudRunLogEntry",
     "CloudRunAdapter",
     "CloudRunServiceRef",
     "CloudSQLAdapter",
@@ -31,6 +33,7 @@ __all__ = [
     "GCloudInstallation",
     "GCPAdapters",
     "GCPError",
+    "GCPLoggingAdapter",
     "GCPResult",
     "GCSAdapter",
     "GCSBucketRef",

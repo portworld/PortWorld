@@ -10,6 +10,7 @@ from backend.cli_app.gcp.cloud_sql import CloudSQLAdapter
 from backend.cli_app.gcp.executor import GCloudExecutor
 from backend.cli_app.gcp.gcs import GCSAdapter
 from backend.cli_app.gcp.iam import IAMAdapter
+from backend.cli_app.gcp.logging import GCPLoggingAdapter
 from backend.cli_app.gcp.secret_manager import SecretManagerAdapter
 from backend.cli_app.gcp.service_usage import ServiceUsageAdapter
 
@@ -23,6 +24,7 @@ class GCPAdapters:
     artifact_registry: ArtifactRegistryAdapter
     cloud_build: CloudBuildAdapter
     cloud_run: CloudRunAdapter
+    logging: GCPLoggingAdapter
     secret_manager: SecretManagerAdapter
     cloud_sql: CloudSQLAdapter
     gcs: GCSAdapter
@@ -38,6 +40,7 @@ class GCPAdapters:
             artifact_registry=ArtifactRegistryAdapter(resolved_executor),
             cloud_build=CloudBuildAdapter(resolved_executor),
             cloud_run=CloudRunAdapter(resolved_executor),
+            logging=GCPLoggingAdapter(resolved_executor),
             secret_manager=SecretManagerAdapter(resolved_executor),
             cloud_sql=CloudSQLAdapter(resolved_executor),
             gcs=GCSAdapter(resolved_executor),
