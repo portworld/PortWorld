@@ -223,6 +223,8 @@ Status: done
 
 Make supported providers and update workflows visible through the public CLI.
 
+Status: done
+
 ### Deliverables
 
 - add `portworld providers list`
@@ -242,6 +244,30 @@ Make supported providers and update workflows visible through the public CLI.
 - supported cloud and model/tool providers are discoverable from the CLI
 - users can understand provider requirements without digging through multiple docs
 - users have a documented public path for CLI updates and managed redeploy/update behavior
+
+### Implementation notes
+
+- Added a CLI-owned provider catalog for the current official runtime surface only:
+  - `gcp`
+  - `openai`
+  - `mistral`
+  - `tavily`
+- `portworld providers list` is read-only and repo-independent.
+- `portworld providers show <provider>` supports `gcp-cloud-run` as an alias into the GCP provider entry.
+- Provider output is grounded in the current runtime and CLI surface rather than future roadmap placeholders.
+- `update cli` landed as guidance-first in this phase:
+  - reports the current CLI version
+  - detects repo-checkout installs conservatively
+  - falls back cleanly when install-mode detection is unknown
+  - prints recommended upgrade commands instead of mutating the installation
+- `update deploy` landed as a narrow public redeploy wrapper over the existing managed deploy flow:
+  - resolves the active managed target from remembered state or project config
+  - currently supports only the `gcp-cloud-run` path
+  - reuses the existing deploy runtime and flag surface rather than forking deploy logic
+- Phase D stayed additive:
+  - existing `deploy gcp-cloud-run` remains the explicit provider-target deploy command
+  - no command-tree redesign
+  - no change to config/state/env ownership boundaries from earlier phases
 
 ## Phase E: Installer And Distribution
 
@@ -371,6 +397,7 @@ The implementation plan should require acceptance checks by phase, not only one 
 
 - `providers` commands are read-only and informative
 - `update cli` and `update deploy` have clear human output and explicit failure guidance
+- `providers` and `update` are now implemented and wired into the public CLI
 
 ### Phase E
 
