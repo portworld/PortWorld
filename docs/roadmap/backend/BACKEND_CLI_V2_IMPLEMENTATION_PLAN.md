@@ -275,6 +275,8 @@ Status: done
 
 Provide a real public installation path without moving setup logic into shell scripts.
 
+Status: done
+
 ### Deliverables
 
 - polish the public `pipx` install path
@@ -297,6 +299,26 @@ Provide a real public installation path without moving setup logic into shell sc
 - a new user can install the CLI through a public path without repo-local dev knowledge
 - installer output clearly hands off to `portworld init`
 - public install docs match the actual supported install/update path
+
+### Implementation notes
+
+- Added a thin root-level `install.sh` as the first public installer surface.
+- The installer remains intentionally narrow:
+  - checks baseline machine requirements only
+  - bootstraps `pipx` when missing
+  - installs the CLI
+  - hands off into `portworld init`
+- Phase E uses a GitHub source archive install path instead of a `git+https` install, so `git` is not a baseline installer prerequisite.
+- The public manual fallback path is now:
+  - `python3 -m pipx install --force "https://github.com/armapidus/PortWorld/archive/refs/heads/main.zip"`
+- The public shell bootstrap path is now:
+  - `curl -fsSL https://openclaw.ai/install.sh | bash`
+- `install.sh` attempts to auto-run `portworld init` when an interactive terminal is available and falls back to an explicit next-step message when it is not.
+- `update cli` was aligned with the new public install story:
+  - source-checkout installs still recommend `pipx install . --force`
+  - non-repo installs now recommend rerunning the installer first
+  - archive-based `pipx` install remains the manual fallback
+- Updated the public backend install docs so they no longer treat repo-local `pipx install .` as the primary user-facing install path.
 
 ## Phase F: Extraction From `backend/`
 
@@ -404,6 +426,7 @@ The implementation plan should require acceptance checks by phase, not only one 
 - installer bootstraps the CLI without duplicating setup logic
 - installer prerequisites are checked clearly
 - install path hands off to `portworld init`
+- installer and install/update docs are now implemented and aligned with the public archive-based install path
 
 ### Phase F
 
