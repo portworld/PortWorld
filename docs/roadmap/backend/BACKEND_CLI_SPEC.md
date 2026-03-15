@@ -2,6 +2,9 @@
 
 ## Summary
 
+This document describes the current v1 CLI contract that was implemented inside the backend codebase.
+For the next-stage public CLI product direction, see [BACKEND_CLI_PRODUCT_DIRECTION.md](./BACKEND_CLI_PRODUCT_DIRECTION.md).
+
 This document specifies CLI v1 for the PortWorld backend.
 
 It is the implementation companion to [BACKEND_PLATFORM_ROADMAP.md](./BACKEND_PLATFORM_ROADMAP.md) and defines the first real public CLI surface for deploying and operating the backend.

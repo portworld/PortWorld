@@ -2,6 +2,9 @@
 
 ## Summary
 
+This document records the current v1, backend-embedded CLI implementation plan and completion state.
+For the forward-looking public CLI product direction, see [BACKEND_CLI_PRODUCT_DIRECTION.md](./BACKEND_CLI_PRODUCT_DIRECTION.md).
+
 This document turns the backend CLI specification into an implementation backlog with explicit sequencing, code ownership boundaries, public interfaces, and acceptance criteria.
 
 The public goal is to ship an installable `portworld` CLI that:
