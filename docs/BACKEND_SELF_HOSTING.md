@@ -23,10 +23,23 @@ Optional, depending on enabled features:
 
 ## Quick Start
 
-From the repo root:
+Public install path:
 
 ```bash
-pipx install .
+curl -fsSL https://openclaw.ai/install.sh | bash
+```
+
+Manual install fallback:
+
+```bash
+python3 -m pipx install --force "https://github.com/armapidus/PortWorld/archive/refs/heads/main.zip"
+portworld init
+```
+
+Source-checkout developer path:
+
+```bash
+pipx install . --force
 portworld init
 ```
 
@@ -74,11 +87,20 @@ Use `portworld ops check-config --full-readiness` for a stricter preflight that 
 Optional operator CLI commands from the repo root:
 
 ```bash
+# Install or update the public CLI
+curl -fsSL https://openclaw.ai/install.sh | bash
+
 portworld doctor --target local
 portworld ops check-config
 portworld ops check-config --full-readiness
 portworld ops bootstrap-storage
 portworld ops export-memory --output /tmp/portworld-memory-export.zip
+```
+
+For CLI updates without rerunning the installer, the manual fallback is:
+
+```bash
+python3 -m pipx install --force "https://github.com/armapidus/PortWorld/archive/refs/heads/main.zip"
 ```
 
 Legacy compatibility path:
