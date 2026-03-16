@@ -191,79 +191,26 @@ def write_published_workspace_artifacts(
     return env_write_result, compose_backup_path
 
 
+# Compatibility wrappers for moved runtime helpers.
 def build_compose_command(workspace_root: Path, *args: str) -> list[str]:
-    return [
-        "docker",
-        "compose",
-        "-f",
-        str(workspace_root / PUBLISHED_COMPOSE_FILENAME),
-        *args,
-    ]
+    from portworld_cli.runtime.published import build_compose_command as _build_compose_command
+
+    return _build_compose_command(workspace_root, *args)
 
 
 def inspect_published_compose_status(workspace_root: Path) -> PublishedComposeStatus:
-    command = build_compose_command(workspace_root, "ps", "--all", "--format", "json")
-    try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-            cwd=workspace_root,
-        )
-    except OSError as exc:
-        return PublishedComposeStatus(
-            available=False,
-            running=None,
-            service_name=None,
-            container_name=None,
-            state=None,
-            health=None,
-            exit_code=None,
-            warning=str(exc),
-        )
+    from portworld_cli.runtime.published import inspect_published_compose_status as _inspect
 
-    if completed.returncode != 0:
-        warning = (completed.stderr or completed.stdout).strip() or "docker compose ps failed."
-        return PublishedComposeStatus(
-            available=False,
-            running=None,
-            service_name=None,
-            container_name=None,
-            state=None,
-            health=None,
-            exit_code=None,
-            warning=warning,
-        )
-
-    rows = _parse_compose_json_output(completed.stdout)
-    backend_row = None
-    for row in rows:
-        if row.get("Service") == "backend":
-            backend_row = row
-            break
-    if backend_row is None:
-        return PublishedComposeStatus(
-            available=True,
-            running=False,
-            service_name="backend",
-            container_name=None,
-            state="not_created",
-            health=None,
-            exit_code=None,
-        )
-
-    state = _coerce_text(backend_row.get("State"))
-    health = _coerce_text(backend_row.get("Health"))
-    exit_code = _coerce_int(backend_row.get("ExitCode"))
+    status = _inspect(workspace_root)
     return PublishedComposeStatus(
-        available=True,
-        running=state == "running",
-        service_name="backend",
-        container_name=_coerce_text(backend_row.get("Name")),
-        state=state,
-        health=health,
-        exit_code=exit_code,
+        available=status.available,
+        running=status.running,
+        service_name=status.service_name,
+        container_name=status.container_name,
+        state=status.state,
+        health=status.health,
+        exit_code=status.exit_code,
+        warning=status.warning,
     )
 
 
@@ -273,31 +220,22 @@ def run_backend_compose_cli(
     backend_args: list[str],
     output_mount: tuple[Path, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    command = build_compose_command(workspace_root, "run", "--rm")
-    if output_mount is not None:
-        host_path, container_path = output_mount
-        command.extend(["-v", f"{host_path}:{container_path}"])
-    command.extend(["backend", "python", "-m", "backend.cli", *backend_args])
-    return subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=workspace_root,
+    from portworld_cli.runtime.published import run_backend_compose_cli as _run_backend_compose_cli
+
+    return _run_backend_compose_cli(
+        workspace_root,
+        backend_args=backend_args,
+        output_mount=output_mount,
     )
 
 
 def parse_backend_cli_json(completed: subprocess.CompletedProcess[str]) -> dict[str, Any]:
-    stdout = (completed.stdout or "").strip()
-    if not stdout:
-        raise PublishedWorkspaceError("Backend compose command did not emit JSON output.")
+    from portworld_cli.runtime.published import parse_backend_cli_json as _parse_backend_cli_json
+
     try:
-        payload = json.loads(stdout)
-    except json.JSONDecodeError as exc:
-        raise PublishedWorkspaceError(stdout) from exc
-    if not isinstance(payload, dict):
-        raise PublishedWorkspaceError("Backend compose command returned a non-object JSON payload.")
-    return payload
+        return _parse_backend_cli_json(completed)
+    except RuntimeError as exc:
+        raise PublishedWorkspaceError(str(exc)) from exc
 
 
 def coerce_backend_cli_payload(
@@ -305,14 +243,12 @@ def coerce_backend_cli_payload(
     *,
     default_message: str,
 ) -> dict[str, Any]:
-    try:
-        return parse_backend_cli_json(completed)
-    except PublishedWorkspaceError:
-        message = (completed.stderr or completed.stdout or "").strip() or default_message
-        return {
-            "status": "error",
-            "message": message,
-        }
+    from portworld_cli.runtime.published import coerce_backend_cli_payload as _coerce_backend_cli_payload
+
+    return _coerce_backend_cli_payload(
+        completed,
+        default_message=default_message,
+    )
 
 
 def _lookup_latest_release_tag() -> str:
@@ -361,39 +297,6 @@ def _write_text_file(path: Path, content: str, *, force: bool) -> Path | None:
         if tmp_path.exists():
             tmp_path.unlink()
     return backup_path
-
-
-def _parse_compose_json_output(raw_output: str) -> list[dict[str, object]]:
-    text = raw_output.strip()
-    if not text:
-        return []
-    if text.startswith("["):
-        payload = json.loads(text)
-        return [item for item in payload if isinstance(item, dict)]
-    rows: list[dict[str, object]] = []
-    for line in text.splitlines():
-        candidate = line.strip()
-        if not candidate:
-            continue
-        parsed = json.loads(candidate)
-        if isinstance(parsed, dict):
-            rows.append(parsed)
-    return rows
-
-
-def _coerce_text(value: object) -> str | None:
-    if isinstance(value, str):
-        text = value.strip()
-        return text or None
-    return None
-
-
-def _coerce_int(value: object) -> int | None:
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value.strip().isdigit():
-        return int(value.strip())
-    return None
 
 
 def _now_ms() -> int:
