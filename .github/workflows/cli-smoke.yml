@@ -2,38 +2,11 @@ name: CLI Smoke
 
 on:
   push:
+    tags-ignore:
+      - "v*"
   pull_request:
 
 jobs:
-  tag-version-check:
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Validate tag matches backend version
-        env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-        run: |
-          python - <<'PY'
-          import os
-          from backend import __version__
-
-          tag = os.environ["GITHUB_REF_NAME"].strip()
-          expected = f"v{__version__}"
-          if tag != expected:
-              raise SystemExit(
-                  f"Tag/version mismatch: git tag is {tag}, backend.__version__ expects {expected}"
-              )
-          print(f"Tag/version check passed: {tag}")
-          PY
-
   cli-smoke:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -43,10 +16,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
