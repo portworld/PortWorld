@@ -14,9 +14,12 @@ def update_group() -> None:
 
 
 @update_group.command("cli")
+@click.option("--json", "json_output", is_flag=True, default=False, help="Emit JSON output.")
 @click.pass_obj
-def update_cli_command(cli_context: CLIContext) -> None:
+def update_cli_command(cli_context: CLIContext, json_output: bool) -> None:
     """Show the recommended CLI upgrade command for this install mode."""
+    if json_output:
+        cli_context.json_output = True
     exit_with_result(cli_context, run_update_cli(cli_context))
 
 
