@@ -29,10 +29,13 @@ portworld doctor --target local
 docker compose up --build
 ```
 
-Manual install fallback for a pinned release tag:
+The bootstrap installs `uv` automatically and downloads Python 3.11+ when the machine does not
+already provide a suitable interpreter.
+
+Manual install fallback for a pinned release version:
 
 ```bash
-python3 -m pipx install --force "https://github.com/armapidus/PortWorld/archive/refs/tags/<tag>.zip"
+uv tool install "portworld==<version>"
 portworld init
 ```
 
@@ -52,13 +55,13 @@ portworld deploy gcp-cloud-run --project <project> --region <region> --cors-orig
 
 Repeat Cloud Run deploys reuse `.portworld/state/gcp-cloud-run.json` after explicit flags and current `gcloud` config.
 
-For CLI updates, rerun the installer:
+For CLI updates:
 
 ```bash
-curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/armapidus/PortWorld/main/install.sh | bash
+uv tool upgrade portworld
 ```
 
-You can also pin the installer to a specific tagged release:
+You can also rerun the installer or pin it to a specific tagged release:
 
 ```bash
 curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/armapidus/PortWorld/main/install.sh | bash -s -- --version <tag>
