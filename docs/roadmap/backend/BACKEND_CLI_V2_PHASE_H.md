@@ -14,7 +14,7 @@
 
 ## Implementation Changes
 
-### 1. Release identity and package naming
+### 1. Release identity and package naming - done
 
 - Introduce one release config source (single constants file + mirrored shell constants) with:
   - repo owner/name
@@ -23,7 +23,7 @@
 - Keep the codebase ready for either package name (portworld or portworld-cli) without logic forks.
 - Update installer and update cli guidance to use the configured package name.
 
-### 2. PyPI-ready packaging metadata
+### 2. PyPI-ready packaging metadata - done
 
 - Extend pyproject.toml for production publishing:
   - license metadata
@@ -117,3 +117,58 @@
 - You will configure GitHub OIDC trusted publishing in both PyPI and TestPyPI.
 - If portworld is unavailable, the active published name switches to portworld-cli and docs/installer/update messaging follow that configured name.
 - Website docs can be updated after this phase; Phase H ensures terminal/install/release mechanics are correct first.
+
+## Later Stages (Post-Phase H): Zero-Clone Operator Model
+
+These stages are intentionally deferred. They extend the Phase H packaging/release baseline so a user can install and deploy without cloning this repository.
+
+### Stage H+1. Publish backend runtime artifacts
+
+- Publish a versioned backend runtime image for each CLI/backend release tag (for example `ghcr.io/<org>/portworld-backend:vX.Y.Z`).
+- Define image publishing policy:
+  - immutable tags for releases
+  - optional moving tags (`latest`, `stable`) for convenience only
+- Add provenance/signing/scan checks in CI before publishing images.
+
+### Stage H+2. Introduce CLI runtime modes
+
+- Add explicit runtime source mode in CLI config:
+  - `source` (current behavior, repo-backed)
+  - `published` (zero-clone behavior, image-backed)
+- Keep current commands and flags; mode controls internal resolution only.
+- Preserve compatibility for existing repo users by defaulting to `source` when repo markers are present.
+
+### Stage H+3. Zero-clone workspace bootstrap
+
+- Add a CLI command (or `init` branch) that creates a managed workspace under user home (for example `~/.portworld/stacks/<name>/`).
+- Generate:
+  - stack-local `.env`
+  - compose/deploy manifest referencing published backend image
+  - `.portworld/project.json` and `.portworld/state/*` for this stack
+- Ensure `doctor`, `ops`, and `deploy` can run against this workspace without requiring repository files.
+
+### Stage H+4. Cloud deploy from published image
+
+- Update deploy path to support image-first release deployment:
+  - prefer published release image in `published` mode
+  - keep source-build path for `source` mode
+- Keep existing `portworld deploy gcp-cloud-run` command contract; change internal build/deploy strategy by mode.
+- Ensure version pinning is explicit (`--version` / config pin), with deterministic rollback support.
+
+### Stage H+5. Installer default to PyPI + managed mode onboarding
+
+- Keep `curl ... | bash` as entrypoint.
+- Install CLI from PyPI (Phase H baseline), then offer:
+  - repo-backed flow (advanced/contributor)
+  - managed zero-clone flow (default for operators)
+- Add clear recovery/diagnostic commands for both flows.
+
+### Stage H+6. Documentation and support policy
+
+- Split docs explicitly into:
+  - operator quickstart (zero-clone, published artifacts)
+  - contributor quickstart (clone + source mode)
+- Define support matrix and lifecycle policy:
+  - supported OS/Python versions
+  - supported CLI-to-backend version skew window
+  - deprecation policy for legacy source-only assumptions
