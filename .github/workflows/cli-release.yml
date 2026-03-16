@@ -1,6 +1,6 @@
 name: CLI Release
 
-"on":
+on:
   push:
     tags:
       - "v*"

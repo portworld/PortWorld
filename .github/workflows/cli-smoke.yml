@@ -1,6 +1,6 @@
 name: CLI Smoke
 
-"on":
+on:
   push:
     tags-ignore:
       - "v*"
