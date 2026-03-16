@@ -37,6 +37,9 @@ jobs:
           portworld providers list
           portworld update cli --json
 
+      - name: Remove pipx install before installer smoke
+        run: python -m pipx uninstall portworld
+
       - name: Installer syntax check
         run: bash -n install.sh
 
