@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
@@ -22,7 +23,6 @@ from portworld_cli.release_identity import (
     LATEST_RELEASE_API_URL,
     active_pypi_package_name,
     package_name_candidates,
-    tagged_archive_url,
 )
 from portworld_cli.state import CLIStateDecodeError, CLIStateTypeError
 
@@ -31,10 +31,11 @@ INSTALLER_COMMAND_WITH_VERSION = (
     f"curl -fsSL --proto '=https' --tlsv1.2 {INSTALLER_SCRIPT_URL} | "
     "bash -s -- --version {tag}"
 )
-ARCHIVE_INSTALL_COMMAND = 'python3 -m pipx install --force "{archive_url}"'
 SOURCE_CHECKOUT_INSTALL_COMMAND = "pipx install . --force"
-PYPI_INSTALL_COMMAND = "python3 -m pipx install {package_name}"
-PYPI_UPGRADE_COMMAND = "python3 -m pipx upgrade {package_name}"
+UV_TOOL_INSTALL_COMMAND = 'uv tool install "{package_name}"'
+UV_TOOL_INSTALL_VERSION_COMMAND = 'uv tool install --force "{package_name}=={version}"'
+UV_TOOL_UPGRADE_COMMAND = "uv tool upgrade {package_name}"
+LEGACY_PIPX_UPGRADE_COMMAND = "python3 -m pipx upgrade {package_name}"
 UPDATE_CLI_COMMAND_NAME = "portworld update cli"
 UPDATE_DEPLOY_COMMAND_NAME = "portworld update deploy"
 WRAPPED_DEPLOY_COMMAND = "portworld deploy gcp-cloud-run"
@@ -184,43 +185,66 @@ def _detect_cli_update_mode(
             ReleaseLookupResult(status="skipped", target_version=None, update_available=None),
         )
 
-    release_lookup = _lookup_latest_release()
-    if release_lookup.status == "ok" and release_lookup.target_version is not None:
-        archive_url = tagged_archive_url(release_lookup.target_version)
-        package_name = active_pypi_package_name()
-        return (
-            "installer_archive",
-            [
-                INSTALLER_COMMAND_WITH_VERSION.format(tag=release_lookup.target_version),
-                ARCHIVE_INSTALL_COMMAND.format(archive_url=archive_url),
-                PYPI_INSTALL_COMMAND.format(package_name=package_name),
-                PYPI_UPGRADE_COMMAND.format(package_name=package_name),
-            ],
-            None,
-            release_lookup,
-        )
-
-    pipx_install = _detect_pipx_install()
-    if pipx_install:
-        package_name = active_pypi_package_name()
-        return (
-            "installer_archive",
-            [
-                INSTALLER_COMMAND,
-                PYPI_INSTALL_COMMAND.format(package_name=package_name),
-                PYPI_UPGRADE_COMMAND.format(package_name=package_name),
-            ],
-            None,
-            release_lookup,
-        )
-
     package_name = active_pypi_package_name()
+    release_lookup = _lookup_latest_release()
+    normalized_target_version = _normalize_package_version(release_lookup.target_version)
+
+    if _detect_uv_tool_runtime():
+        recommended_commands = [
+            UV_TOOL_UPGRADE_COMMAND.format(package_name=package_name),
+            INSTALLER_COMMAND,
+        ]
+        if (
+            release_lookup.status == "ok"
+            and release_lookup.target_version is not None
+            and normalized_target_version is not None
+        ):
+            recommended_commands = [
+                UV_TOOL_UPGRADE_COMMAND.format(package_name=package_name),
+                UV_TOOL_INSTALL_VERSION_COMMAND.format(
+                    package_name=package_name,
+                    version=normalized_target_version,
+                ),
+                INSTALLER_COMMAND_WITH_VERSION.format(tag=release_lookup.target_version),
+            ]
+        return (
+            "uv_tool",
+            recommended_commands,
+            None,
+            release_lookup,
+        )
+
+    if _detect_pipx_runtime() or _detect_pipx_install():
+        recommended_commands = [
+            INSTALLER_COMMAND,
+            LEGACY_PIPX_UPGRADE_COMMAND.format(package_name=package_name),
+        ]
+        if release_lookup.status == "ok" and release_lookup.target_version is not None:
+            recommended_commands.insert(
+                1,
+                INSTALLER_COMMAND_WITH_VERSION.format(tag=release_lookup.target_version),
+            )
+        return (
+            "pipx_legacy",
+            recommended_commands,
+            None,
+            release_lookup,
+        )
+
+    recommended_commands = [
+        INSTALLER_COMMAND,
+        UV_TOOL_INSTALL_COMMAND.format(package_name=package_name),
+    ]
+    if normalized_target_version is not None:
+        recommended_commands.append(
+            UV_TOOL_INSTALL_VERSION_COMMAND.format(
+                package_name=package_name,
+                version=normalized_target_version,
+            )
+        )
     return (
         "unknown",
-        [
-            INSTALLER_COMMAND,
-            PYPI_INSTALL_COMMAND.format(package_name=package_name),
-        ],
+        recommended_commands,
         None,
         release_lookup,
     )
@@ -240,6 +264,14 @@ def _resolve_runtime_source_checkout_root() -> Path | None:
         if _looks_like_source_checkout(candidate):
             return candidate
     return None
+
+
+def _detect_uv_tool_runtime() -> bool:
+    return "/uv/tools/" in Path(sys.executable).resolve().as_posix()
+
+
+def _detect_pipx_runtime() -> bool:
+    return "/pipx/venvs/" in Path(sys.executable).resolve().as_posix()
 
 
 def _detect_pipx_install() -> bool:
@@ -329,6 +361,17 @@ def _parse_version_parts(value: str) -> tuple[int, ...] | None:
     if not re.fullmatch(r"\d+(?:\.\d+)*", normalized):
         return None
     return tuple(int(part) for part in normalized.split("."))
+
+
+def _normalize_package_version(value: str | None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if normalized.startswith("v"):
+        normalized = normalized[1:]
+    if not re.fullmatch(r"\d+(?:\.\d+)*", normalized):
+        return None
+    return normalized
 
 
 def _failure_result(command_name: str, exc: Exception, *, exit_code: int) -> CommandResult:
