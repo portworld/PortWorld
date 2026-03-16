@@ -39,6 +39,13 @@ from portworld_cli.output import exit_with_result
     default=None,
     help="Runtime source mode for this workspace.",
 )
+@click.option("--stack-name", default=None, help="Published workspace stack name under ~/.portworld/stacks.")
+@click.option(
+    "--release-tag",
+    default=None,
+    help="Published backend release tag to pin (vX.Y.Z or latest).",
+)
+@click.option("--host-port", type=int, default=None, help="Host port for the published workspace backend.")
 @click.option("--project", default=None, help="Default GCP project id.")
 @click.option("--region", default=None, help="Default GCP region.")
 @click.option("--service", default=None, help="Default Cloud Run service name.")
@@ -70,6 +77,9 @@ def init_command(
     clear_bearer_token: bool,
     project_mode: str | None,
     runtime_source: str | None,
+    stack_name: str | None,
+    release_tag: str | None,
+    host_port: int | None,
     project: str | None,
     region: str | None,
     service: str | None,
@@ -105,6 +115,9 @@ def init_command(
                 clear_bearer_token=clear_bearer_token,
                 project_mode=project_mode,
                 runtime_source=runtime_source,
+                stack_name=stack_name,
+                release_tag=release_tag,
+                host_port=host_port,
                 project=project,
                 region=region,
                 service=service,

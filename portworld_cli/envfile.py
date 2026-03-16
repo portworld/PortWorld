@@ -99,6 +99,10 @@ class EnvWriteResult:
 
 def load_env_template(path: Path) -> EnvTemplate:
     raw_text = path.read_text(encoding="utf-8")
+    return load_env_template_text(path, raw_text)
+
+
+def load_env_template_text(path: Path, raw_text: str) -> EnvTemplate:
     lines: list[EnvTemplateLine] = []
     ordered_keys: list[str] = []
     default_values: OrderedDict[str, str] = OrderedDict()

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 PROJECT_MODE_LOCAL = "local"
 PROJECT_MODE_MANAGED = "managed"
 RUNTIME_SOURCE_SOURCE = "source"
@@ -32,6 +32,7 @@ DEFAULT_GCP_MAX_INSTANCES = 10
 DEFAULT_GCP_CONCURRENCY = 10
 DEFAULT_GCP_CPU = "1"
 DEFAULT_GCP_MEMORY = "1Gi"
+DEFAULT_PUBLISHED_HOST_PORT = 8080
 
 
 class ProjectConfigError(RuntimeError):
@@ -150,14 +151,30 @@ class GCPCloudRunConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class PublishedRuntimeConfig:
+    release_tag: str | None = None
+    image_ref: str | None = None
+    host_port: int = DEFAULT_PUBLISHED_HOST_PORT
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "release_tag": self.release_tag,
+            "image_ref": self.image_ref,
+            "host_port": self.host_port,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class DeployConfig:
     preferred_target: str | None = None
     gcp_cloud_run: GCPCloudRunConfig = field(default_factory=GCPCloudRunConfig)
+    published_runtime: PublishedRuntimeConfig = field(default_factory=PublishedRuntimeConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "preferred_target": self.preferred_target,
             "gcp_cloud_run": self.gcp_cloud_run.to_payload(),
+            "published_runtime": self.published_runtime.to_payload(),
         }
 
 
@@ -185,7 +202,7 @@ class ProjectConfig:
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ProjectConfig":
         schema_version = _read_int(payload, "schema_version", default=SCHEMA_VERSION)
-        if schema_version not in {1, SCHEMA_VERSION}:
+        if schema_version not in {1, 2, SCHEMA_VERSION}:
             raise ProjectConfigVersionError(
                 f"Unsupported .portworld/project.json schema_version: {schema_version}."
             )
@@ -205,6 +222,11 @@ class ProjectConfig:
         security_payload = _read_object(payload, "security", default={})
         deploy_payload = _read_object(payload, "deploy", default={})
         gcp_payload = _read_object(deploy_payload, "gcp_cloud_run", default={})
+        published_runtime_payload = _read_object(
+            deploy_payload,
+            "published_runtime",
+            default={},
+        )
 
         preferred_target = _read_optional_string(
             deploy_payload,
@@ -320,6 +342,21 @@ class ProjectConfig:
                         gcp_payload,
                         "memory",
                         default=DEFAULT_GCP_MEMORY,
+                    ),
+                ),
+                published_runtime=PublishedRuntimeConfig(
+                    release_tag=_read_optional_string(
+                        published_runtime_payload,
+                        "release_tag",
+                    ),
+                    image_ref=_read_optional_string(
+                        published_runtime_payload,
+                        "image_ref",
+                    ),
+                    host_port=_read_int(
+                        published_runtime_payload,
+                        "host_port",
+                        default=DEFAULT_PUBLISHED_HOST_PORT,
                     ),
                 ),
             ),

@@ -1,0 +1,23 @@
+# Generated PortWorld published-workspace compose file.
+services:
+  backend:
+    image: {image_ref}
+    env_file:
+      - .env
+    restart: unless-stopped
+    init: true
+    environment:
+      SSL_CERT_FILE: /usr/local/lib/python3.11/site-packages/certifi/cacert.pem
+    ports:
+      - "{host_port}:8080"
+    volumes:
+      - portworld_backend_var:/app/backend/var
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  portworld_backend_var:

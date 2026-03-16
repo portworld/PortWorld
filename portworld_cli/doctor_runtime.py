@@ -15,10 +15,17 @@ from portworld_cli.config_runtime import (
     load_config_session,
 )
 from portworld_cli.context import CLIContext
+from portworld_cli.envfile import EnvFileParseError
 from portworld_cli.gcp.doctor import evaluate_gcp_cloud_run_readiness
 from portworld_cli.output import CommandResult, DiagnosticCheck, format_key_value_lines
 from portworld_cli.paths import ProjectPaths, ProjectRootResolutionError
+from portworld_cli.published_workspace import (
+    build_compose_command,
+    coerce_backend_cli_payload,
+    run_backend_compose_cli,
+)
 from portworld_cli.project_config import ProjectConfigError
+from portworld_cli.state import CLIStateDecodeError, CLIStateTypeError
 from backend.core.settings import Settings, load_environment_files
 from backend.realtime.factory import RealtimeProviderFactory
 from backend.tools.runtime import RealtimeToolingRuntime
@@ -47,6 +54,57 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
 
 
 def _run_local_doctor(cli_context: CLIContext, *, full: bool) -> CommandResult:
+    try:
+        config_session = load_config_session(cli_context)
+    except ProjectRootResolutionError as exc:
+        return CommandResult(
+            ok=False,
+            command=COMMAND_NAME,
+            message=format_key_value_lines(
+                ("target", "local"),
+                ("full", full),
+            ),
+            data={
+                "target": "local",
+                "project_root": None,
+                "full": full,
+                "status": "error",
+                "error_type": type(exc).__name__,
+            },
+            checks=(
+                DiagnosticCheck(
+                    id="project_root_detected",
+                    status="fail",
+                    message=str(exc),
+                    action="Run from a PortWorld repo checkout, a published workspace, or pass --project-root.",
+                ),
+            ),
+            exit_code=1,
+        )
+    except (
+        CLIStateDecodeError,
+        CLIStateTypeError,
+        EnvFileParseError,
+        ProjectConfigError,
+        ConfigRuntimeError,
+    ) as exc:
+        return CommandResult(
+            ok=False,
+            command=COMMAND_NAME,
+            message=str(exc),
+            data={
+                "target": "local",
+                "project_root": None,
+                "full": full,
+                "status": "error",
+                "error_type": type(exc).__name__,
+            },
+            exit_code=2,
+        )
+
+    if config_session.effective_runtime_source == "published":
+        return _run_published_local_doctor(config_session, full=full)
+
     checks: list[DiagnosticCheck] = []
     project_root: str | None = None
     settings: Settings | None = None
@@ -56,7 +114,6 @@ def _run_local_doctor(cli_context: CLIContext, *, full: bool) -> CommandResult:
     details: DoctorRuntimeDetails | None = None
 
     try:
-        config_session = load_config_session(cli_context)
         config_session = ensure_source_runtime_session(
             config_session,
             command_name="portworld doctor --target local",
@@ -95,26 +152,6 @@ def _run_local_doctor(cli_context: CLIContext, *, full: bool) -> CommandResult:
                 ),
             ),
             exit_code=1,
-        )
-    except (
-        CLIStateDecodeError,
-        CLIStateTypeError,
-        EnvFileParseError,
-        ProjectConfigError,
-        ConfigRuntimeError,
-    ) as exc:
-        return CommandResult(
-            ok=False,
-            command=COMMAND_NAME,
-            message=str(exc),
-            data={
-                "target": "local",
-                "project_root": None,
-                "full": full,
-                "status": "error",
-                "error_type": type(exc).__name__,
-            },
-            exit_code=2,
         )
 
     env_exists = paths.env_file.is_file()
@@ -363,6 +400,146 @@ def _run_local_doctor(cli_context: CLIContext, *, full: bool) -> CommandResult:
 def _build_settings(paths: ProjectPaths) -> Settings:
     load_environment_files(paths.env_file)
     return Settings.from_env()
+
+
+def _run_published_local_doctor(config_session, *, full: bool) -> CommandResult:
+    workspace_paths = config_session.workspace_paths
+    checks: list[DiagnosticCheck] = [
+        DiagnosticCheck(
+            id="workspace_root_detected",
+            status="pass",
+            message=f"PortWorld published workspace detected at {workspace_paths.workspace_root}",
+        )
+    ]
+
+    env_exists = workspace_paths.workspace_env_file.is_file()
+    checks.append(
+        DiagnosticCheck(
+            id="workspace_env_exists",
+            status="pass" if env_exists else "fail",
+            message=(
+                f"{workspace_paths.workspace_env_file} exists"
+                if env_exists
+                else "Workspace .env is missing"
+            ),
+            action=None if env_exists else "Rerun `portworld init --runtime-source published`.",
+        )
+    )
+    compose_exists = workspace_paths.compose_file.is_file()
+    checks.append(
+        DiagnosticCheck(
+            id="workspace_compose_exists",
+            status="pass" if compose_exists else "fail",
+            message=(
+                f"{workspace_paths.compose_file} exists"
+                if compose_exists
+                else "Workspace docker-compose.yml is missing"
+            ),
+            action=None if compose_exists else "Rerun `portworld init --runtime-source published`.",
+        )
+    )
+
+    docker_result = _probe_command(["docker", "--version"])
+    checks.append(
+        DiagnosticCheck(
+            id="docker_installed",
+            status="pass" if docker_result.ok else "fail",
+            message=docker_result.message,
+            action=None if docker_result.ok else "Install Docker Desktop or make `docker` available on PATH.",
+        )
+    )
+    compose_result = _probe_command(["docker", "compose", "version"])
+    checks.append(
+        DiagnosticCheck(
+            id="docker_compose_available",
+            status="pass" if compose_result.ok else "fail",
+            message=compose_result.message,
+            action=None if compose_result.ok else "Install or enable the Docker Compose plugin so `docker compose` works.",
+        )
+    )
+
+    if compose_exists and docker_result.ok and compose_result.ok:
+        completed = subprocess.run(
+            build_compose_command(workspace_paths.workspace_root, "config", "-q"),
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=workspace_paths.workspace_root,
+        )
+        checks.append(
+            DiagnosticCheck(
+                id="workspace_compose_valid",
+                status="pass" if completed.returncode == 0 else "fail",
+                message=(
+                    "docker compose config validation succeeded."
+                    if completed.returncode == 0
+                    else (completed.stderr or completed.stdout).strip() or "docker compose config failed."
+                ),
+                action=None if completed.returncode == 0 else "Fix the generated compose file or rerun the published init flow.",
+            )
+        )
+
+    if full and env_exists and compose_exists and docker_result.ok and compose_result.ok:
+        completed = run_backend_compose_cli(
+            workspace_paths.workspace_root,
+            backend_args=["check-config", "--full-readiness"],
+        )
+        payload = coerce_backend_cli_payload(
+            completed,
+            default_message="Containerized backend readiness check did not return structured JSON output.",
+        )
+        if completed.returncode == 0:
+            checks.append(
+                DiagnosticCheck(
+                    id="published_runtime_full_readiness",
+                    status="pass",
+                    message=(
+                        "Containerized backend readiness check succeeded"
+                        + (
+                            f" with storage backend '{payload.get('storage_backend')}'."
+                            if payload.get("storage_backend")
+                            else "."
+                        )
+                    ),
+                )
+            )
+        else:
+            checks.append(
+                DiagnosticCheck(
+                    id="published_runtime_full_readiness",
+                    status="fail",
+                    message=str(payload.get("message") or "Containerized backend readiness check failed."),
+                    action="Fix the workspace .env or start the workspace container manually to inspect runtime issues.",
+                )
+            )
+
+    ok = not any(check.status == "fail" for check in checks)
+    return CommandResult(
+        ok=ok,
+        command=COMMAND_NAME,
+        message=format_key_value_lines(
+            ("target", "local"),
+            ("full", full),
+            ("workspace_root", workspace_paths.workspace_root),
+            ("runtime_source", config_session.effective_runtime_source),
+            ("release_tag", config_session.project_config.deploy.published_runtime.release_tag),
+            ("image_ref", config_session.project_config.deploy.published_runtime.image_ref),
+            ("host_port", config_session.project_config.deploy.published_runtime.host_port),
+        ),
+        data={
+            "target": "local",
+            "workspace_root": str(workspace_paths.workspace_root),
+            "project_root": None,
+            "full": full,
+            "runtime_source": config_session.effective_runtime_source,
+            "env_path": str(workspace_paths.workspace_env_file),
+            "compose_path": str(workspace_paths.compose_file),
+            "published_runtime": config_session.project_config.deploy.published_runtime.to_payload(),
+            "secret_readiness": config_session.secret_readiness().to_dict(),
+        },
+        checks=tuple(checks),
+        exit_code=0 if ok else 1,
+    )
 
 
 def _run_gcp_cloud_run_doctor(

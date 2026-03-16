@@ -15,6 +15,7 @@ from portworld_cli.inspection_runtime import (
 )
 from portworld_cli.output import CommandResult, format_key_value_lines
 from portworld_cli.paths import ProjectRootResolutionError
+from portworld_cli.published_workspace import inspect_published_compose_status
 from portworld_cli.project_config import GCP_CLOUD_RUN_TARGET, ProjectConfigError
 from portworld_cli.state import CLIStateDecodeError, CLIStateTypeError
 from portworld_cli.envfile import EnvFileParseError
@@ -72,6 +73,26 @@ class HealthSummary:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class LocalRuntimeStatus:
+    available: bool
+    running: bool | None
+    container_name: str | None
+    state: str | None
+    health: str | None
+    warning: str | None
+
+    def to_payload(self) -> dict[str, object | None]:
+        return {
+            "available": self.available,
+            "running": self.running,
+            "container_name": self.container_name,
+            "state": self.state,
+            "health": self.health,
+            "warning": self.warning,
+        }
+
+
 def run_status(cli_context: CLIContext) -> CommandResult:
     try:
         session = load_inspection_session(cli_context)
@@ -89,7 +110,13 @@ def run_status(cli_context: CLIContext) -> CommandResult:
     secret_readiness = session.config_session.secret_readiness()
     last_known_payload = session.deploy_state.to_payload() if session.deploy_state.has_data() else None
     live_status = _collect_live_service_status(session, active_target=active_target)
-    health = _build_health_summary(live_status)
+    local_runtime = _collect_local_runtime_status(session)
+    health = _build_health_summary(session, live_status, local_runtime)
+    published_runtime = (
+        session.project_config.deploy.published_runtime.to_payload()
+        if session.config_session.effective_runtime_source == "published"
+        else None
+    )
 
     return CommandResult(
         ok=True,
@@ -99,6 +126,7 @@ def run_status(cli_context: CLIContext) -> CommandResult:
             active_target=active_target,
             last_known_payload=last_known_payload,
             live_status=live_status,
+            local_runtime=local_runtime,
             health=health,
             secret_readiness=secret_readiness,
         ),
@@ -124,6 +152,8 @@ def run_status(cli_context: CLIContext) -> CommandResult:
             "active_target": active_target,
             "derived_from_legacy": session.derived_from_legacy,
             "secret_readiness": secret_readiness.to_dict(),
+            "published_runtime": published_runtime,
+            "local_runtime": None if local_runtime is None else local_runtime.to_payload(),
             "deploy": {
                 "source": "state" if last_known_payload else "none",
                 "last_known": last_known_payload,
@@ -199,7 +229,23 @@ def _collect_live_service_status(
     )
 
 
-def _build_health_summary(live_status: LiveServiceStatus) -> HealthSummary:
+def _build_health_summary(
+    session: InspectionSession,
+    live_status: LiveServiceStatus,
+    local_runtime: LocalRuntimeStatus | None,
+) -> HealthSummary:
+    if session.config_session.effective_runtime_source == "published":
+        if local_runtime is None or not local_runtime.available:
+            return HealthSummary(source="none", livez="unknown", readyz="unknown")
+
+        host_port = session.project_config.deploy.published_runtime.host_port
+        base_url = f"http://127.0.0.1:{host_port}"
+        return HealthSummary(
+            source="local_probes",
+            livez=_probe_endpoint(base_url, "/livez"),
+            readyz=_probe_endpoint(base_url, "/readyz"),
+        )
+
     service_ref = live_status.service_ref
     if live_status.status != "ok" or service_ref is None or not service_ref.url:
         return HealthSummary(source="none", livez="unknown", readyz="unknown")
@@ -208,6 +254,21 @@ def _build_health_summary(live_status: LiveServiceStatus) -> HealthSummary:
         source="live_probes",
         livez=_probe_endpoint(service_ref.url, "/livez"),
         readyz=_probe_endpoint(service_ref.url, "/readyz"),
+    )
+
+
+def _collect_local_runtime_status(session: InspectionSession) -> LocalRuntimeStatus | None:
+    if session.config_session.effective_runtime_source != "published":
+        return None
+
+    compose_status = inspect_published_compose_status(session.config_session.workspace_root)
+    return LocalRuntimeStatus(
+        available=compose_status.available,
+        running=compose_status.running,
+        container_name=compose_status.container_name,
+        state=compose_status.state,
+        health=compose_status.health,
+        warning=compose_status.warning,
     )
 
 
@@ -228,35 +289,63 @@ def _build_status_message(
     active_target: str | None,
     last_known_payload: dict[str, object] | None,
     live_status: LiveServiceStatus,
+    local_runtime: LocalRuntimeStatus | None,
     health: HealthSummary,
     secret_readiness: SecretReadiness,
 ) -> str:
     sections: list[str] = []
+    project_pairs: list[tuple[str, object | None]] = [
+        ("workspace_root", session.config_session.workspace_root),
+        (
+            "project_root",
+            None
+            if session.config_session.project_paths is None
+            else session.config_session.project_paths.project_root,
+        ),
+        ("project_mode", session.project_config.project_mode),
+        ("runtime_source", session.project_config.runtime_source or "unset"),
+        (
+            "effective_runtime_source",
+            session.config_session.effective_runtime_source,
+        ),
+        ("cloud_provider", session.project_config.cloud_provider or "none"),
+        ("active_target", active_target or "none"),
+        ("derived_from_legacy", session.derived_from_legacy),
+    ]
+    if session.config_session.effective_runtime_source == "published":
+        project_pairs[5:5] = [
+            (
+                "release_tag",
+                session.project_config.deploy.published_runtime.release_tag,
+            ),
+            ("image_ref", session.project_config.deploy.published_runtime.image_ref),
+            ("host_port", session.project_config.deploy.published_runtime.host_port),
+        ]
     sections.append(
         "\n".join(
             [
                 "Project",
-                format_key_value_lines(
-                    ("workspace_root", session.config_session.workspace_root),
-                    (
-                        "project_root",
-                        None
-                        if session.config_session.project_paths is None
-                        else session.config_session.project_paths.project_root,
-                    ),
-                    ("project_mode", session.project_config.project_mode),
-                    ("runtime_source", session.project_config.runtime_source or "unset"),
-                    (
-                        "effective_runtime_source",
-                        session.config_session.effective_runtime_source,
-                    ),
-                    ("cloud_provider", session.project_config.cloud_provider or "none"),
-                    ("active_target", active_target or "none"),
-                    ("derived_from_legacy", session.derived_from_legacy),
-                ),
+                format_key_value_lines(*project_pairs),
             ]
         )
     )
+
+    if local_runtime is not None:
+        sections.append(
+            "\n".join(
+                [
+                    "Local runtime",
+                    format_key_value_lines(
+                        ("available", local_runtime.available),
+                        ("running", local_runtime.running),
+                        ("state", local_runtime.state),
+                        ("health", local_runtime.health),
+                        ("container_name", local_runtime.container_name),
+                        ("warning", local_runtime.warning),
+                    ),
+                ]
+            )
+        )
 
     deploy_pairs = [("source", "state" if last_known_payload else "none")]
     if last_known_payload:

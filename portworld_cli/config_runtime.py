@@ -19,6 +19,7 @@ from portworld_cli.envfile import (
 )
 from portworld_cli.output import CommandResult, format_key_value_lines
 from portworld_cli.paths import ProjectPaths, ProjectRootResolutionError, WorkspacePaths
+from portworld_cli.published_workspace import load_published_env_template
 from portworld_cli.project_config import (
     CLOUD_PROVIDER_GCP,
     DEFAULT_BACKEND_PROFILE,
@@ -135,7 +136,11 @@ class ConfigSession:
 
     @property
     def env_path(self) -> Path | None:
-        return None if self.project_paths is None else self.project_paths.env_file
+        if self.project_paths is not None:
+            return self.project_paths.env_file
+        if self.effective_runtime_source == RUNTIME_SOURCE_PUBLISHED:
+            return self.workspace_paths.workspace_env_file
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,11 +218,18 @@ class ConfigWriteOutcome:
 def load_config_session(cli_context: CLIContext) -> ConfigSession:
     workspace_paths = cli_context.resolve_workspace_paths()
     project_paths = workspace_paths.source_project_paths
-    template = None if project_paths is None else load_env_template(project_paths.env_example_file)
+    template = (
+        load_env_template(project_paths.env_example_file)
+        if project_paths is not None
+        else load_published_env_template()
+    )
     existing_env = (
         None
-        if project_paths is None or template is None
-        else parse_env_file(project_paths.env_file, template=template)
+        if template is None
+        else parse_env_file(
+            project_paths.env_file if project_paths is not None else workspace_paths.workspace_env_file,
+            template=template,
+        )
     )
     remembered_deploy_state = read_json_state(workspace_paths.gcp_cloud_run_state_file)
     loaded_project_config = load_project_config_record(workspace_paths.project_config_file)
@@ -311,6 +323,11 @@ def run_config_show(cli_context: CLIContext) -> CommandResult:
 
     secret_readiness = session.secret_readiness()
     config_payload = session.project_config.to_payload()
+    published_runtime_payload = (
+        session.project_config.deploy.published_runtime.to_payload()
+        if session.effective_runtime_source == RUNTIME_SOURCE_PUBLISHED
+        else None
+    )
     message = _build_config_show_message(
         workspace_root=session.workspace_root,
         project_config=session.project_config,
@@ -337,12 +354,14 @@ def run_config_show(cli_context: CLIContext) -> CommandResult:
             ),
             "project_config_path": str(session.workspace_paths.project_config_file),
             "env_path": None if session.env_path is None else str(session.env_path),
+            "compose_path": str(session.workspace_paths.compose_file),
             "project_config": config_payload,
             "secret_readiness": secret_readiness.to_dict(),
             "derived_from_legacy": session.derived_from_legacy,
             "configured_runtime_source": session.configured_runtime_source,
             "effective_runtime_source": session.effective_runtime_source,
             "runtime_source_derived_from_legacy": session.runtime_source_derived_from_legacy,
+            "published_runtime": published_runtime_payload,
         },
         exit_code=0,
     )
@@ -1044,7 +1063,7 @@ def _build_config_show_message(
     effective_runtime_source: str,
     runtime_source_derived_from_legacy: bool,
 ) -> str:
-    return format_key_value_lines(
+    pairs: list[tuple[str, object | None]] = [
         ("workspace_root", workspace_root),
         ("project_root", project_root),
         ("project_mode", project_config.project_mode),
@@ -1068,10 +1087,30 @@ def _build_config_show_message(
         ("env_path", env_path),
         ("derived_from_legacy", derived_from_legacy),
         ("openai_api_key", _presence_label(secret_readiness.openai_api_key_present)),
-        ("vision_provider_api_key", _required_presence_label(secret_readiness.vision_provider_secret_required, secret_readiness.vision_provider_api_key_present)),
-        ("tavily_api_key", _required_presence_label(secret_readiness.tavily_secret_required, secret_readiness.tavily_api_key_present)),
+        (
+            "vision_provider_api_key",
+            _required_presence_label(
+                secret_readiness.vision_provider_secret_required,
+                secret_readiness.vision_provider_api_key_present,
+            ),
+        ),
+        (
+            "tavily_api_key",
+            _required_presence_label(
+                secret_readiness.tavily_secret_required,
+                secret_readiness.tavily_api_key_present,
+            ),
+        ),
         ("bearer_token", _presence_label(secret_readiness.bearer_token_present)),
-    )
+    ]
+    if effective_runtime_source == RUNTIME_SOURCE_PUBLISHED:
+        pairs[20:20] = [
+            ("published_release_tag", project_config.deploy.published_runtime.release_tag or "unset"),
+            ("published_image_ref", project_config.deploy.published_runtime.image_ref or "unset"),
+            ("published_host_port", project_config.deploy.published_runtime.host_port),
+            ("compose_path", workspace_root / "docker-compose.yml"),
+        ]
+    return format_key_value_lines(*pairs)
 
 
 def _secret_readiness_with_updates(

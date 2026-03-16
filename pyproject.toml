@@ -75,5 +75,8 @@ dev = [
 include = ["backend*", "portworld_cli*"]
 exclude = ["backend.var*"]
 
+[tool.setuptools.package-data]
+portworld_cli = ["templates/*.template"]
+
 [tool.setuptools.dynamic]
 version = {attr = "backend.__version__"}

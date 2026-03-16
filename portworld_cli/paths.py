@@ -22,6 +22,8 @@ class WorkspacePaths:
     project_config_file: Path
     cli_state_dir: Path
     gcp_cloud_run_state_file: Path
+    workspace_env_file: Path
+    compose_file: Path
     source_project_paths: ProjectPaths | None
 
     @classmethod
@@ -37,6 +39,8 @@ class WorkspacePaths:
             project_config_file=root / ".portworld" / "project.json",
             cli_state_dir=root / ".portworld" / "state",
             gcp_cloud_run_state_file=root / ".portworld" / "state" / "gcp-cloud-run.json",
+            workspace_env_file=root / ".env",
+            compose_file=root / "docker-compose.yml",
             source_project_paths=source_project_paths,
         )
 

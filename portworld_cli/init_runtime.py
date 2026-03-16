@@ -5,9 +5,11 @@ from dataclasses import dataclass, replace
 import click
 
 from portworld_cli.config_runtime import (
-    CloudEditOptions,
     ConfigRuntimeError,
+    ConfigSession,
+    CloudEditOptions,
     ProviderEditOptions,
+    RUNTIME_SOURCE_PUBLISHED,
     SecurityEditOptions,
     apply_cloud_section,
     apply_provider_section,
@@ -23,12 +25,27 @@ from portworld_cli.config_runtime import (
     preview_secret_readiness,
     write_config_artifacts,
 )
-from portworld_cli.output import CommandResult, DiagnosticCheck
-from portworld_cli.paths import ProjectRootResolutionError
-from portworld_cli.project_config import ProjectConfigError
-from portworld_cli.state import CLIStateDecodeError, CLIStateTypeError
-from portworld_cli.envfile import EnvFileParseError
 from portworld_cli.context import CLIContext
+from portworld_cli.envfile import EnvFileParseError, parse_env_file
+from portworld_cli.output import CommandResult, DiagnosticCheck
+from portworld_cli.paths import ProjectRootResolutionError, WorkspacePaths
+from portworld_cli.project_config import (
+    ProjectConfigError,
+    RUNTIME_SOURCE_SOURCE,
+    build_env_overrides_from_project_config,
+    derive_project_config,
+    load_project_config_record,
+)
+from portworld_cli.published_workspace import (
+    DEFAULT_PUBLISHED_HOST_PORT,
+    load_published_env_template,
+    prepare_published_workspace_root,
+    render_published_compose,
+    resolve_published_release_ref,
+    resolve_published_workspace_target,
+    write_published_workspace_artifacts,
+)
+from portworld_cli.state import CLIStateDecodeError, CLIStateTypeError, read_json_state
 
 
 COMMAND_NAME = "portworld init"
@@ -52,6 +69,9 @@ class InitOptions:
     clear_bearer_token: bool
     project_mode: str | None
     runtime_source: str | None
+    stack_name: str | None
+    release_tag: str | None
+    host_port: int | None
     project: str | None
     region: str | None
     service: str | None
@@ -67,6 +87,12 @@ class InitOptions:
 
 
 def run_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
+    if options.runtime_source == RUNTIME_SOURCE_PUBLISHED:
+        return _run_published_init(cli_context, options)
+    return _run_source_init(cli_context, options)
+
+
+def _run_source_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
     try:
         session = load_config_session(cli_context)
         session = ensure_source_runtime_session(
@@ -75,76 +101,20 @@ def run_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
             requested_runtime_source=options.runtime_source,
         )
 
-        provider_result = collect_provider_section(
+        project_config, outcome = _collect_init_sections(
             session,
-            ProviderEditOptions(
-                with_vision=options.with_vision,
-                without_vision=options.without_vision,
-                with_tooling=options.with_tooling,
-                without_tooling=options.without_tooling,
-                openai_api_key=options.openai_api_key,
-                vision_provider_api_key=options.vision_provider_api_key,
-                tavily_api_key=options.tavily_api_key,
-            ),
+            options,
+            runtime_source=options.runtime_source or RUNTIME_SOURCE_SOURCE,
         )
-        project_config, env_updates = apply_provider_section(
-            session.project_config,
-            provider_result,
-        )
-
-        security_result = collect_security_section(
-            _session_with_project_config(session, project_config),
-            SecurityEditOptions(
-                backend_profile=options.backend_profile,
-                cors_origins=options.cors_origins,
-                allowed_hosts=options.allowed_hosts,
-                bearer_token=options.bearer_token,
-                generate_bearer_token=options.generate_bearer_token,
-                clear_bearer_token=options.clear_bearer_token,
-            ),
-        )
-        project_config, security_env_updates = apply_security_section(
-            project_config,
-            security_result,
-        )
-        env_updates.update(security_env_updates)
-
-        cloud_result = collect_cloud_section(
-            _session_with_project_config(session, project_config),
-            CloudEditOptions(
-                project_mode=options.project_mode,
-                runtime_source=options.runtime_source,
-                project=options.project,
-                region=options.region,
-                service=options.service,
-                artifact_repo=options.artifact_repo,
-                sql_instance=options.sql_instance,
-                database=options.database,
-                bucket=options.bucket,
-                min_instances=options.min_instances,
-                max_instances=options.max_instances,
-                concurrency=options.concurrency,
-                cpu=options.cpu,
-                memory=options.memory,
-            ),
-            prompt_defaults_when_local=False,
-        )
-        project_config, cloud_env_updates = apply_cloud_section(project_config, cloud_result)
-        env_updates.update(cloud_env_updates)
-
-        preview_outcome = preview_secret_readiness(session, project_config, env_updates)
         confirm_apply(
             cli_context,
             command_name=COMMAND_NAME,
             env_path=session.env_path,
             project_config_path=session.workspace_paths.project_config_file,
-            summary_lines=build_init_review_lines(
-                project_config=project_config,
-                secret_readiness=preview_outcome,
-            ),
+            summary_lines=outcome.review_lines,
             force=options.force,
         )
-        outcome = write_config_artifacts(session, project_config, env_updates)
+        write_outcome = write_config_artifacts(session, project_config, outcome.env_updates)
     except ProjectRootResolutionError as exc:
         return _failure_result(exc, exit_code=1)
     except (
@@ -166,29 +136,21 @@ def run_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
     except Exception as exc:
         return _failure_result(exc, exit_code=1)
 
-    checks: list[DiagnosticCheck] = []
-    if (
-        outcome.project_config.providers.tooling.enabled
-        and not outcome.secret_readiness.tavily_api_key_present
-    ):
-        checks.append(
-            DiagnosticCheck(
-                id="missing-tavily-api-key",
-                status="warn",
-                message="tavily-api-key is not configured yet.",
-                action="Run `portworld config edit providers` to add the missing optional credential.",
-            )
-        )
+    checks = _build_optional_secret_checks(
+        project_config=write_outcome.project_config,
+        tavily_present=write_outcome.secret_readiness.tavily_api_key_present,
+        action="Run `portworld config edit providers` to add the missing optional credential.",
+    )
 
     return CommandResult(
         ok=True,
         command=COMMAND_NAME,
         message=build_init_success_message(
-            project_config=outcome.project_config,
-            secret_readiness=outcome.secret_readiness,
-            env_path=None if outcome.env_write_result is None else outcome.env_write_result.env_path,
+            project_config=write_outcome.project_config,
+            secret_readiness=write_outcome.secret_readiness,
+            env_path=None if write_outcome.env_write_result is None else write_outcome.env_write_result.env_path,
             project_config_path=session.workspace_paths.project_config_file,
-            backup_path=None if outcome.env_write_result is None else outcome.env_write_result.backup_path,
+            backup_path=None if write_outcome.env_write_result is None else write_outcome.env_write_result.backup_path,
         ),
         data={
             "workspace_root": str(session.workspace_root),
@@ -196,20 +158,287 @@ def run_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
             "project_config_path": str(session.workspace_paths.project_config_file),
             "env_path": (
                 None
-                if outcome.env_write_result is None
-                else str(outcome.env_write_result.env_path)
+                if write_outcome.env_write_result is None
+                else str(write_outcome.env_write_result.env_path)
             ),
             "backup_path": (
-                str(outcome.env_write_result.backup_path)
-                if outcome.env_write_result is not None and outcome.env_write_result.backup_path
+                str(write_outcome.env_write_result.backup_path)
+                if write_outcome.env_write_result is not None and write_outcome.env_write_result.backup_path
                 else None
             ),
-            "project_config": outcome.project_config.to_payload(),
-            "secret_readiness": outcome.secret_readiness.to_dict(),
+            "project_config": write_outcome.project_config.to_payload(),
+            "secret_readiness": write_outcome.secret_readiness.to_dict(),
         },
-        checks=tuple(checks),
+        checks=checks,
         exit_code=0,
     )
+
+
+def _run_published_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
+    try:
+        target = resolve_published_workspace_target(
+            explicit_root=cli_context.project_root_override,
+            stack_name=options.stack_name,
+        )
+        workspace_paths = prepare_published_workspace_root(
+            target,
+            force=options.force,
+        )
+        session = _build_published_init_session(
+            cli_context,
+            workspace_paths=workspace_paths,
+        )
+
+        project_config, outcome = _collect_init_sections(
+            session,
+            options,
+            runtime_source=RUNTIME_SOURCE_PUBLISHED,
+        )
+        release_ref = resolve_published_release_ref(options.release_tag)
+        host_port = options.host_port or DEFAULT_PUBLISHED_HOST_PORT
+        if host_port < 1 or host_port > 65535:
+            raise ConfigRuntimeError("--host-port must be between 1 and 65535.")
+        project_config = replace(
+            project_config,
+            runtime_source=RUNTIME_SOURCE_PUBLISHED,
+            deploy=replace(
+                project_config.deploy,
+                published_runtime=replace(
+                    project_config.deploy.published_runtime,
+                    release_tag=release_ref.release_tag,
+                    image_ref=release_ref.image_ref,
+                    host_port=host_port,
+                ),
+            ),
+        )
+        preview_readiness = preview_secret_readiness(session, project_config, outcome.env_updates)
+        confirm_apply(
+            cli_context,
+            command_name=COMMAND_NAME,
+            env_path=workspace_paths.workspace_env_file,
+            project_config_path=workspace_paths.project_config_file,
+            summary_lines=outcome.review_lines
+            + (
+                f"workspace_root: {workspace_paths.workspace_root}",
+                f"stack_name: {target.stack_name}",
+                f"release_tag: {release_ref.release_tag}",
+                f"image_ref: {release_ref.image_ref}",
+                f"host_port: {host_port}",
+            ),
+            force=options.force,
+        )
+        env_write_result, compose_backup_path = write_published_workspace_artifacts(
+            workspace_paths=workspace_paths,
+            project_config=project_config,
+            env_template=load_published_env_template(),
+            env_overrides=_build_published_env_overrides(project_config, outcome.env_updates),
+            compose_content=render_published_compose(
+                image_ref=release_ref.image_ref,
+                host_port=host_port,
+            ),
+            force=options.force,
+        )
+        final_session = _build_published_init_session(
+            cli_context,
+            workspace_paths=workspace_paths,
+        )
+    except ProjectRootResolutionError as exc:
+        return _failure_result(exc, exit_code=1)
+    except (
+        CLIStateDecodeError,
+        CLIStateTypeError,
+        ConfigRuntimeError,
+        EnvFileParseError,
+        ProjectConfigError,
+    ) as exc:
+        return _failure_result(exc, exit_code=2)
+    except click.Abort:
+        return CommandResult(
+            ok=False,
+            command=COMMAND_NAME,
+            message="Aborted; published workspace changes were not applied.",
+            data={"status": "aborted", "error_type": "Abort"},
+            exit_code=1,
+        )
+    except Exception as exc:
+        return _failure_result(exc, exit_code=1)
+
+    checks = _build_optional_secret_checks(
+        project_config=project_config,
+        tavily_present=final_session.secret_readiness().tavily_api_key_present,
+        action="Rerun `portworld init --runtime-source published` to add the missing optional credential.",
+    )
+    return CommandResult(
+        ok=True,
+        command=COMMAND_NAME,
+        message="\n".join(
+            line
+            for line in (
+                build_init_success_message(
+                    project_config=project_config,
+                    secret_readiness=final_session.secret_readiness(),
+                    env_path=env_write_result.env_path,
+                    project_config_path=workspace_paths.project_config_file,
+                    backup_path=env_write_result.backup_path,
+                ),
+                f"compose_path: {workspace_paths.compose_file}",
+                (
+                    f"compose_backup_path: {compose_backup_path}"
+                    if compose_backup_path is not None
+                    else None
+                ),
+                f"next: cd {workspace_paths.workspace_root}",
+                "next: docker compose up -d",
+                f"next: portworld doctor --target local --project-root {workspace_paths.workspace_root}",
+            )
+            if line
+        ),
+        data={
+            "workspace_root": str(workspace_paths.workspace_root),
+            "project_root": None,
+            "project_config_path": str(workspace_paths.project_config_file),
+            "env_path": str(env_write_result.env_path),
+            "compose_path": str(workspace_paths.compose_file),
+            "backup_path": (
+                str(env_write_result.backup_path)
+                if env_write_result.backup_path is not None
+                else None
+            ),
+            "compose_backup_path": (
+                str(compose_backup_path) if compose_backup_path is not None else None
+            ),
+            "project_config": project_config.to_payload(),
+            "secret_readiness": final_session.secret_readiness().to_dict(),
+            "published_runtime": project_config.deploy.published_runtime.to_payload(),
+        },
+        checks=checks,
+        exit_code=0,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _InitCollectionOutcome:
+    env_updates: dict[str, str]
+    review_lines: tuple[str, ...]
+
+
+def _collect_init_sections(
+    session: ConfigSession,
+    options: InitOptions,
+    *,
+    runtime_source: str,
+) -> tuple[object, _InitCollectionOutcome]:
+    provider_result = collect_provider_section(
+        session,
+        ProviderEditOptions(
+            with_vision=options.with_vision,
+            without_vision=options.without_vision,
+            with_tooling=options.with_tooling,
+            without_tooling=options.without_tooling,
+            openai_api_key=options.openai_api_key,
+            vision_provider_api_key=options.vision_provider_api_key,
+            tavily_api_key=options.tavily_api_key,
+        ),
+    )
+    project_config, env_updates = apply_provider_section(
+        session.project_config,
+        provider_result,
+    )
+
+    security_result = collect_security_section(
+        _session_with_project_config(session, project_config),
+        SecurityEditOptions(
+            backend_profile=options.backend_profile,
+            cors_origins=options.cors_origins,
+            allowed_hosts=options.allowed_hosts,
+            bearer_token=options.bearer_token,
+            generate_bearer_token=options.generate_bearer_token,
+            clear_bearer_token=options.clear_bearer_token,
+        ),
+    )
+    project_config, security_env_updates = apply_security_section(
+        project_config,
+        security_result,
+    )
+    env_updates.update(security_env_updates)
+
+    cloud_result = collect_cloud_section(
+        _session_with_project_config(session, project_config),
+        CloudEditOptions(
+            project_mode=options.project_mode,
+            runtime_source=runtime_source,
+            project=options.project,
+            region=options.region,
+            service=options.service,
+            artifact_repo=options.artifact_repo,
+            sql_instance=options.sql_instance,
+            database=options.database,
+            bucket=options.bucket,
+            min_instances=options.min_instances,
+            max_instances=options.max_instances,
+            concurrency=options.concurrency,
+            cpu=options.cpu,
+            memory=options.memory,
+        ),
+        prompt_defaults_when_local=False,
+    )
+    project_config, cloud_env_updates = apply_cloud_section(project_config, cloud_result)
+    env_updates.update(cloud_env_updates)
+
+    preview_outcome = preview_secret_readiness(session, project_config, env_updates)
+    return project_config, _InitCollectionOutcome(
+        env_updates=env_updates,
+        review_lines=build_init_review_lines(
+            project_config=project_config,
+            secret_readiness=preview_outcome,
+        ),
+    )
+
+
+def _build_published_init_session(
+    cli_context: CLIContext,
+    *,
+    workspace_paths: WorkspacePaths,
+) -> ConfigSession:
+    template = load_published_env_template()
+    existing_env = parse_env_file(workspace_paths.workspace_env_file, template=template)
+    remembered_deploy_state = read_json_state(workspace_paths.gcp_cloud_run_state_file)
+    loaded_project_config = load_project_config_record(workspace_paths.project_config_file)
+    project_config = None if loaded_project_config is None else loaded_project_config.config
+    derived_from_legacy = project_config is None
+    if project_config is None:
+        env_values = template.defaults()
+        env_values.update(existing_env.known_values)
+        project_config = derive_project_config(
+            env_values=env_values,
+            deploy_state=remembered_deploy_state,
+            default_runtime_source=RUNTIME_SOURCE_PUBLISHED,
+        )
+        configured_runtime_source = None
+        runtime_source_derived_from_legacy = True
+    else:
+        configured_runtime_source = project_config.runtime_source
+        runtime_source_derived_from_legacy = not loaded_project_config.runtime_source_explicit
+
+    return ConfigSession(
+        cli_context=replace(cli_context, project_root_override=workspace_paths.workspace_root),
+        workspace_paths=workspace_paths,
+        project_paths=None,
+        template=template,
+        existing_env=existing_env,
+        project_config=project_config,
+        derived_from_legacy=derived_from_legacy,
+        configured_runtime_source=configured_runtime_source,
+        effective_runtime_source=RUNTIME_SOURCE_PUBLISHED,
+        runtime_source_derived_from_legacy=runtime_source_derived_from_legacy,
+        remembered_deploy_state=remembered_deploy_state,
+    )
+
+
+def _build_published_env_overrides(project_config, env_updates: dict[str, str]) -> dict[str, str]:
+    overrides = build_env_overrides_from_project_config(project_config)
+    overrides.update(env_updates)
+    return overrides
 
 
 def _session_with_project_config(session, project_config):
@@ -220,6 +449,25 @@ def _session_with_project_config(session, project_config):
         effective_runtime_source=project_config.runtime_source or session.effective_runtime_source,
         runtime_source_derived_from_legacy=False,
     )
+
+
+def _build_optional_secret_checks(
+    *,
+    project_config,
+    tavily_present: bool | None,
+    action: str,
+) -> tuple[DiagnosticCheck, ...]:
+    checks: list[DiagnosticCheck] = []
+    if project_config.providers.tooling.enabled and not tavily_present:
+        checks.append(
+            DiagnosticCheck(
+                id="missing-tavily-api-key",
+                status="warn",
+                message="tavily-api-key is not configured yet.",
+                action=action,
+            )
+        )
+    return tuple(checks)
 
 
 def _failure_result(exc: Exception, *, exit_code: int) -> CommandResult:
