@@ -237,13 +237,27 @@ These stages are intentionally deferred. They extend the Phase H packaging/relea
   - Deploy state and `status` now record whether the managed service came from a repo build or a published release, including the pinned release tag and canonical published image ref when applicable.
   - Published-mode deploys derive a separate Artifact Registry remote repository name from the configured source-build repository (`<artifact_repository>-ghcr`) so source and published image paths do not collide.
 
-### Stage H+5. Installer default to PyPI + managed mode onboarding
+### Stage H+5. Installer default to PyPI + managed mode onboarding - done
 
 - Keep `curl ... | bash` as entrypoint.
 - Install CLI from PyPI (Phase H baseline), then offer:
   - repo-backed flow (advanced/contributor)
   - managed zero-clone flow (default for operators)
 - Add clear recovery/diagnostic commands for both flows.
+- Implementation notes:
+  - `portworld init` now works from a fresh machine outside a repo and defaults to the operator-friendly published workspace flow when no workspace is detected.
+  - Interactive first-run onboarding now offers friendly `operator` vs `contributor` setup choices instead of assuming a repo-backed init path.
+  - The CLI now persists a non-secret user-level machine state file at `~/.portworld/machine-state.json` with the active published workspace root.
+  - Workspace-aware commands now fall back to that remembered active workspace when no repo/workspace is detected locally:
+    - `status`
+    - `config show`
+    - `doctor`
+    - `deploy gcp-cloud-run`
+    - `update deploy`
+    - `logs gcp-cloud-run`
+    - `ops ...`
+  - Human and JSON output now expose how the workspace was resolved (`explicit`, `cwd`, or `active_workspace`) and the current remembered active workspace path when present.
+  - Installer/help text and quickstart docs now describe the operator zero-clone path as the default public onboarding flow, while keeping the source-checkout contributor path available.
 
 ### Stage H+6. Documentation and support policy
 
