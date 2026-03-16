@@ -172,6 +172,10 @@ def run_deploy_gcp_cloud_run(
                 "project_root": (
                     None if session.project_paths is None else str(session.project_paths.project_root)
                 ),
+                "workspace_resolution_source": session.workspace_resolution_source,
+                "active_workspace_root": (
+                    None if session.active_workspace_root is None else str(session.active_workspace_root)
+                ),
                 "env_file": None if session.env_path is None else str(session.env_path),
                 "project_config_file": str(session.workspace_paths.project_config_file),
                 "state_file": str(session.workspace_paths.gcp_cloud_run_state_file),
@@ -460,6 +464,14 @@ def run_deploy_gcp_cloud_run(
             command=COMMAND_NAME,
             message=message,
             data={
+                "workspace_root": str(session.workspace_root),
+                "project_root": (
+                    None if session.project_paths is None else str(session.project_paths.project_root)
+                ),
+                "workspace_resolution_source": session.workspace_resolution_source,
+                "active_workspace_root": (
+                    None if session.active_workspace_root is None else str(session.active_workspace_root)
+                ),
                 "project_id": config.project_id,
                 "region": config.region,
                 "service_name": config.service_name,
@@ -489,7 +501,7 @@ def run_deploy_gcp_cloud_run(
             exc=exc,
             stage_records=stage_records,
             resources=resources,
-            action="Run from a PortWorld repo checkout or pass --project-root.",
+            action="Run from a PortWorld repo checkout, a published workspace, or pass --project-root.",
             error_type=type(exc).__name__,
         )
     except (

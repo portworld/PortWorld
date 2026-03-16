@@ -87,6 +87,8 @@ class ConfigSession:
     effective_runtime_source: str
     runtime_source_derived_from_legacy: bool
     remembered_deploy_state: dict[str, Any]
+    workspace_resolution_source: str
+    active_workspace_root: Path | None
 
     def merged_env_values(self) -> dict[str, str]:
         if self.template is None or self.existing_env is None:
@@ -268,6 +270,8 @@ def load_config_session(cli_context: CLIContext) -> ConfigSession:
         effective_runtime_source=effective_runtime_source,
         runtime_source_derived_from_legacy=runtime_source_derived_from_legacy,
         remembered_deploy_state=remembered_deploy_state,
+        workspace_resolution_source=cli_context.workspace_resolution_source or "cwd",
+        active_workspace_root=cli_context.active_workspace_root,
     )
 
 
@@ -340,6 +344,8 @@ def run_config_show(cli_context: CLIContext) -> CommandResult:
         configured_runtime_source=session.configured_runtime_source,
         effective_runtime_source=session.effective_runtime_source,
         runtime_source_derived_from_legacy=session.runtime_source_derived_from_legacy,
+        workspace_resolution_source=session.workspace_resolution_source,
+        active_workspace_root=session.active_workspace_root,
     )
     return CommandResult(
         ok=True,
@@ -361,6 +367,10 @@ def run_config_show(cli_context: CLIContext) -> CommandResult:
             "configured_runtime_source": session.configured_runtime_source,
             "effective_runtime_source": session.effective_runtime_source,
             "runtime_source_derived_from_legacy": session.runtime_source_derived_from_legacy,
+            "workspace_resolution_source": session.workspace_resolution_source,
+            "active_workspace_root": (
+                None if session.active_workspace_root is None else str(session.active_workspace_root)
+            ),
             "published_runtime": published_runtime_payload,
         },
         exit_code=0,
@@ -769,6 +779,8 @@ def write_config_artifacts(
         effective_runtime_source=project_config.runtime_source or session.effective_runtime_source,
         runtime_source_derived_from_legacy=False,
         remembered_deploy_state=session.remembered_deploy_state,
+        workspace_resolution_source=session.workspace_resolution_source,
+        active_workspace_root=session.active_workspace_root,
     )
     return ConfigWriteOutcome(
         project_config=project_config,
@@ -867,6 +879,12 @@ def build_init_success_message(
     env_path: Path | None,
     project_config_path: Path,
     backup_path: Path | None,
+    extra_lines: tuple[str, ...] = (),
+    next_steps: tuple[str, ...] = (
+        "next: portworld doctor --target local",
+        "next: portworld config show",
+        "next: portworld deploy gcp-cloud-run",
+    ),
 ) -> str:
     lines = list(
         build_init_review_lines(
@@ -883,13 +901,8 @@ def build_init_success_message(
         lines.append(f"env_path: {env_path}")
     if backup_path is not None:
         lines.append(f"backup_path: {backup_path}")
-    lines.extend(
-        [
-            "next: portworld doctor --target local",
-            "next: portworld config show",
-            "next: portworld deploy gcp-cloud-run",
-        ]
-    )
+    lines.extend(line for line in extra_lines if line)
+    lines.extend(next_steps)
     return "\n".join(lines)
 
 
@@ -1062,10 +1075,14 @@ def _build_config_show_message(
     configured_runtime_source: str | None,
     effective_runtime_source: str,
     runtime_source_derived_from_legacy: bool,
+    workspace_resolution_source: str,
+    active_workspace_root: Path | None,
 ) -> str:
     pairs: list[tuple[str, object | None]] = [
         ("workspace_root", workspace_root),
         ("project_root", project_root),
+        ("workspace_resolution_source", workspace_resolution_source),
+        ("active_workspace_root", active_workspace_root),
         ("project_mode", project_config.project_mode),
         ("runtime_source", project_config.runtime_source or "unset"),
         ("configured_runtime_source", configured_runtime_source or "legacy_default"),

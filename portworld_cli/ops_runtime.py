@@ -60,7 +60,7 @@ def _repo_resolution_failure(command: str, exc: ProjectRootResolutionError) -> C
                 id="project-root",
                 status="fail",
                 message=str(exc),
-                action="Run from a PortWorld repo checkout or pass --project-root.",
+                action="Run from a PortWorld repo checkout, a published workspace, or pass --project-root.",
             ),
         ),
         exit_code=1,

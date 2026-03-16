@@ -137,6 +137,12 @@ def run_status(cli_context: CLIContext) -> CommandResult:
                 if session.config_session.project_paths is None
                 else str(session.config_session.project_paths.project_root)
             ),
+            "workspace_resolution_source": session.config_session.workspace_resolution_source,
+            "active_workspace_root": (
+                None
+                if session.config_session.active_workspace_root is None
+                else str(session.config_session.active_workspace_root)
+            ),
             "project_config_path": str(session.config_session.workspace_paths.project_config_file),
             "state_paths": {
                 "gcp_cloud_run": str(session.config_session.workspace_paths.gcp_cloud_run_state_file),
@@ -302,6 +308,11 @@ def _build_status_message(
             if session.config_session.project_paths is None
             else session.config_session.project_paths.project_root,
         ),
+        (
+            "workspace_resolution_source",
+            session.config_session.workspace_resolution_source,
+        ),
+        ("active_workspace_root", session.config_session.active_workspace_root),
         ("project_mode", session.project_config.project_mode),
         ("runtime_source", session.project_config.runtime_source or "unset"),
         (

@@ -30,7 +30,18 @@ curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworl
 ```
 
 The bootstrap installs `uv` automatically and downloads Python 3.11+ when the machine does not
-already provide a suitable interpreter.
+already provide a suitable interpreter. On a fresh machine, `portworld init` defaults to the
+operator-friendly zero-clone workspace flow and can be run from any directory.
+
+Default operator path after install:
+
+```bash
+portworld init
+cd ~/.portworld/stacks/default
+docker compose up -d
+portworld doctor --target local
+portworld status
+```
 
 Manual install fallback for a pinned release version:
 
@@ -39,12 +50,14 @@ uv tool install "portworld==<version>"
 portworld init
 ```
 
-Source-checkout developer path:
+Source-checkout contributor path:
 
 ```bash
 pipx install . --force
 portworld init
 ```
+
+Run the contributor/source path from the repo root. The operator path is the default public flow.
 
 If you prefer the manual path, `cp backend/.env.example backend/.env` still works. Edit `backend/.env` for one supported runtime mode:
 

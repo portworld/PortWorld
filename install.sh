@@ -80,6 +80,9 @@ Usage:
 
 This bootstrap installs uv automatically when needed. If Python 3.11+ is not
 available locally, it installs a managed Python runtime before installing the CLI.
+After install, the default interactive onboarding path is the operator-friendly
+zero-clone workspace flow. Contributor/source-checkout setup remains available
+from within `portworld init`.
 
 Options:
   --help                 Show this help text.
@@ -351,6 +354,7 @@ run_init() {
 
   if [[ -r /dev/tty && -w /dev/tty ]]; then
     section "Launching setup"
+    log_info "portworld init will offer the operator workspace flow by default and keep source checkout setup available."
     if portworld init </dev/tty >/dev/tty 2>&1; then
       log_success "PortWorld CLI installed and initialized"
       return

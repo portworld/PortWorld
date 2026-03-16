@@ -367,8 +367,13 @@ def _run_local_doctor(cli_context: CLIContext, *, full: bool) -> CommandResult:
     ok = not any(check.status == "fail" for check in checks)
     data: dict[str, object] = {
         "target": "local",
+        "workspace_root": str(config_session.workspace_root),
         "project_root": project_root,
         "full": full,
+        "workspace_resolution_source": config_session.workspace_resolution_source,
+        "active_workspace_root": (
+            None if config_session.active_workspace_root is None else str(config_session.active_workspace_root)
+        ),
     }
     if details is not None:
         data["details"] = details.to_dict()
@@ -388,6 +393,9 @@ def _run_local_doctor(cli_context: CLIContext, *, full: bool) -> CommandResult:
         message=format_key_value_lines(
             ("target", "local"),
             ("full", full),
+            ("workspace_root", config_session.workspace_root),
+            ("workspace_resolution_source", config_session.workspace_resolution_source),
+            ("active_workspace_root", config_session.active_workspace_root),
             ("project_root", project_root),
             ("storage_backend", storage_backend),
         ),
@@ -521,6 +529,8 @@ def _run_published_local_doctor(config_session, *, full: bool) -> CommandResult:
             ("target", "local"),
             ("full", full),
             ("workspace_root", workspace_paths.workspace_root),
+            ("workspace_resolution_source", config_session.workspace_resolution_source),
+            ("active_workspace_root", config_session.active_workspace_root),
             ("runtime_source", config_session.effective_runtime_source),
             ("release_tag", config_session.project_config.deploy.published_runtime.release_tag),
             ("image_ref", config_session.project_config.deploy.published_runtime.image_ref),
@@ -532,6 +542,12 @@ def _run_published_local_doctor(config_session, *, full: bool) -> CommandResult:
             "project_root": None,
             "full": full,
             "runtime_source": config_session.effective_runtime_source,
+            "workspace_resolution_source": config_session.workspace_resolution_source,
+            "active_workspace_root": (
+                None
+                if config_session.active_workspace_root is None
+                else str(config_session.active_workspace_root)
+            ),
             "env_path": str(workspace_paths.workspace_env_file),
             "compose_path": str(workspace_paths.compose_file),
             "published_runtime": config_session.project_config.deploy.published_runtime.to_payload(),
@@ -571,7 +587,7 @@ def _run_gcp_cloud_run_doctor(
                     id="project_root_detected",
                     status="fail",
                     message=str(exc),
-                    action="Run from a PortWorld repo checkout or pass --project-root.",
+                    action="Run from a PortWorld repo checkout, a published workspace, or pass --project-root.",
                 ),
             ),
             exit_code=1,
@@ -623,6 +639,8 @@ def _run_gcp_cloud_run_doctor(
             ("target", options.target),
             ("full", options.full),
             ("workspace_root", session.workspace_root),
+            ("workspace_resolution_source", session.workspace_resolution_source),
+            ("active_workspace_root", session.active_workspace_root),
             (
                 "project_root",
                 None if session.project_paths is None else session.project_paths.project_root,
@@ -637,6 +655,10 @@ def _run_gcp_cloud_run_doctor(
                 None
                 if session.project_paths is None
                 else str(session.project_paths.project_root)
+            ),
+            "workspace_resolution_source": session.workspace_resolution_source,
+            "active_workspace_root": (
+                None if session.active_workspace_root is None else str(session.active_workspace_root)
             ),
             "full": options.full,
             "details": details.to_dict(),

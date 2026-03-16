@@ -27,6 +27,7 @@ from portworld_cli.config_runtime import (
 )
 from portworld_cli.context import CLIContext
 from portworld_cli.envfile import EnvFileParseError, parse_env_file
+from portworld_cli.machine_state import remember_active_workspace
 from portworld_cli.output import CommandResult, DiagnosticCheck
 from portworld_cli.paths import ProjectRootResolutionError, WorkspacePaths
 from portworld_cli.project_config import (
@@ -38,6 +39,7 @@ from portworld_cli.project_config import (
 )
 from portworld_cli.published_workspace import (
     DEFAULT_PUBLISHED_HOST_PORT,
+    PublishedWorkspaceTarget,
     load_published_env_template,
     prepare_published_workspace_root,
     render_published_compose,
@@ -89,6 +91,36 @@ class InitOptions:
 def run_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
     if options.runtime_source == RUNTIME_SOURCE_PUBLISHED:
         return _run_published_init(cli_context, options)
+    if options.runtime_source == RUNTIME_SOURCE_SOURCE:
+        return _run_source_init(cli_context, options)
+
+    try:
+        session = load_config_session(cli_context)
+    except ProjectRootResolutionError:
+        selected_runtime_source = _select_first_run_runtime_source(cli_context)
+        if selected_runtime_source == RUNTIME_SOURCE_PUBLISHED:
+            return _run_published_init(cli_context, options)
+        return _source_init_requires_repo_result()
+    except (
+        CLIStateDecodeError,
+        CLIStateTypeError,
+        ConfigRuntimeError,
+        EnvFileParseError,
+        ProjectConfigError,
+    ) as exc:
+        return _failure_result(exc, exit_code=2)
+    except Exception as exc:
+        return _failure_result(exc, exit_code=1)
+
+    if session.effective_runtime_source == RUNTIME_SOURCE_PUBLISHED:
+        return _run_published_init(
+            cli_context,
+            options,
+            existing_target=PublishedWorkspaceTarget(
+                workspace_root=session.workspace_root,
+                stack_name=session.workspace_root.name,
+            ),
+        )
     return _run_source_init(cli_context, options)
 
 
@@ -116,6 +148,8 @@ def _run_source_init(cli_context: CLIContext, options: InitOptions) -> CommandRe
         )
         write_outcome = write_config_artifacts(session, project_config, outcome.env_updates)
     except ProjectRootResolutionError as exc:
+        if options.runtime_source == RUNTIME_SOURCE_SOURCE:
+            return _source_init_requires_repo_result()
         return _failure_result(exc, exit_code=1)
     except (
         CLIStateDecodeError,
@@ -151,6 +185,16 @@ def _run_source_init(cli_context: CLIContext, options: InitOptions) -> CommandRe
             env_path=None if write_outcome.env_write_result is None else write_outcome.env_write_result.env_path,
             project_config_path=session.workspace_paths.project_config_file,
             backup_path=None if write_outcome.env_write_result is None else write_outcome.env_write_result.backup_path,
+            extra_lines=(
+                f"workspace_root: {session.workspace_root}",
+                f"project_root: {session.project_paths.project_root}",
+            ),
+            next_steps=(
+                "next: portworld doctor --target local",
+                "next: docker compose up --build",
+                "next: portworld config show",
+                "next: portworld deploy gcp-cloud-run",
+            ),
         ),
         data={
             "workspace_root": str(session.workspace_root),
@@ -168,17 +212,27 @@ def _run_source_init(cli_context: CLIContext, options: InitOptions) -> CommandRe
             ),
             "project_config": write_outcome.project_config.to_payload(),
             "secret_readiness": write_outcome.secret_readiness.to_dict(),
+            "workspace_resolution_source": session.workspace_resolution_source,
+            "active_workspace_root": (
+                None if session.active_workspace_root is None else str(session.active_workspace_root)
+            ),
         },
         checks=checks,
         exit_code=0,
     )
 
 
-def _run_published_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
+def _run_published_init(
+    cli_context: CLIContext,
+    options: InitOptions,
+    *,
+    existing_target: PublishedWorkspaceTarget | None = None,
+) -> CommandResult:
     try:
-        target = resolve_published_workspace_target(
-            explicit_root=cli_context.project_root_override,
-            stack_name=options.stack_name,
+        target = _resolve_published_target(
+            cli_context,
+            options,
+            existing_target=existing_target,
         )
         workspace_paths = prepare_published_workspace_root(
             target,
@@ -238,6 +292,8 @@ def _run_published_init(cli_context: CLIContext, options: InitOptions) -> Comman
             ),
             force=options.force,
         )
+        machine_state = remember_active_workspace(workspace_paths.workspace_root)
+        cli_context._active_workspace_root = machine_state.active_workspace_root
         final_session = _build_published_init_session(
             cli_context,
             workspace_paths=workspace_paths,
@@ -280,16 +336,28 @@ def _run_published_init(cli_context: CLIContext, options: InitOptions) -> Comman
                     env_path=env_write_result.env_path,
                     project_config_path=workspace_paths.project_config_file,
                     backup_path=env_write_result.backup_path,
+                    extra_lines=(
+                        f"workspace_root: {workspace_paths.workspace_root}",
+                        f"compose_path: {workspace_paths.compose_file}",
+                        (
+                            f"compose_backup_path: {compose_backup_path}"
+                            if compose_backup_path is not None
+                            else None
+                        ),
+                        (
+                            "active_workspace_default: yes"
+                            if machine_state.active_workspace_root == workspace_paths.workspace_root
+                            else None
+                        ),
+                    ),
+                    next_steps=(
+                        f"next: cd {workspace_paths.workspace_root}",
+                        "next: docker compose up -d",
+                        "next: portworld doctor --target local",
+                        "next: portworld status",
+                        "next: portworld deploy gcp-cloud-run",
+                    ),
                 ),
-                f"compose_path: {workspace_paths.compose_file}",
-                (
-                    f"compose_backup_path: {compose_backup_path}"
-                    if compose_backup_path is not None
-                    else None
-                ),
-                f"next: cd {workspace_paths.workspace_root}",
-                "next: docker compose up -d",
-                f"next: portworld doctor --target local --project-root {workspace_paths.workspace_root}",
             )
             if line
         ),
@@ -310,6 +378,10 @@ def _run_published_init(cli_context: CLIContext, options: InitOptions) -> Comman
             "project_config": project_config.to_payload(),
             "secret_readiness": final_session.secret_readiness().to_dict(),
             "published_runtime": project_config.deploy.published_runtime.to_payload(),
+            "workspace_resolution_source": final_session.workspace_resolution_source,
+            "active_workspace_root": (
+                None if machine_state.active_workspace_root is None else str(machine_state.active_workspace_root)
+            ),
         },
         checks=checks,
         exit_code=0,
@@ -432,6 +504,80 @@ def _build_published_init_session(
         effective_runtime_source=RUNTIME_SOURCE_PUBLISHED,
         runtime_source_derived_from_legacy=runtime_source_derived_from_legacy,
         remembered_deploy_state=remembered_deploy_state,
+        workspace_resolution_source=(
+            "explicit"
+            if cli_context.project_root_override is not None
+            else (
+                "active_workspace"
+                if cli_context.active_workspace_root == workspace_paths.workspace_root
+                else "cwd"
+            )
+        ),
+        active_workspace_root=cli_context.active_workspace_root,
+    )
+
+
+def _select_first_run_runtime_source(cli_context: CLIContext) -> str:
+    if cli_context.non_interactive:
+        return RUNTIME_SOURCE_PUBLISHED
+
+    click.echo("How do you want to set up PortWorld?")
+    click.echo("  operator: zero-clone workspace with published runtime images (recommended)")
+    click.echo("  contributor: repo-backed source checkout workflow")
+    selection = click.prompt(
+        "Setup flow",
+        type=click.Choice(["operator", "contributor"], case_sensitive=False),
+        default="operator",
+        show_choices=False,
+    )
+    return (
+        RUNTIME_SOURCE_PUBLISHED
+        if selection.strip().lower() == "operator"
+        else RUNTIME_SOURCE_SOURCE
+    )
+
+
+def _resolve_published_target(
+    cli_context: CLIContext,
+    options: InitOptions,
+    *,
+    existing_target: PublishedWorkspaceTarget | None,
+) -> PublishedWorkspaceTarget:
+    if cli_context.project_root_override is not None or options.stack_name is not None:
+        return resolve_published_workspace_target(
+            explicit_root=cli_context.project_root_override,
+            stack_name=options.stack_name,
+        )
+    if existing_target is not None:
+        return existing_target
+    return resolve_published_workspace_target(
+        explicit_root=None,
+        stack_name=None,
+    )
+
+
+def _source_init_requires_repo_result() -> CommandResult:
+    return CommandResult(
+        ok=False,
+        command=COMMAND_NAME,
+        message=(
+            "Contributor/source init requires a PortWorld source checkout. "
+            "Run this command from the repo root, or rerun `portworld init` and choose the "
+            "operator workspace flow."
+        ),
+        data={
+            "status": "error",
+            "error_type": "ProjectRootResolutionError",
+        },
+        checks=(
+            DiagnosticCheck(
+                id="project-root",
+                status="fail",
+                message="No PortWorld source checkout was detected for contributor setup.",
+                action="Clone the repo and run `portworld init` there, or use the operator workspace flow.",
+            ),
+        ),
+        exit_code=1,
     )
 
 
