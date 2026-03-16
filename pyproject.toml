@@ -60,10 +60,10 @@ dependencies = [
 portworld = "portworld_cli.main:main"
 
 [project.urls]
-Homepage = "https://github.com/armapidus/PortWorld"
-Repository = "https://github.com/armapidus/PortWorld"
-Issues = "https://github.com/armapidus/PortWorld/issues"
-Documentation = "https://github.com/armapidus/PortWorld/blob/main/backend/README.md"
+Homepage = "https://github.com/portworld/PortWorld"
+Repository = "https://github.com/portworld/PortWorld"
+Issues = "https://github.com/portworld/PortWorld/issues"
+Documentation = "https://github.com/portworld/PortWorld/blob/main/backend/README.md"
 
 [project.optional-dependencies]
 dev = [
