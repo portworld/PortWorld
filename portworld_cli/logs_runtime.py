@@ -4,9 +4,9 @@ from dataclasses import dataclass
 
 from portworld_cli.context import CLIContext
 from portworld_cli.gcp import GCPAdapters, GCPError
-from portworld_cli.inspection_runtime import load_inspection_session, resolve_gcp_inspection_target
 from portworld_cli.output import CommandResult
 from portworld_cli.services.common import ErrorMappingPolicy, map_command_exception
+from portworld_cli.workspace.session import load_inspection_session, resolve_gcp_inspection_target
 
 
 COMMAND_NAME = "portworld logs gcp-cloud-run"
