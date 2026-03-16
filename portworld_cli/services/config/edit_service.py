@@ -7,6 +7,8 @@ import click
 
 from portworld_cli.context import CLIContext
 from portworld_cli.output import CommandResult
+from portworld_cli.providers.config import apply_provider_section, collect_provider_section
+from portworld_cli.providers.types import ProviderEditOptions
 from portworld_cli.workspace.project_config import ProjectConfig
 from portworld_cli.workspace.session import WorkspaceSession as ConfigSession
 from portworld_cli.workspace.session import load_workspace_session, require_source_workspace_session
@@ -23,15 +25,12 @@ from portworld_cli.services.config.persistence import (
 )
 from portworld_cli.services.config.sections import (
     apply_cloud_section,
-    apply_provider_section,
     apply_security_section,
     collect_cloud_section,
-    collect_provider_section,
     collect_security_section,
 )
 from portworld_cli.services.config.types import (
     CloudEditOptions,
-    ProviderEditOptions,
     SecurityEditOptions,
 )
 

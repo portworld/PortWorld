@@ -4,7 +4,7 @@ from collections import OrderedDict
 
 from portworld_cli.context import CLIContext
 from portworld_cli.output import CommandResult, format_key_value_lines
-from portworld_cli.provider_catalog import list_providers, resolve_provider, supported_provider_ids
+from .catalog import list_providers, resolve_provider, supported_provider_ids
 
 
 LIST_COMMAND_NAME = "portworld providers list"

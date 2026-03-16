@@ -7,7 +7,7 @@ import click
 from portworld_cli.context import CLIContext
 from portworld_cli.workspace.project_config import DEFAULT_BACKEND_PROFILE
 from portworld_cli.services.config.errors import ConfigUsageError, ConfigValidationError
-from portworld_cli.services.config.types import ProviderEditOptions, SecurityEditOptions
+from portworld_cli.services.config.types import SecurityEditOptions
 
 
 def resolve_toggle(
@@ -250,13 +250,6 @@ def resolve_int_value(
             show_default=True,
         )
     )
-
-
-def validate_provider_flag_conflicts(options: ProviderEditOptions) -> None:
-    if options.with_vision and options.without_vision:
-        raise ConfigUsageError("Use only one of --with-vision or --without-vision.")
-    if options.with_tooling and options.without_tooling:
-        raise ConfigUsageError("Use only one of --with-tooling or --without-tooling.")
 
 
 def validate_security_flag_conflicts(options: SecurityEditOptions) -> None:

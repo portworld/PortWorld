@@ -4,7 +4,7 @@ import click
 
 from portworld_cli.context import CLIContext
 from portworld_cli.output import exit_with_result
-from portworld_cli.providers_runtime import run_providers_list, run_providers_show
+from portworld_cli.providers.service import run_providers_list, run_providers_show
 
 
 @click.group("providers")

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import click
 
+from portworld_cli.providers.types import ProviderEditOptions
 from portworld_cli.services.config import (
     CloudEditOptions,
-    ProviderEditOptions,
     SecurityEditOptions,
     run_config_show,
     run_edit_cloud,

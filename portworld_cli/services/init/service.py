@@ -25,17 +25,16 @@ from portworld_cli.published_workspace import (
     resolve_published_workspace_target,
     write_published_workspace_artifacts,
 )
+from portworld_cli.providers.config import apply_provider_section, collect_provider_section
+from portworld_cli.providers.types import ProviderEditOptions
 from portworld_cli.services.config import (
     CloudEditOptions,
-    ProviderEditOptions,
     SecurityEditOptions,
     apply_cloud_section,
-    apply_provider_section,
     apply_security_section,
     build_init_review_lines,
     build_init_success_message,
     collect_cloud_section,
-    collect_provider_section,
     collect_security_section,
     confirm_apply,
     preview_secret_readiness,
