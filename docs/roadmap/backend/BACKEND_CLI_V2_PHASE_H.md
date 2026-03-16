@@ -220,13 +220,22 @@ These stages are intentionally deferred. They extend the Phase H packaging/relea
   - Published local doctor/ops commands execute through `docker compose` one-off runs against the generated workspace files instead of repo-backed backend paths.
   - Managed published-mode deploys are still intentionally deferred. `deploy gcp-cloud-run` and `update deploy` remain source-only until H+4.
 
-### Stage H+4. Cloud deploy from published image
+### Stage H+4. Cloud deploy from published image - done
 
-- Update deploy path to support image-first release deployment:
-  - prefer published release image in `published` mode
-  - keep source-build path for `source` mode
-- Keep existing `portworld deploy gcp-cloud-run` command contract; change internal build/deploy strategy by mode.
-- Ensure version pinning is explicit (`--version` / config pin), with deterministic rollback support.
+- `portworld deploy gcp-cloud-run` and `portworld update deploy` now support `runtime_source=published`.
+- Deploy strategy now branches by runtime source:
+  - `source` mode keeps the existing Cloud Build + standard Artifact Registry flow
+  - `published` mode deploys the workspace's pinned published release without a repo checkout or Cloud Build
+- Published managed deploys use an Artifact Registry remote repository that fronts GHCR rather than deploying directly from `ghcr.io/...`.
+- Version movement stays explicit:
+  - published workspaces keep an immutable pinned release tag
+  - `update deploy` redeploys the current pin only
+  - changing versions still happens through the workspace pin (`init --runtime-source published --release-tag ...`)
+- Implementation notes:
+  - No new top-level commands were added; the existing deploy/update command surface now branches internally by `runtime_source`.
+  - `--tag` remains valid for source-mode deploys only and now fails clearly in published mode.
+  - Deploy state and `status` now record whether the managed service came from a repo build or a published release, including the pinned release tag and canonical published image ref when applicable.
+  - Published-mode deploys derive a separate Artifact Registry remote repository name from the configured source-build repository (`<artifact_repository>-ghcr`) so source and published image paths do not collide.
 
 ### Stage H+5. Installer default to PyPI + managed mode onboarding
 
