@@ -5,8 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "portworld"
 dynamic = ["version"]
-description = "PortWorld backend CLI and runtime"
-readme = "backend/README.md"
+description = "PortWorld CLI for setup, self-hosting, and managed deploy workflows"
+readme = "portworld_cli/README.md"
 requires-python = ">=3.11"
 license = "MIT"
 keywords = ["ai", "backend", "cli", "cloud-run", "portworld", "realtime", "self-hosting"]
@@ -63,7 +63,7 @@ portworld = "portworld_cli.main:main"
 Homepage = "https://github.com/portworld/PortWorld"
 Repository = "https://github.com/portworld/PortWorld"
 Issues = "https://github.com/portworld/PortWorld/issues"
-Documentation = "https://github.com/portworld/PortWorld/blob/main/backend/README.md"
+Documentation = "https://github.com/portworld/PortWorld/blob/main/portworld_cli/README.md"
 
 [project.optional-dependencies]
 dev = [
