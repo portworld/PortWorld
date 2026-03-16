@@ -4,20 +4,12 @@ from portworld_cli.context import CLIContext
 from portworld_cli.output import CommandResult
 from portworld_cli.runtime.published import collect_local_runtime_status
 from portworld_cli.runtime.reporting import (
-    LIVE_PROBE_TIMEOUT_SECONDS,
-    HealthSummary,
-    LiveServiceStatus,
-    LocalRuntimeStatus,
     build_health_summary,
     build_status_message,
     collect_live_service_status,
-    format_epoch_ms,
-    presence_label,
-    probe_endpoint,
-    required_presence_label,
 )
 from portworld_cli.services.common import ErrorMappingPolicy, map_command_exception
-from portworld_cli.workspace.session import InspectionSession, SecretReadiness, load_inspection_session
+from portworld_cli.workspace.session import load_inspection_session
 
 
 COMMAND_NAME = "portworld status"
@@ -33,9 +25,9 @@ def run_status(cli_context: CLIContext) -> CommandResult:
     active_target = session.active_target()
     secret_readiness = session.config_session.secret_readiness()
     last_known_payload = session.deploy_state.to_payload() if session.deploy_state.has_data() else None
-    live_status = _collect_live_service_status(session, active_target=active_target)
-    local_runtime = _collect_local_runtime_status(session)
-    health = _build_health_summary(session, live_status, local_runtime)
+    live_status = collect_live_service_status(session, active_target=active_target)
+    local_runtime = collect_local_runtime_status(session)
+    health = build_health_summary(session, live_status, local_runtime)
     published_runtime = (
         session.project_config.deploy.published_runtime.to_payload()
         if session.config_session.effective_runtime_source == "published"
@@ -45,7 +37,7 @@ def run_status(cli_context: CLIContext) -> CommandResult:
     return CommandResult(
         ok=True,
         command=COMMAND_NAME,
-        message=_build_status_message(
+        message=build_status_message(
             session=session,
             active_target=active_target,
             last_known_payload=last_known_payload,
@@ -93,60 +85,3 @@ def run_status(cli_context: CLIContext) -> CommandResult:
         },
         exit_code=0,
     )
-
-
-def _collect_live_service_status(
-    session: InspectionSession,
-    *,
-    active_target: str | None,
-) -> LiveServiceStatus:
-    return collect_live_service_status(session, active_target=active_target)
-
-
-def _build_health_summary(
-    session: InspectionSession,
-    live_status: LiveServiceStatus,
-    local_runtime: LocalRuntimeStatus | None,
-) -> HealthSummary:
-    return build_health_summary(session, live_status, local_runtime)
-
-
-def _collect_local_runtime_status(session: InspectionSession) -> LocalRuntimeStatus | None:
-    return collect_local_runtime_status(session)
-
-
-def _probe_endpoint(service_url: str, path: str) -> str:
-    return probe_endpoint(service_url, path)
-
-
-def _build_status_message(
-    *,
-    session: InspectionSession,
-    active_target: str | None,
-    last_known_payload: dict[str, object] | None,
-    live_status: LiveServiceStatus,
-    local_runtime: LocalRuntimeStatus | None,
-    health: HealthSummary,
-    secret_readiness: SecretReadiness,
-) -> str:
-    return build_status_message(
-        session=session,
-        active_target=active_target,
-        last_known_payload=last_known_payload,
-        live_status=live_status,
-        local_runtime=local_runtime,
-        health=health,
-        secret_readiness=secret_readiness,
-    )
-
-
-def _format_epoch_ms(value: object) -> str | None:
-    return format_epoch_ms(value)
-
-
-def _presence_label(is_present: bool | None) -> str:
-    return presence_label(is_present)
-
-
-def _required_presence_label(required: bool, present: bool | None) -> str:
-    return required_presence_label(required, present)
