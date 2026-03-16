@@ -7,7 +7,7 @@ from typing import Any
 from portworld_cli.context import CLIContext
 from portworld_cli.deploy_state import DeployState
 from portworld_cli.envfile import EnvTemplate, ParsedEnvFile
-from portworld_cli.paths import ProjectPaths, ProjectRootResolutionError, WorkspacePaths
+from portworld_cli.workspace.paths import ProjectPaths, ProjectRootResolutionError, WorkspacePaths
 from portworld_cli.workspace.project_config import (
     GCP_CLOUD_RUN_TARGET,
     RUNTIME_SOURCE_PUBLISHED,

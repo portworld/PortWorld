@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from portworld_cli.paths import ProjectRootResolutionError, WorkspacePaths
 from portworld_cli.workspace.machine_state import load_machine_state
+from portworld_cli.workspace.paths import ProjectRootResolutionError, WorkspacePaths
 
 
 WORKSPACE_RESOLUTION_SOURCE_EXPLICIT = "explicit"

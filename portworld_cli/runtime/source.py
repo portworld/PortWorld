@@ -16,9 +16,9 @@ from backend.realtime.factory import RealtimeProviderFactory
 from backend.tools.runtime import RealtimeToolingRuntime
 from backend.vision.factory import VisionAnalyzerFactory
 from portworld_cli.output import CommandResult, DiagnosticCheck, format_key_value_lines
-from portworld_cli.paths import ProjectPaths, ProjectRootResolutionError
 from portworld_cli.runtime.reporting import probe_external_command
 from portworld_cli.services.config.errors import ConfigUsageError
+from portworld_cli.workspace.paths import ProjectPaths, ProjectRootResolutionError
 from portworld_cli.workspace.session import require_source_workspace_session
 
 

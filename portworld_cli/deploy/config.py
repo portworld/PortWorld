@@ -16,7 +16,6 @@ from portworld_cli.deploy_artifacts import (
 )
 from portworld_cli.deploy_state import DeployState
 from portworld_cli.gcp import GCPAdapters, build_image_uri, resolve_project_id, resolve_region
-from portworld_cli.paths import ProjectRootResolutionError
 from portworld_cli.workspace.project_config import (
     DEFAULT_GCP_ARTIFACT_REPOSITORY,
     DEFAULT_GCP_CONCURRENCY,
@@ -32,6 +31,7 @@ from portworld_cli.workspace.project_config import (
     RUNTIME_SOURCE_SOURCE,
     ProjectConfig,
 )
+from portworld_cli.workspace.paths import ProjectRootResolutionError
 from portworld_cli.workspace.session import WorkspaceSession as ConfigSession
 from portworld_cli.workspace.session import load_workspace_session
 

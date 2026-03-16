@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from portworld_cli.envfile import EnvTemplate, ParsedEnvFile, load_env_template, parse_env_file
-from portworld_cli.paths import ProjectPaths, WorkspacePaths
+from portworld_cli.workspace.paths import ProjectPaths, WorkspacePaths
 from portworld_cli.workspace.project_config import (
     ProjectConfig,
     RUNTIME_SOURCE_PUBLISHED,

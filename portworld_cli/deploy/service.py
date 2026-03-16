@@ -44,11 +44,11 @@ from portworld_cli.gcp import (
     build_service_account_email,
 )
 from portworld_cli.output import CommandResult, DiagnosticCheck
-from portworld_cli.paths import ProjectRootResolutionError
 from portworld_cli.workspace.project_config import (
     ProjectConfigError,
 )
 from portworld_cli.services.config.errors import ConfigRuntimeError
+from portworld_cli.workspace.paths import ProjectRootResolutionError
 from portworld_cli.workspace.state_store import CLIStateDecodeError, CLIStateTypeError
 
 DEFAULT_TIMEOUT = "3600s"

@@ -3,8 +3,8 @@ from __future__ import annotations
 import click
 
 from portworld_cli.context import CLIContext
-from portworld_cli.logs_runtime import LogsGCPCloudRunOptions, run_logs_gcp_cloud_run
 from portworld_cli.output import exit_with_result
+from portworld_cli.services.logs import LogsGCPCloudRunOptions, run_logs_gcp_cloud_run
 
 
 SEVERITY_CHOICES = (

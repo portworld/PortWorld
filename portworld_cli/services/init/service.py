@@ -6,9 +6,9 @@ import click
 
 from portworld_cli.context import CLIContext
 from portworld_cli.envfile import EnvFileParseError
-from portworld_cli.machine_state import load_machine_state, remember_active_workspace
 from portworld_cli.output import CommandResult, DiagnosticCheck
-from portworld_cli.paths import ProjectRootResolutionError, WorkspacePaths
+from portworld_cli.workspace.machine_state import load_machine_state, remember_active_workspace
+from portworld_cli.workspace.paths import ProjectRootResolutionError, WorkspacePaths
 from portworld_cli.workspace.project_config import (
     ProjectConfigError,
     RUNTIME_SOURCE_PUBLISHED,

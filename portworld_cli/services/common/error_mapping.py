@@ -6,9 +6,9 @@ import click
 
 from portworld_cli.envfile import EnvFileParseError
 from portworld_cli.output import CommandResult, DiagnosticCheck
-from portworld_cli.paths import ProjectRootResolutionError
 from portworld_cli.workspace.project_config import ProjectConfigError
 from portworld_cli.services.config.errors import ConfigRuntimeError
+from portworld_cli.workspace.paths import ProjectRootResolutionError
 from portworld_cli.workspace.state_store import CLIStateDecodeError, CLIStateTypeError
 
 DEFAULT_PROJECT_ROOT_ACTION = (

@@ -6,11 +6,11 @@ from portworld_cli.context import CLIContext
 from portworld_cli.envfile import EnvFileParseError
 from portworld_cli.gcp.doctor import evaluate_gcp_cloud_run_readiness
 from portworld_cli.output import CommandResult, DiagnosticCheck, format_key_value_lines
-from portworld_cli.paths import ProjectRootResolutionError
 from portworld_cli.workspace.project_config import ProjectConfigError
 from portworld_cli.runtime.published import run_local_doctor_published
 from portworld_cli.runtime.source import run_local_doctor_source
 from portworld_cli.services.config.errors import ConfigRuntimeError
+from portworld_cli.workspace.paths import ProjectRootResolutionError
 from portworld_cli.workspace.state_store import CLIStateDecodeError, CLIStateTypeError
 from portworld_cli.workspace.session import load_workspace_session
 
