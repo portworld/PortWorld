@@ -12,10 +12,12 @@ This documents the tagged release flow for the public `portworld` CLI.
 
 - Create matching `portworld` projects on PyPI and TestPyPI, or configure the chosen package name from `pyproject.toml`.
 - Add a Trusted Publisher on both indexes for:
-  - owner/repo: `armapidus/PortWorld`
+  - owner/repo: `portworld/PortWorld`
   - workflow: `.github/workflows/cli-release.yml`
   - environment: `testpypi` on TestPyPI and `pypi` on PyPI
 - Create GitHub Actions environments named `testpypi` and `pypi`.
+- Ensure GitHub Actions in `portworld/PortWorld` can publish packages to GHCR with `GITHUB_TOKEN`.
+- Be ready to set the first published GHCR package visibility to public if GitHub does not inherit it automatically.
 - Use annotated tags so the GitHub Release can reuse the tag message via `gh release create --notes-from-tag`.
 
 ## Release Steps
@@ -41,12 +43,15 @@ This documents the tagged release flow for the public `portworld` CLI.
    - `build`: build sdist and wheel once, then upload them as the shared workflow artifact
    - `publish_testpypi`: publish the built artifacts to TestPyPI through trusted publishing
    - `smoke_testpypi`: install the exact version from TestPyPI with `uv tool install` in a clean job and run CLI smoke commands
+   - `publish_backend_image`: build and push `ghcr.io/portworld/portworld-backend:vX.Y.Z` for `linux/amd64` and `linux/arm64`
+   - `attest_sign_scan_backend_image`: attach GitHub provenance, keyless-sign the image with Cosign, scan it with Trivy, and upload `backend-image-manifest.json`
    - `publish_pypi`: publish the same downloaded artifacts to PyPI through trusted publishing
-   - `github_release`: attach the same artifacts to the GitHub Release for the tag
+   - `github_release`: attach the Python artifacts and `backend-image-manifest.json` to the GitHub Release for the tag
 8. Verify the public install paths against the new release
-   - installer: `curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/armapidus/PortWorld/main/install.sh | bash`
-   - pinned installer: `curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/armapidus/PortWorld/main/install.sh | bash -s -- --version vX.Y.Z`
+   - installer: `curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash`
+   - pinned installer: `curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash -s -- --version vX.Y.Z`
    - manual fallback: `uv tool install "portworld==X.Y.Z"`
+   - backend image: `docker pull ghcr.io/portworld/portworld-backend:vX.Y.Z`
 
 ## Post-Release Smoke
 
@@ -54,11 +59,16 @@ This documents the tagged release flow for the public `portworld` CLI.
 - `portworld init --help`
 - `portworld providers list`
 - `portworld update cli --json`
+- `docker pull ghcr.io/portworld/portworld-backend:vX.Y.Z`
+- `docker run --rm -e OPENAI_API_KEY=test-key -p 8080:8080 ghcr.io/portworld/portworld-backend:vX.Y.Z`
+- `curl http://127.0.0.1:8080/livez`
 
 ## Notes
 
 - Source-checkout developer installs remain `pipx install . --force`.
 - `cli-smoke` continues to run on branch pushes and pull requests only; tag pushes are owned by `cli-release`.
-- `publish_pypi` depends on a successful TestPyPI publish and TestPyPI smoke pass.
+- `cli-smoke` also builds `backend/Dockerfile` and probes `/livez` on the container with a placeholder `OPENAI_API_KEY`.
+- `publish_pypi` depends on a successful TestPyPI publish, TestPyPI smoke pass, and backend image publication/security pass.
 - The release workflow never rebuilds after validation; PyPI and GitHub Release both reuse the `build` job artifacts.
 - The public bootstrap installs `uv` automatically and downloads Python 3.11+ when needed.
+- Release images are immutable and use only `vX.Y.Z` tags in H+1; no `latest` or `stable` image tags are published yet.

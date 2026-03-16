@@ -26,7 +26,7 @@ Optional, depending on enabled features:
 Public install path:
 
 ```bash
-curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/armapidus/PortWorld/main/install.sh | bash
+curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash
 ```
 
 The bootstrap installs `uv` automatically and downloads Python 3.11+ when the machine does not
@@ -91,7 +91,7 @@ Optional operator CLI commands from the repo root:
 
 ```bash
 # Install or update the public CLI
-curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/armapidus/PortWorld/main/install.sh | bash
+curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash
 
 portworld doctor --target local
 portworld ops check-config
@@ -103,7 +103,13 @@ portworld ops export-memory --output /tmp/portworld-memory-export.zip
 You can pin the installer to a specific tagged release:
 
 ```bash
-curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/armapidus/PortWorld/main/install.sh | bash -s -- --version <tag>
+curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash -s -- --version <tag>
+```
+
+Published backend runtime image for a tagged release:
+
+```bash
+docker pull ghcr.io/portworld/portworld-backend:v<version>
 ```
 
 For CLI updates without rerunning the installer, use:

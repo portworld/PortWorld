@@ -310,7 +310,7 @@ Status: done
   - hands off into `portworld init`
 - Phase E uses a GitHub source archive install path instead of a `git+https` install, so `git` is not a baseline installer prerequisite.
 - The public manual fallback path is now:
-  - `python3 -m pipx install --force "https://github.com/armapidus/PortWorld/archive/refs/heads/main.zip"`
+  - `python3 -m pipx install --force "https://github.com/portworld/PortWorld/archive/refs/heads/main.zip"`
 - The public shell bootstrap path is now:
   - `curl -fsSL https://openclaw.ai/install.sh | bash`
 - `install.sh` attempts to auto-run `portworld init` when an interactive terminal is available and falls back to an explicit next-step message when it is not.

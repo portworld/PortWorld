@@ -148,13 +148,21 @@
 
 These stages are intentionally deferred. They extend the Phase H packaging/release baseline so a user can install and deploy without cloning this repository.
 
-### Stage H+1. Publish backend runtime artifacts
+### Stage H+1. Publish backend runtime artifacts - done
 
-- Publish a versioned backend runtime image for each CLI/backend release tag (for example `ghcr.io/<org>/portworld-backend:vX.Y.Z`).
-- Define image publishing policy:
-  - immutable tags for releases
-  - optional moving tags (`latest`, `stable`) for convenience only
-- Add provenance/signing/scan checks in CI before publishing images.
+- Publish a versioned backend runtime image for each CLI/backend release tag at `ghcr.io/portworld/portworld-backend:vX.Y.Z`.
+- Image publishing policy:
+  - immutable release tags only in H+1
+  - no `latest` or `stable` moving tags yet
+- Build and publish multi-arch release images for:
+  - `linux/amd64`
+  - `linux/arm64`
+- Add provenance/signing/scan checks in CI before considering the tag release complete.
+- Implementation notes:
+  - The release workflow extends the existing `cli-release` tag pipeline instead of introducing a second release workflow.
+  - PR/push CI now builds `backend/Dockerfile` and probes `/livez` so tag releases are not the first container validation point.
+  - Release assets now include a `backend-image-manifest.json` file that records the canonical GHCR reference and pushed digest.
+  - H+1 intentionally publishes the runtime artifact only; deploy/runtime mode switching remains deferred to H+2+.
 
 ### Stage H+2. Introduce CLI runtime modes
 
