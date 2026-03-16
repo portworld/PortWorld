@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from portworld_cli.config_runtime import ConfigSession, ConfigRuntimeError, load_config_session
 from portworld_cli.context import CLIContext
 from portworld_cli.output import CommandResult
 from portworld_cli.runtime.published import (
@@ -17,10 +16,13 @@ from portworld_cli.runtime.source import (
     run_ops_check_config_source,
 )
 from portworld_cli.services.common import ErrorMappingPolicy, map_command_exception
+from portworld_cli.services.config.errors import ConfigRuntimeError
+from portworld_cli.workspace.session import WorkspaceSession as ConfigSession
+from portworld_cli.workspace.session import load_workspace_session
 
 
 def _load_runtime_session(cli_context: CLIContext) -> ConfigSession:
-    return load_config_session(cli_context)
+    return load_workspace_session(cli_context)
 
 
 def _error_result(command: str, exc: Exception) -> CommandResult:

@@ -2,10 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from portworld_cli.config_runtime import (
-    ConfigRuntimeError,
-    load_config_session,
-)
 from portworld_cli.context import CLIContext
 from portworld_cli.envfile import EnvFileParseError
 from portworld_cli.gcp.doctor import evaluate_gcp_cloud_run_readiness
@@ -14,7 +10,9 @@ from portworld_cli.paths import ProjectRootResolutionError
 from portworld_cli.project_config import ProjectConfigError
 from portworld_cli.runtime.published import run_local_doctor_published
 from portworld_cli.runtime.source import run_local_doctor_source
+from portworld_cli.services.config.errors import ConfigRuntimeError
 from portworld_cli.state import CLIStateDecodeError, CLIStateTypeError
+from portworld_cli.workspace.session import load_workspace_session
 
 
 COMMAND_NAME = "portworld doctor"
@@ -40,7 +38,7 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
 
 def _run_local_doctor(cli_context: CLIContext, *, full: bool) -> CommandResult:
     try:
-        config_session = load_config_session(cli_context)
+        config_session = load_workspace_session(cli_context)
     except ProjectRootResolutionError as exc:
         return CommandResult(
             ok=False,
@@ -111,7 +109,7 @@ def _run_gcp_cloud_run_doctor(
     options: DoctorOptions,
 ) -> CommandResult:
     try:
-        session = load_config_session(cli_context)
+        session = load_workspace_session(cli_context)
     except ProjectRootResolutionError as exc:
         return CommandResult(
             ok=False,

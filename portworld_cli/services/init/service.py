@@ -4,27 +4,6 @@ from dataclasses import dataclass, replace
 
 import click
 
-from portworld_cli.config_runtime import (
-    ConfigRuntimeError,
-    ConfigSession,
-    CloudEditOptions,
-    ProviderEditOptions,
-    RUNTIME_SOURCE_PUBLISHED,
-    SecurityEditOptions,
-    apply_cloud_section,
-    apply_provider_section,
-    apply_security_section,
-    build_init_review_lines,
-    build_init_success_message,
-    collect_cloud_section,
-    collect_provider_section,
-    collect_security_section,
-    confirm_apply,
-    ensure_source_runtime_session,
-    load_config_session,
-    preview_secret_readiness,
-    write_config_artifacts,
-)
 from portworld_cli.context import CLIContext
 from portworld_cli.envfile import EnvFileParseError
 from portworld_cli.machine_state import load_machine_state, remember_active_workspace
@@ -32,6 +11,7 @@ from portworld_cli.output import CommandResult, DiagnosticCheck
 from portworld_cli.paths import ProjectRootResolutionError, WorkspacePaths
 from portworld_cli.project_config import (
     ProjectConfigError,
+    RUNTIME_SOURCE_PUBLISHED,
     RUNTIME_SOURCE_SOURCE,
     build_env_overrides_from_project_config,
 )
@@ -45,8 +25,30 @@ from portworld_cli.published_workspace import (
     resolve_published_workspace_target,
     write_published_workspace_artifacts,
 )
+from portworld_cli.services.config import (
+    CloudEditOptions,
+    ProviderEditOptions,
+    SecurityEditOptions,
+    apply_cloud_section,
+    apply_provider_section,
+    apply_security_section,
+    build_init_review_lines,
+    build_init_success_message,
+    collect_cloud_section,
+    collect_provider_section,
+    collect_security_section,
+    confirm_apply,
+    preview_secret_readiness,
+    write_config_artifacts,
+)
+from portworld_cli.services.config.errors import ConfigRuntimeError, ConfigUsageError
 from portworld_cli.state import CLIStateDecodeError, CLIStateTypeError
-from portworld_cli.workspace.session import build_workspace_session
+from portworld_cli.workspace.session import WorkspaceSession as ConfigSession
+from portworld_cli.workspace.session import (
+    build_workspace_session,
+    load_workspace_session,
+    require_source_workspace_session,
+)
 
 
 COMMAND_NAME = "portworld init"
@@ -94,7 +96,7 @@ def run_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
         return _run_source_init(cli_context, options)
 
     try:
-        session = load_config_session(cli_context)
+        session = load_workspace_session(cli_context)
     except ProjectRootResolutionError:
         selected_runtime_source = _select_first_run_runtime_source(cli_context)
         if selected_runtime_source == RUNTIME_SOURCE_PUBLISHED:
@@ -125,11 +127,12 @@ def run_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
 
 def _run_source_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
     try:
-        session = load_config_session(cli_context)
-        session = ensure_source_runtime_session(
+        session = load_workspace_session(cli_context)
+        session = require_source_workspace_session(
             session,
             command_name=COMMAND_NAME,
             requested_runtime_source=options.runtime_source,
+            usage_error_type=ConfigUsageError,
         )
 
         project_config, outcome = _collect_init_sections(
@@ -540,7 +543,7 @@ def _source_init_requires_repo_result() -> CommandResult:
         ),
         data={
             "status": "error",
-            "error_type": "ProjectRootResolutionError",
+            "error_type": ProjectRootResolutionError.__name__,
         },
         checks=(
             DiagnosticCheck(

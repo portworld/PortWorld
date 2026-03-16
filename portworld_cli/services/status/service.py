@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from portworld_cli.config_runtime import SecretReadiness
 from portworld_cli.context import CLIContext
-from portworld_cli.inspection_runtime import InspectionSession, load_inspection_session
 from portworld_cli.output import CommandResult
 from portworld_cli.runtime.published import collect_local_runtime_status
 from portworld_cli.runtime.reporting import (
@@ -19,6 +17,7 @@ from portworld_cli.runtime.reporting import (
     required_presence_label,
 )
 from portworld_cli.services.common import ErrorMappingPolicy, map_command_exception
+from portworld_cli.workspace.session import InspectionSession, SecretReadiness, load_inspection_session
 
 
 COMMAND_NAME = "portworld status"

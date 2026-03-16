@@ -11,10 +11,9 @@ from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from backend import __version__
-from portworld_cli.config_runtime import load_config_session
 from portworld_cli.context import CLIContext
-from portworld_cli.deploy_runtime import DeployGCPCloudRunOptions, run_deploy_gcp_cloud_run
-from portworld_cli.inspection_runtime import load_inspection_session
+from portworld_cli.deploy.config import DeployGCPCloudRunOptions
+from portworld_cli.deploy.service import run_deploy_gcp_cloud_run
 from portworld_cli.output import CommandResult, format_key_value_lines
 from portworld_cli.paths import ProjectPaths, ProjectRootResolutionError, resolve_project_paths
 from portworld_cli.project_config import GCP_CLOUD_RUN_TARGET
@@ -25,6 +24,7 @@ from portworld_cli.release_identity import (
     package_name_candidates,
 )
 from portworld_cli.services.common import ErrorMappingPolicy, map_command_exception
+from portworld_cli.workspace.session import load_inspection_session, load_workspace_session
 
 INSTALLER_COMMAND = f"curl -fsSL --proto '=https' --tlsv1.2 {INSTALLER_SCRIPT_URL} | bash"
 INSTALLER_COMMAND_WITH_VERSION = (
@@ -108,7 +108,7 @@ def run_update_deploy(
 ) -> CommandResult:
     try:
         session = load_inspection_session(cli_context)
-        load_config_session(cli_context)
+        load_workspace_session(cli_context)
         active_target = session.active_target()
         if active_target is None:
             raise UpdateUsageError(
