@@ -5,6 +5,7 @@ from portworld_cli.envfile import EnvFileParseError
 from portworld_cli.output import CommandResult
 from portworld_cli.paths import ProjectRootResolutionError
 from portworld_cli.project_config import ProjectConfigError, RUNTIME_SOURCE_PUBLISHED
+from portworld_cli.services.common import ErrorMappingPolicy, map_command_exception
 from portworld_cli.state import CLIStateDecodeError, CLIStateTypeError
 from portworld_cli.workspace.session import load_workspace_session
 
@@ -21,7 +22,13 @@ def run_config_show(cli_context: CLIContext) -> CommandResult:
         EnvFileParseError,
         ProjectConfigError,
     ) as exc:
-        return _failure_result("portworld config show", exc, exit_code=2)
+        return map_command_exception(
+            exc,
+            policy=ErrorMappingPolicy(
+                command_name="portworld config show",
+                project_root_exit_code=2,
+            ),
+        )
 
     secret_readiness = session.secret_readiness()
     config_payload = session.project_config.to_payload()
@@ -72,14 +79,4 @@ def run_config_show(cli_context: CLIContext) -> CommandResult:
             "published_runtime": published_runtime_payload,
         },
         exit_code=0,
-    )
-
-
-def _failure_result(command_name: str, exc: Exception, *, exit_code: int) -> CommandResult:
-    return CommandResult(
-        ok=False,
-        command=command_name,
-        message=str(exc),
-        data={"status": "error", "error_type": type(exc).__name__},
-        exit_code=exit_code,
     )

@@ -6,15 +6,13 @@ from pathlib import Path
 import click
 
 from portworld_cli.context import CLIContext
-from portworld_cli.envfile import EnvFileParseError
 from portworld_cli.output import CommandResult
-from portworld_cli.paths import ProjectRootResolutionError
-from portworld_cli.project_config import ProjectConfig, ProjectConfigError
-from portworld_cli.state import CLIStateDecodeError, CLIStateTypeError
+from portworld_cli.project_config import ProjectConfig
 from portworld_cli.workspace.session import WorkspaceSession as ConfigSession
 from portworld_cli.workspace.session import load_workspace_session, require_source_workspace_session
+from portworld_cli.services.common import ErrorMappingPolicy, map_command_exception
 
-from portworld_cli.services.config.errors import ConfigRuntimeError, ConfigUsageError
+from portworld_cli.services.config.errors import ConfigUsageError
 from portworld_cli.services.config.messages import (
     build_init_review_lines,
     build_section_success_message,
@@ -116,23 +114,13 @@ def _run_section_edit(
             summary_lines=review_lines,
         )
         outcome = write_config_artifacts(session, updated_project_config, env_updates)
-    except ProjectRootResolutionError as exc:
-        return _failure_result(command_name, exc, exit_code=1)
-    except (
-        CLIStateDecodeError,
-        CLIStateTypeError,
-        ConfigRuntimeError,
-        EnvFileParseError,
-        ProjectConfigError,
-    ) as exc:
-        return _failure_result(command_name, exc, exit_code=2)
-    except click.Abort:
-        return CommandResult(
-            ok=False,
-            command=command_name,
-            message="Aborted before configuration changes were applied.",
-            data={"status": "aborted", "error_type": "Abort"},
-            exit_code=1,
+    except Exception as exc:
+        return map_command_exception(
+            exc,
+            policy=ErrorMappingPolicy(
+                command_name=command_name,
+                abort_message="Aborted before configuration changes were applied.",
+            ),
         )
 
     return CommandResult(
@@ -257,14 +245,4 @@ def _ensure_source_runtime_session(
         session,
         command_name=command_name,
         usage_error_type=ConfigUsageError,
-    )
-
-
-def _failure_result(command_name: str, exc: Exception, *, exit_code: int) -> CommandResult:
-    return CommandResult(
-        ok=False,
-        command=command_name,
-        message=str(exc),
-        data={"status": "error", "error_type": type(exc).__name__},
-        exit_code=exit_code,
     )
