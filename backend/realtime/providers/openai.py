@@ -26,7 +26,7 @@ OPENAI_REALTIME_CAPABILITIES = RealtimeProviderCapabilities(
 
 
 def validate_openai_realtime_settings(settings: Settings) -> None:
-    settings.require_openai_api_key()
+    settings.require_realtime_api_key(provider="openai")
 
 
 def build_openai_session_bridge(
@@ -40,7 +40,7 @@ def build_openai_session_bridge(
     auto_start_response: bool = False,
 ) -> BridgeBinding:
     context = BridgeBindingContext()
-    api_key = settings.require_openai_api_key()
+    api_key = settings.require_realtime_api_key(provider="openai")
     base_instructions = settings.openai_realtime_instructions
     if isinstance(session_instructions, str) and session_instructions.strip():
         base_instructions = session_instructions.strip()
@@ -51,7 +51,7 @@ def build_openai_session_bridge(
         )
     client = OpenAIRealtimeClient(
         api_key=api_key,
-        model=settings.openai_realtime_model,
+        model=settings.resolve_realtime_model(provider="openai"),
         voice=settings.openai_realtime_voice,
         instructions=effective_instructions,
         include_turn_detection=settings.openai_realtime_include_turn_detection,

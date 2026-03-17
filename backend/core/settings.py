@@ -81,6 +81,8 @@ class Settings:
     openai_api_key: str | None
     mistral_api_key: str | None
     mistral_base_url: str | None
+    vision_mistral_api_key: str | None
+    vision_mistral_base_url: str | None
     vision_provider_api_key: str | None
     vision_provider_base_url: str | None
     tavily_api_key: str | None
@@ -93,6 +95,10 @@ class Settings:
     openai_realtime_include_turn_detection: bool
     openai_realtime_enable_manual_turn_fallback: bool
     openai_realtime_manual_turn_fallback_delay_ms: int
+    gemini_live_api_key: str | None
+    gemini_live_model: str
+    gemini_live_base_url: str | None
+    gemini_live_endpoint: str | None
     backend_uplink_ack_every_n_frames: int
     backend_data_dir: Path
     backend_sqlite_path: Path
@@ -224,35 +230,124 @@ class Settings:
             )
 
     def require_openai_api_key(self) -> str:
-        key = (self.openai_api_key or "").strip()
+        key = self.resolve_realtime_api_key(provider="openai")
         if not key:
             raise MissingOpenAIAPIKeyError("OPENAI_API_KEY is required at runtime")
         return key
 
-    def require_vision_provider_api_key(self) -> str:
-        key = (self.vision_provider_api_key or "").strip()
+    def resolve_realtime_api_key(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.realtime_provider).strip().lower()
+        if provider_name == "openai":
+            key = (self.openai_api_key or "").strip()
+            return key or None
+        if provider_name == "gemini_live":
+            key = (self.gemini_live_api_key or "").strip()
+            return key or None
+        return None
+
+    def require_realtime_api_key(self, *, provider: str | None = None) -> str:
+        provider_name = (provider or self.realtime_provider).strip().lower()
+        key = self.resolve_realtime_api_key(provider=provider_name)
         if key:
             return key
-        key = (self.mistral_api_key or "").strip()
-        if key:
-            return key
+        if provider_name == "openai":
+            raise MissingOpenAIAPIKeyError("OPENAI_API_KEY is required at runtime")
+        if provider_name == "gemini_live":
+            raise RuntimeError("GEMINI_LIVE_API_KEY is required when REALTIME_PROVIDER=gemini_live")
         raise RuntimeError(
-            "VISION_PROVIDER_API_KEY or MISTRAL_API_KEY is required when "
-            "VISION_MEMORY_ENABLED=true"
+            f"Unsupported realtime provider {provider_name!r}: no api-key resolution path is defined."
         )
 
-    def validate_vision_provider_credentials(self) -> None:
-        key = self.require_vision_provider_api_key()
-        model_name = (self.vision_memory_model or "").strip()
-        if model_name and key == model_name:
+    def resolve_realtime_model(self, *, provider: str | None = None) -> str:
+        provider_name = (provider or self.realtime_provider).strip().lower()
+        if provider_name == "openai":
+            return self.openai_realtime_model
+        if provider_name == "gemini_live":
+            return self.gemini_live_model
+        raise RuntimeError(f"Unsupported realtime provider {provider_name!r}")
+
+    def resolve_realtime_base_url(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.realtime_provider).strip().lower()
+        if provider_name == "gemini_live":
+            base_url = (self.gemini_live_base_url or "").strip()
+            return base_url or None
+        return None
+
+    def resolve_realtime_endpoint(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.realtime_provider).strip().lower()
+        if provider_name == "gemini_live":
+            endpoint = (self.gemini_live_endpoint or "").strip()
+            return endpoint or None
+        return None
+
+    def _resolve_vision_provider_scoped_api_key(self, *, provider: str) -> str | None:
+        provider_name = provider.strip().lower()
+        if provider_name == "mistral":
+            key = (self.vision_mistral_api_key or "").strip()
+            return key or None
+        return None
+
+    def _resolve_vision_provider_scoped_base_url(self, *, provider: str) -> str | None:
+        provider_name = provider.strip().lower()
+        if provider_name == "mistral":
+            base_url = (self.vision_mistral_base_url or "").strip()
+            return base_url or None
+        return None
+
+    def resolve_vision_provider_api_key(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        key = self._resolve_vision_provider_scoped_api_key(provider=provider_name)
+        if key:
+            return key
+        key = (self.vision_provider_api_key or "").strip()
+        if key:
+            return key or None
+        if provider_name == "mistral":
+            key = (self.mistral_api_key or "").strip()
+            return key or None
+        return None
+
+    def resolve_vision_provider_base_url(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        base_url = self._resolve_vision_provider_scoped_base_url(provider=provider_name)
+        if base_url:
+            return base_url
+        base_url = (self.vision_provider_base_url or "").strip()
+        if base_url:
+            return base_url or None
+        if provider_name == "mistral":
+            base_url = (self.mistral_base_url or "").strip()
+            return base_url or None
+        return None
+
+    def require_vision_provider_api_key(self, *, provider: str | None = None) -> str:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        key = self.resolve_vision_provider_api_key(provider=provider_name)
+        if key:
+            return key
+        if provider_name == "mistral":
             raise RuntimeError(
-                "VISION_PROVIDER_API_KEY is invalid: it matches VISION_MEMORY_MODEL. "
-                "Set VISION_PROVIDER_API_KEY to your provider API key (not the model id)."
+                "VISION_MISTRAL_API_KEY or VISION_PROVIDER_API_KEY or MISTRAL_API_KEY "
+                "is required when VISION_MEMORY_ENABLED=true and VISION_MEMORY_PROVIDER=mistral"
             )
-        if key.lower().startswith("mistralai/"):
+        raise RuntimeError(
+            f"Missing vision provider API key for provider={provider_name!r}. "
+            f"Set VISION_{provider_name.upper()}_API_KEY or VISION_PROVIDER_API_KEY."
+        )
+
+    def validate_vision_provider_credentials(self, *, provider: str | None = None) -> None:
+        key = self.require_vision_provider_api_key(provider=provider)
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        model_name = (self.vision_memory_model or "").strip()
+        if provider_name == "mistral" and model_name and key == model_name:
             raise RuntimeError(
-                "VISION_PROVIDER_API_KEY looks like a model id, not an API key. "
-                "Set VISION_PROVIDER_API_KEY to your provider API key."
+                "VISION_MISTRAL_API_KEY / VISION_PROVIDER_API_KEY is invalid: "
+                "it matches VISION_MEMORY_MODEL. Set an API key, not a model id."
+            )
+        if provider_name == "mistral" and key.lower().startswith("mistralai/"):
+            raise RuntimeError(
+                "VISION_MISTRAL_API_KEY / VISION_PROVIDER_API_KEY looks like a model id, "
+                "not an API key."
             )
 
     def has_tavily_api_key(self) -> bool:
@@ -264,6 +359,8 @@ def _load_credentials_settings() -> dict[str, str | None]:
         "openai_api_key": os.getenv("OPENAI_API_KEY"),
         "mistral_api_key": os.getenv("MISTRAL_API_KEY"),
         "mistral_base_url": _get_env("MISTRAL_BASE_URL"),
+        "vision_mistral_api_key": os.getenv("VISION_MISTRAL_API_KEY"),
+        "vision_mistral_base_url": _get_env("VISION_MISTRAL_BASE_URL"),
         "vision_provider_api_key": os.getenv("VISION_PROVIDER_API_KEY"),
         "vision_provider_base_url": _get_env("VISION_PROVIDER_BASE_URL"),
         "tavily_api_key": os.getenv("TAVILY_API_KEY"),
@@ -294,6 +391,12 @@ def _load_realtime_settings() -> dict[str, str | int | bool | None]:
             default=900,
             minimum=100,
         ),
+        "gemini_live_api_key": os.getenv("GEMINI_LIVE_API_KEY"),
+        "gemini_live_model": (
+            _get_env("GEMINI_LIVE_MODEL") or "gemini-2.0-flash-live-001"
+        ).strip(),
+        "gemini_live_base_url": _get_env("GEMINI_LIVE_BASE_URL"),
+        "gemini_live_endpoint": _get_env("GEMINI_LIVE_ENDPOINT"),
         "backend_uplink_ack_every_n_frames": _parse_int_env(
             "BACKEND_UPLINK_ACK_EVERY_N_FRAMES",
             default=20,
