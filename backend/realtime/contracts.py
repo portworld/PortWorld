@@ -8,6 +8,20 @@ EnvelopeSender = Callable[[str, dict[str, Any]], Awaitable[None]]
 BinarySender = Callable[[int, int, bytes], Awaitable[None]]
 
 
+class NormalizedRealtimeEventTypes:
+    SESSION_READY = "session.ready"
+    RESPONSE_AUDIO_DELTA = "response.audio.delta"
+    RESPONSE_AUDIO_DONE = "response.audio.done"
+    RESPONSE_DONE = "response.done"
+    RESPONSE_CREATED = "response.created"
+    INPUT_SPEECH_STARTED = "input.speech.started"
+    INPUT_SPEECH_STOPPED = "input.speech.stopped"
+    INPUT_AUDIO_COMMITTED = "input.audio.committed"
+    TOOL_CALL_COMPLETED = "tool.call.completed"
+    ERROR = "error"
+    UNHANDLED = "provider.event.unhandled"
+
+
 class NormalizedRealtimeEvent(TypedDict, total=False):
     type: str
     payload: dict[str, Any]
@@ -27,7 +41,13 @@ class RealtimeLifecycleAdapter(Protocol):
 
     async def close(self) -> None: ...
 
-    async def initialize_session(self, payload: dict[str, Any]) -> None: ...
+    async def initialize_session(
+        self,
+        *,
+        instructions: str | None = None,
+        voice: str | None = None,
+        tools: Sequence[dict[str, Any]] | None = None,
+    ) -> None: ...
 
     async def update_session(self, payload: dict[str, Any]) -> None: ...
 
@@ -37,7 +57,7 @@ class RealtimeLifecycleAdapter(Protocol):
 
     async def create_response(self) -> None: ...
 
-    async def cancel_response(self) -> None: ...
+    async def cancel_response(self, *, response_id: str | None = None) -> None: ...
 
     async def register_tools(self, tools: Sequence[dict[str, Any]]) -> None: ...
 
@@ -45,8 +65,17 @@ class RealtimeLifecycleAdapter(Protocol):
         self,
         *,
         call_id: str,
-        result: dict[str, Any],
+        output: str,
     ) -> None: ...
+
+    async def maybe_recover_session_init_error(
+        self,
+        *,
+        code: str,
+        message: str,
+        tools: Sequence[dict[str, Any]] | None = None,
+        instructions: str | None = None,
+    ) -> bool: ...
 
 
 class RealtimeAdapterContract(RealtimeLifecycleAdapter, RealtimeEventIterator, Protocol):
@@ -69,6 +98,7 @@ class RealtimeProviderCapabilities:
 __all__ = [
     "BinarySender",
     "EnvelopeSender",
+    "NormalizedRealtimeEventTypes",
     "NormalizedRealtimeEvent",
     "NormalizedRealtimeEventStream",
     "RealtimeAdapterContract",
