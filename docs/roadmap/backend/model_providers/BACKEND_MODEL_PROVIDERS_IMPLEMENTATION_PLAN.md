@@ -366,6 +366,12 @@ CLI support must land in the same milestone as runtime support.
 - the CLI becomes the canonical way to configure providers
 - provider sprawl does not push users back to manual env reverse-engineering
 
+#### Slice 9 status (2026-03-17)
+
+- Added a backend-owned provider requirements registry in `backend/core/provider_requirements.py` covering realtime (`openai`, `gemini_live`), vision (`mistral`, `openai`, `azure_openai`, `gemini`, `claude`, `bedrock`, `groq`), and search (`tavily`) providers.
+- Wired CLI provider selection and secret collection (`portworld init`, `portworld config edit providers`) to use selected-provider metadata and canonical provider env keys.
+- Preserved migration compatibility for legacy Mistral aliases by resolving effective values with alias precedence while writing canonical selected-provider keys.
+
 ### Step 10: Expand doctor and readiness diagnostics
 
 Provider expansion is only acceptable if failure modes stay actionable.
@@ -383,6 +389,11 @@ Provider expansion is only acceptable if failure modes stay actionable.
 - missing AWS region/model should fail only when `VISION_MEMORY_PROVIDER=bedrock`
 - unsupported tool-calling or voice-selection combinations should produce explicit warnings or failures
 
+#### Slice 10 status (2026-03-17)
+
+- Updated provider secret readiness diagnostics to derive required keys from the selected providers instead of hardcoded OpenAI/Mistral/Tavily assumptions.
+- Updated local/GCP doctor-facing messages to report selected-provider required secrets and missing keys.
+
 ### Step 11: Update deploy and secret-binding logic
 
 Deployment workflows must understand provider-specific secret requirements.
@@ -393,6 +404,12 @@ Deployment workflows must understand provider-specific secret requirements.
 - update secret-manager bindings for Cloud Run deploys
 - avoid hardcoding only `OPENAI_API_KEY` and `VISION_PROVIDER_API_KEY`
 - make the deployment summary reflect the actual provider configuration in use
+
+#### Slice 11 status (2026-03-17)
+
+- Updated deploy secret discovery/upload to use backend provider requirements metadata for selected providers.
+- Cloud Run secret bindings now bind canonical selected-provider env keys (for example `VISION_MISTRAL_API_KEY`, `GEMINI_LIVE_API_KEY`) instead of generic-only aliases.
+- Deploy-time secret resolution preserves legacy alias fallback during value resolution where applicable (for example `MISTRAL_API_KEY` fallback for selected `mistral`).
 
 ### Step 12: Document provider support and migration
 
