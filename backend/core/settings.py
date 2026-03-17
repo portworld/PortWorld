@@ -13,8 +13,10 @@ _BACKEND_ENV_PATH = _BACKEND_ROOT / ".env"
 
 
 DEFAULT_INSTRUCTIONS = "You are a concise assistant. Keep answers short, clear, and practical."
-SUPPORTED_STORAGE_BACKENDS = {"local", "postgres_gcs"}
-SUPPORTED_OBJECT_STORE_PROVIDERS = {"filesystem", "gcs"}
+STORAGE_BACKEND_MANAGED = "managed"
+LEGACY_STORAGE_BACKEND_POSTGRES_GCS = "postgres_gcs"
+SUPPORTED_STORAGE_BACKENDS = {"local", STORAGE_BACKEND_MANAGED, LEGACY_STORAGE_BACKEND_POSTGRES_GCS}
+SUPPORTED_OBJECT_STORE_PROVIDERS = {"filesystem", "gcs", "s3", "azure_blob"}
 
 
 class MissingOpenAIAPIKeyError(RuntimeError):
@@ -99,6 +101,8 @@ class Settings:
     backend_storage_backend: str
     backend_database_url: str | None
     backend_object_store_provider: str
+    backend_object_store_name: str | None
+    backend_object_store_endpoint: str | None
     backend_object_store_bucket: str | None
     backend_object_store_prefix: str | None
     backend_debug_trace_ws_messages: bool
@@ -205,22 +209,27 @@ class Settings:
         if self.backend_database_url is None:
             raise RuntimeError(
                 "BACKEND_DATABASE_URL must be set when "
-                "BACKEND_STORAGE_BACKEND=postgres_gcs."
+                "BACKEND_STORAGE_BACKEND=managed."
             )
-        if self.backend_object_store_provider != "gcs":
+        if self.backend_object_store_provider == "filesystem":
             raise RuntimeError(
-                "BACKEND_OBJECT_STORE_PROVIDER must be 'gcs' when "
-                "BACKEND_STORAGE_BACKEND=postgres_gcs."
+                "BACKEND_OBJECT_STORE_PROVIDER cannot be 'filesystem' when "
+                "BACKEND_STORAGE_BACKEND=managed."
             )
-        if self.backend_object_store_bucket is None:
+        if self.backend_object_store_provider == "azure_blob" and self.backend_object_store_endpoint is None:
             raise RuntimeError(
-                "BACKEND_OBJECT_STORE_BUCKET must be set when "
-                "BACKEND_STORAGE_BACKEND=postgres_gcs."
+                "BACKEND_OBJECT_STORE_ENDPOINT must be set when "
+                "BACKEND_OBJECT_STORE_PROVIDER=azure_blob."
+            )
+        if self.backend_object_store_name is None:
+            raise RuntimeError(
+                "BACKEND_OBJECT_STORE_NAME must be set when "
+                "BACKEND_STORAGE_BACKEND=managed."
             )
         if self.backend_object_store_prefix is None:
             raise RuntimeError(
                 "BACKEND_OBJECT_STORE_PREFIX must be set when "
-                "BACKEND_STORAGE_BACKEND=postgres_gcs."
+                "BACKEND_STORAGE_BACKEND=managed."
             )
 
     def require_openai_api_key(self) -> str:
@@ -308,11 +317,17 @@ def _load_storage_settings() -> dict[str, str | int | bool | Path]:
         _get_env("BACKEND_SQLITE_PATH") or str(backend_data_dir / "portworld.db")
     )
     backend_storage_backend = (_get_env("BACKEND_STORAGE_BACKEND") or "local").strip().lower()
+    if backend_storage_backend == LEGACY_STORAGE_BACKEND_POSTGRES_GCS:
+        backend_storage_backend = STORAGE_BACKEND_MANAGED
     backend_database_url = (_get_env("BACKEND_DATABASE_URL") or "").strip() or None
     backend_object_store_provider = (
         _get_env("BACKEND_OBJECT_STORE_PROVIDER") or "filesystem"
     ).strip().lower()
+    backend_object_store_name = (_get_env("BACKEND_OBJECT_STORE_NAME") or "").strip() or None
+    backend_object_store_endpoint = (_get_env("BACKEND_OBJECT_STORE_ENDPOINT") or "").strip() or None
     backend_object_store_bucket = (_get_env("BACKEND_OBJECT_STORE_BUCKET") or "").strip() or None
+    if backend_object_store_name is None:
+        backend_object_store_name = backend_object_store_bucket
     backend_object_store_prefix = (_get_env("BACKEND_OBJECT_STORE_PREFIX") or "").strip() or None
     return {
         "backend_data_dir": backend_data_dir,
@@ -320,6 +335,8 @@ def _load_storage_settings() -> dict[str, str | int | bool | Path]:
         "backend_storage_backend": backend_storage_backend,
         "backend_database_url": backend_database_url,
         "backend_object_store_provider": backend_object_store_provider,
+        "backend_object_store_name": backend_object_store_name,
+        "backend_object_store_endpoint": backend_object_store_endpoint,
         "backend_object_store_bucket": backend_object_store_bucket,
         "backend_object_store_prefix": backend_object_store_prefix,
         "backend_debug_trace_ws_messages": _parse_bool_env(

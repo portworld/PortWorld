@@ -167,6 +167,27 @@ Set `BACKEND_PROFILE=production` to enforce the following at startup:
 | `CORS_ORIGINS` | Explicit allowed origins (not `*`) |
 | `BACKEND_ALLOWED_HOSTS` | Explicit allowed hosts (not `*`) |
 
+**Storage backends**
+
+`BACKEND_STORAGE_BACKEND` supports:
+
+- `local` for SQLite + filesystem (default)
+- `managed` for Postgres + object store
+- `postgres_gcs` as a compatibility alias that is normalized to `managed`
+
+Managed storage uses these canonical object-store variables:
+
+| Variable | Description |
+|---|---|
+| `BACKEND_OBJECT_STORE_PROVIDER` | Object-store provider: `gcs`, `s3`, or `azure_blob` for managed backends (`filesystem` is local-only) |
+| `BACKEND_OBJECT_STORE_NAME` | Bucket/container name for the managed object store |
+| `BACKEND_OBJECT_STORE_ENDPOINT` | Optional custom endpoint (required for `azure_blob`) |
+| `BACKEND_OBJECT_STORE_PREFIX` | Prefix used for artifact paths |
+
+Compatibility alias:
+
+- `BACKEND_OBJECT_STORE_BUCKET` is still accepted when `BACKEND_OBJECT_STORE_NAME` is unset.
+
 **Rate limiting**
 
 | Variable | Description |

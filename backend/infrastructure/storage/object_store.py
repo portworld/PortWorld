@@ -32,12 +32,16 @@ class ObjectStore(ABC):
         self,
         *,
         provider_name: str,
-        bucket_name: str,
+        store_name: str,
         key_prefix: str,
+        endpoint: str | None = None,
     ) -> None:
         self.provider_name = provider_name
-        self.bucket_name = bucket_name
+        self.store_name = store_name
+        # Compatibility alias while call sites migrate away from bucket naming.
+        self.bucket_name = store_name
         self.key_prefix = normalize_object_store_prefix(key_prefix)
+        self.endpoint = endpoint
 
     def resolve_location(self, *, relative_path: str) -> str:
         normalized = normalize_object_store_relative_path(relative_path)
@@ -90,15 +94,37 @@ class ObjectStore(ABC):
 def build_object_store(
     *,
     provider: str,
-    bucket_name: str,
+    store_name: str | None = None,
+    bucket_name: str | None = None,
     key_prefix: str,
+    endpoint: str | None = None,
 ) -> ObjectStore:
+    resolved_store_name = (store_name or bucket_name or "").strip()
+    if not resolved_store_name:
+        raise RuntimeError("Managed object store name is required.")
+
     if provider == "gcs":
         from backend.infrastructure.storage.gcs import GCSObjectStore
 
         return GCSObjectStore(
-            bucket_name=bucket_name,
+            store_name=resolved_store_name,
+            endpoint=endpoint,
+            key_prefix=key_prefix,
+        )
+    if provider == "s3":
+        from backend.infrastructure.storage.s3 import S3ObjectStore
+
+        return S3ObjectStore(
+            store_name=resolved_store_name,
+            endpoint=endpoint,
+            key_prefix=key_prefix,
+        )
+    if provider == "azure_blob":
+        from backend.infrastructure.storage.azure_blob import AzureBlobObjectStore
+
+        return AzureBlobObjectStore(
+            store_name=resolved_store_name,
+            endpoint=endpoint,
             key_prefix=key_prefix,
         )
     raise RuntimeError(f"Unsupported managed object store provider: {provider!r}")
-
