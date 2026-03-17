@@ -4,6 +4,8 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, TypedDict
 
+from backend.tools.contracts import ToolDefinition
+
 EnvelopeSender = Callable[[str, dict[str, Any]], Awaitable[None]]
 BinarySender = Callable[[int, int, bytes], Awaitable[None]]
 
@@ -46,7 +48,7 @@ class RealtimeLifecycleAdapter(Protocol):
         *,
         instructions: str | None = None,
         voice: str | None = None,
-        tools: Sequence[dict[str, Any]] | None = None,
+        tools: Sequence[ToolDefinition] | None = None,
     ) -> None: ...
 
     async def update_session(self, payload: dict[str, Any]) -> None: ...
@@ -59,7 +61,7 @@ class RealtimeLifecycleAdapter(Protocol):
 
     async def cancel_response(self, *, response_id: str | None = None) -> None: ...
 
-    async def register_tools(self, tools: Sequence[dict[str, Any]]) -> None: ...
+    async def register_tools(self, tools: Sequence[ToolDefinition]) -> None: ...
 
     async def submit_tool_result(
         self,
@@ -73,7 +75,7 @@ class RealtimeLifecycleAdapter(Protocol):
         *,
         code: str,
         message: str,
-        tools: Sequence[dict[str, Any]] | None = None,
+        tools: Sequence[ToolDefinition] | None = None,
         instructions: str | None = None,
     ) -> bool: ...
 

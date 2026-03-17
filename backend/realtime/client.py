@@ -15,6 +15,7 @@ from backend.realtime.contracts import (
     NormalizedRealtimeEvent,
     NormalizedRealtimeEventTypes,
 )
+from backend.tools.contracts import ToolDefinition
 
 logger = logging.getLogger(__name__)
 INPUT_AUDIO_SAMPLE_RATE = 24_000
@@ -342,7 +343,7 @@ class OpenAIRealtimeClient:
         *,
         instructions: Optional[str] = None,
         voice: Optional[str] = None,
-        tools: Optional[Sequence[dict[str, Any]]] = None,
+        tools: Optional[Sequence[ToolDefinition]] = None,
     ) -> None:
         """Initialize realtime session, preferring current schema."""
         event = self._build_session_update_event(
@@ -366,7 +367,7 @@ class OpenAIRealtimeClient:
         *,
         instructions: Optional[str] = None,
         voice: Optional[str] = None,
-        tools: Optional[Sequence[dict[str, Any]]] = None,
+        tools: Optional[Sequence[ToolDefinition]] = None,
     ) -> bool:
         """Retry session initialization once with legacy session schema."""
         if self._legacy_schema_retry_attempted:
@@ -381,9 +382,9 @@ class OpenAIRealtimeClient:
         )
         return True
 
-    async def register_tools(self, tools: Sequence[dict[str, Any]]) -> None:
+    async def register_tools(self, tools: Sequence[ToolDefinition]) -> None:
         await self.initialize_session(
-            tools=[dict(tool) for tool in tools],
+            tools=tools,
         )
 
     async def submit_tool_result(
@@ -408,13 +409,13 @@ class OpenAIRealtimeClient:
         *,
         code: str,
         message: str,
-        tools: Sequence[dict[str, Any]] | None = None,
+        tools: Sequence[ToolDefinition] | None = None,
         instructions: str | None = None,
     ) -> bool:
         if not self._is_session_init_schema_error(code=code, message=message):
             return False
         return await self.retry_initialize_session_with_legacy_schema(
-            tools=[dict(tool) for tool in tools] if tools is not None else None,
+            tools=tools,
             instructions=instructions,
         )
 
@@ -423,7 +424,7 @@ class OpenAIRealtimeClient:
         *,
         instructions: Optional[str],
         voice: Optional[str],
-        tools: Optional[Sequence[dict[str, Any]]],
+        tools: Optional[Sequence[ToolDefinition]],
         schema_mode: str,
     ) -> dict[str, Any]:
         resolved_instructions = (
@@ -474,12 +475,21 @@ class OpenAIRealtimeClient:
                 "interrupt_response": True,
             }
         if tools:
-            session["tools"] = [dict(tool) for tool in tools]
+            session["tools"] = [self._to_openai_tool_wire(tool) for tool in tools]
             session["tool_choice"] = "auto"
 
         return {
             "type": "session.update",
             "session": session,
+        }
+
+    @staticmethod
+    def _to_openai_tool_wire(tool: ToolDefinition) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": dict(tool.input_schema),
         }
 
     @staticmethod

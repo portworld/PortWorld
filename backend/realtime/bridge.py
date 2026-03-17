@@ -105,7 +105,7 @@ class IOSRealtimeBridge:
         logger.info("Initializing upstream realtime session=%s", self._session_id)
         tools = None
         if self._tooling_runtime is not None:
-            tools = self._tooling_runtime.to_openai_tools()
+            tools = self._tooling_runtime.list_tool_definitions()
         await self._upstream_client.initialize_session(
             tools=tools,
             instructions=self._session_instructions,
@@ -450,7 +450,7 @@ class IOSRealtimeBridge:
         try:
             tools = None
             if self._tooling_runtime is not None:
-                tools = self._tooling_runtime.to_openai_tools()
+                tools = self._tooling_runtime.list_tool_definitions()
             did_retry = await self._upstream_client.maybe_recover_session_init_error(
                 code=code,
                 message=message,
