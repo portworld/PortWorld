@@ -157,6 +157,13 @@ Use OpenAI as the reference implementation of the new realtime adapter contract 
 - the OpenAI provider still behaves exactly as today from the backend client’s point of view
 - core orchestration consumes normalized events rather than raw OpenAI protocol details
 
+#### Slice 2 status (2026-03-17)
+
+- Landed active use of `RealtimeAdapterContract` in core orchestration (`bridge`, `turn_state`, `audio_uplink`, `tool_dispatcher`) so core code no longer depends on `OpenAIRealtimeClient`.
+- Landed normalized realtime event dispatch in the OpenAI adapter/client and bridge dispatch now keys on contract constants instead of raw OpenAI event names.
+- Landed adapter-owned command methods for audio append, turn commit, response create/cancel, and tool-result submission; OpenAI session-init legacy schema retry remains OpenAI-owned via adapter recovery hook.
+- Preserved runtime parity for the OpenAI provider path; no new realtime providers were added.
+
 ### Step 3: Introduce provider-neutral tool rendering and tool-result submission
 
 The current tooling contract is explicitly OpenAI-shaped. Fix that before Gemini Live lands.
