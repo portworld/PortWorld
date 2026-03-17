@@ -14,6 +14,7 @@ from portworld_cli.targets import (
     CLOUD_PROVIDER_AWS,
     CLOUD_PROVIDER_AZURE,
     CLOUD_PROVIDER_GCP,
+    MANAGED_TARGETS_BY_PROVIDER,
     MANAGED_TARGETS,
     TARGET_AWS_ECS_FARGATE,
     TARGET_AZURE_CONTAINER_APPS,
@@ -293,12 +294,11 @@ class ProjectConfig:
             "cloud_provider",
             allowed={CLOUD_PROVIDER_GCP, CLOUD_PROVIDER_AWS, CLOUD_PROVIDER_AZURE},
         )
-        if cloud_provider is None and preferred_target == GCP_CLOUD_RUN_TARGET:
-            cloud_provider = CLOUD_PROVIDER_GCP
-        if cloud_provider is None and preferred_target == TARGET_AWS_ECS_FARGATE:
-            cloud_provider = CLOUD_PROVIDER_AWS
-        if cloud_provider is None and preferred_target == TARGET_AZURE_CONTAINER_APPS:
-            cloud_provider = CLOUD_PROVIDER_AZURE
+        cloud_provider, preferred_target = _normalize_cloud_selection(
+            project_mode=project_mode,
+            cloud_provider=cloud_provider,
+            preferred_target=preferred_target,
+        )
 
         return cls(
             schema_version=SCHEMA_VERSION,
@@ -772,3 +772,43 @@ def _resolve_remembered_artifact_repository(
         if stripped:
             return stripped
     return artifact_repository
+
+
+def _normalize_cloud_selection(
+    *,
+    project_mode: str,
+    cloud_provider: str | None,
+    preferred_target: str | None,
+) -> tuple[str | None, str | None]:
+    if project_mode == PROJECT_MODE_LOCAL:
+        return None, None
+
+    if preferred_target is None and cloud_provider is None:
+        return CLOUD_PROVIDER_GCP, TARGET_GCP_CLOUD_RUN
+    if preferred_target is None and cloud_provider is not None:
+        candidate_targets = MANAGED_TARGETS_BY_PROVIDER.get(cloud_provider, ())
+        if len(candidate_targets) != 1:
+            raise ProjectConfigTypeError(
+                "Managed cloud provider must map to one supported managed target."
+            )
+        return cloud_provider, candidate_targets[0]
+    if preferred_target is not None and cloud_provider is None:
+        return _provider_for_target(preferred_target), preferred_target
+
+    assert preferred_target is not None and cloud_provider is not None
+    expected_provider = _provider_for_target(preferred_target)
+    if expected_provider != cloud_provider:
+        raise ProjectConfigTypeError(
+            "cloud_provider and deploy.preferred_target must refer to the same provider."
+        )
+    return cloud_provider, preferred_target
+
+
+def _provider_for_target(target: str) -> str:
+    if target == TARGET_AWS_ECS_FARGATE:
+        return CLOUD_PROVIDER_AWS
+    if target == TARGET_AZURE_CONTAINER_APPS:
+        return CLOUD_PROVIDER_AZURE
+    if target == TARGET_GCP_CLOUD_RUN:
+        return CLOUD_PROVIDER_GCP
+    raise ProjectConfigTypeError(f"Unsupported managed target: {target}.")
