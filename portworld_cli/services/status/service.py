@@ -80,6 +80,7 @@ def run_status(cli_context: CLIContext) -> CommandResult:
             "local_runtime": None if local_runtime is None else local_runtime.to_payload(),
             "deploy": {
                 "source": "state" if last_known_payload else "none",
+                "source_target": session.config_session.remembered_deploy_state_target,
                 "last_known": last_known_payload,
                 "by_target": deploy_by_target,
                 "live": live_status.to_payload(),
@@ -93,10 +94,16 @@ def run_status(cli_context: CLIContext) -> CommandResult:
 def _build_deploy_by_target_summary(session) -> dict[str, dict[str, object | None]]:
     summary: dict[str, dict[str, object | None]] = {}
     for target, state in session.deploy_states_by_target.items():
+        state_error = session.deploy_state_errors_by_target.get(target)
         state_payload = state.to_payload() if state.has_data() else None
         summary[target] = {
-            "source": "state" if state_payload is not None else "none",
+            "source": (
+                "invalid_state"
+                if state_error
+                else ("state" if state_payload is not None else "none")
+            ),
             "state_path": str(session.config_session.workspace_paths.state_file_for_target(target)),
             "last_known": state_payload,
+            "state_error": state_error,
         }
     return summary

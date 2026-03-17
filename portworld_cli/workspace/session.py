@@ -22,6 +22,7 @@ from portworld_cli.targets import MANAGED_TARGETS
 from portworld_cli.workspace.discovery.locator import ResolvedWorkspace, resolve_workspace
 from portworld_cli.workspace.store import WorkspaceStoreSnapshot, load_workspace_store
 from portworld_cli.workspace.state.state_store import read_json_state
+from portworld_cli.workspace.state.state_store import CLIStateError
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +58,7 @@ class WorkspaceSession:
     effective_runtime_source: str
     runtime_source_derived_from_legacy: bool
     remembered_deploy_state: dict[str, Any]
+    remembered_deploy_state_target: str | None
     workspace_resolution_source: str
     active_workspace_root: Path | None
 
@@ -129,6 +131,7 @@ class InspectionSession:
     config_session: WorkspaceSession
     deploy_state: DeployState
     deploy_states_by_target: dict[str, DeployState]
+    deploy_state_errors_by_target: dict[str, str]
 
     @property
     def project_config(self) -> ProjectConfig:
@@ -140,6 +143,8 @@ class InspectionSession:
 
     def active_target(self) -> str | None:
         if self.deploy_state.has_data():
+            if self.config_session.remembered_deploy_state_target in MANAGED_TARGETS:
+                return self.config_session.remembered_deploy_state_target
             preferred_target = self.project_config.deploy.preferred_target
             if preferred_target in MANAGED_TARGETS:
                 return preferred_target
@@ -233,10 +238,12 @@ def require_source_workspace_session(
 
 def load_inspection_session(cli_context: CLIContext) -> InspectionSession:
     config_session = load_workspace_session(cli_context)
+    deploy_states_by_target, deploy_state_errors_by_target = _load_deploy_states_by_target(config_session.workspace_paths)
     return InspectionSession(
         config_session=config_session,
         deploy_state=DeployState.from_payload(config_session.remembered_deploy_state),
-        deploy_states_by_target=_load_deploy_states_by_target(config_session.workspace_paths),
+        deploy_states_by_target=deploy_states_by_target,
+        deploy_state_errors_by_target=deploy_state_errors_by_target,
     )
 
 
@@ -257,12 +264,19 @@ def resolve_gcp_inspection_target(
     )
 
 
-def _load_deploy_states_by_target(workspace_paths: WorkspacePaths) -> dict[str, DeployState]:
+def _load_deploy_states_by_target(
+    workspace_paths: WorkspacePaths,
+) -> tuple[dict[str, DeployState], dict[str, str]]:
     deploy_states: dict[str, DeployState] = {}
+    errors: dict[str, str] = {}
     for target in MANAGED_TARGETS:
-        payload = read_json_state(workspace_paths.state_file_for_target(target))
-        deploy_states[target] = DeployState.from_payload(payload)
-    return deploy_states
+        try:
+            payload = read_json_state(workspace_paths.state_file_for_target(target))
+            deploy_states[target] = DeployState.from_payload(payload)
+        except CLIStateError as exc:
+            deploy_states[target] = DeployState.from_payload({})
+            errors[target] = str(exc)
+    return deploy_states, errors
 
 
 def _load_workspace_session(
@@ -309,6 +323,7 @@ def _build_workspace_session(
         effective_runtime_source=store_snapshot.effective_runtime_source,
         runtime_source_derived_from_legacy=store_snapshot.runtime_source_derived_from_legacy,
         remembered_deploy_state=store_snapshot.remembered_deploy_state,
+        remembered_deploy_state_target=store_snapshot.remembered_deploy_state_target,
         workspace_resolution_source=workspace_resolution_source,
         active_workspace_root=active_workspace_root,
     )
@@ -327,6 +342,7 @@ def _session_kwargs(session: WorkspaceSession) -> dict[str, Any]:
         "effective_runtime_source": session.effective_runtime_source,
         "runtime_source_derived_from_legacy": session.runtime_source_derived_from_legacy,
         "remembered_deploy_state": session.remembered_deploy_state,
+        "remembered_deploy_state_target": session.remembered_deploy_state_target,
         "workspace_resolution_source": session.workspace_resolution_source,
         "active_workspace_root": session.active_workspace_root,
     }
