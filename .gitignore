@@ -192,6 +192,5 @@ cleanup/
 issues/
 debug_audio/
 backend/var/
-archived/
 .cursor/
 .portworld/

@@ -34,6 +34,8 @@
 - [Backend API Surface](#backend-api-surface)
 - [Troubleshooting](#troubleshooting)
 - [Security Notes](#security-notes)
+- [Community](#community)
+- [Releases](#releases)
 - [Additional Docs](#additional-docs)
 
 ## Architecture
@@ -203,11 +205,24 @@ Non-blocking image/profile warning in logs. Usually unrelated to network/audio f
 - Use `.env` locally and rotate keys if accidentally shared.
 - Use `EDGE_API_KEY` when exposing backend beyond local/private network.
 
+## Community
+
+- Security policy: [SECURITY.md](SECURITY.md)
+- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+
+## Releases
+
+- Changelog (canonical release history): [CHANGELOG.md](CHANGELOG.md)
+- GitHub Releases (tag artifacts and published notes): [Releases](https://github.com/portworld/PortWorld/releases)
 
 ## Additional Docs
 
-- Backend details: [`framework/README.md`](framework/README.md)
+- Backend details: [`backend/README.md`](backend/README.md)
 - iOS details: [`IOS/README.md`](IOS/README.md)
+- Backend operations: [`docs/operations/BACKEND_SELF_HOSTING.md`](docs/operations/BACKEND_SELF_HOSTING.md)
+- Release process: [`docs/operations/CLI_RELEASE_PROCESS.md`](docs/operations/CLI_RELEASE_PROCESS.md)
+- Archived maintainer/history docs: [`docs/archived/README.md`](docs/archived/README.md)
 
 ## License
 

@@ -126,7 +126,6 @@ This exists because DAT integration, glasses lifecycle, and mock-device workflow
 ### 4. Historical / Legacy Context
 
 - `IOS/Legacy/`
-- `IOS/docs/archived/`
 - `../docs/archived/`
 
 These are useful for migration context and historical reasoning only.
@@ -189,18 +188,15 @@ The local mock backend remains useful for low-cost control-flow validation of:
 
 Use these docs as the current source of truth:
 
-- [docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md](../docs/IOS_PHONEONLY_TO_GLASSES_ROADMAP.md)
-  high-level sequencing from the cleaned phone runtime toward glasses support
-- [docs/intermediary/PHASE2_IMPLEMENTATION.md](../docs/intermediary/PHASE2_IMPLEMENTATION.md)
-  detailed record of the landed Phase 2 glasses-capable runtime work
-- [docs/intermediary/PHASE1_IMPLEMENTATION.md](../docs/intermediary/PHASE1_IMPLEMENTATION.md)
-  detailed historical record of the completed Phase 1 cleanup
-- [docs/Wearables DAT SDK.md](docs/Wearables%20DAT%20SDK.md)
-  DAT SDK usage guidance for active DAT / glasses work
+- [IOS/AGENTS.md](AGENTS.md)
+  iOS implementation and verification guidance for active work
+- [docs/operations/BACKEND_SELF_HOSTING.md](../docs/operations/BACKEND_SELF_HOSTING.md)
+  backend startup, environment, and operator workflow for local validation
+- [docs/operations/CLI_RELEASE_PROCESS.md](../docs/operations/CLI_RELEASE_PROCESS.md)
+  release workflow and tagging policy
 
 Historical context lives in:
 
-- [IOS/docs/archived/](docs/archived/)
 - [docs/archived/](../docs/archived/)
 
 Archived docs are not implementation authority for new assistant work.
