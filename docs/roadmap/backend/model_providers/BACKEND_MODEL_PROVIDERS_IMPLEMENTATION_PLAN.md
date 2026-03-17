@@ -229,6 +229,12 @@ The current settings surface is too tied to OpenAI.
 - add Gemini-specific env vars for API key, model, optional endpoint/base URL, and provider defaults
 - make startup validation depend on the selected provider instead of requiring unrelated secrets
 
+#### Slice 4 status (2026-03-17)
+
+- Landed provider-scoped settings resolvers for realtime and vision in `backend/core/settings.py` with selected-provider APIs.
+- Preserved OpenAI realtime env/default behavior and legacy Mistral vision migration aliases (`VISION_PROVIDER_*`, `MISTRAL_*`) while adding `VISION_MISTRAL_*` precedence.
+- Added Gemini Live settings-level env support (`GEMINI_LIVE_API_KEY`, model, optional base URL/endpoint) without adding runtime provider implementation.
+
 ### Step 6: Add shared vision provider helpers without creating a fake universal provider
 
 Vision expansion should share helper code where useful, but not collapse all providers into a misleading compatibility layer.
