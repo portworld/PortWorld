@@ -6,6 +6,10 @@ from portworld_cli.aws.deploy import (
     DeployAWSECSFargateOptions,
     run_deploy_aws_ecs_fargate,
 )
+from portworld_cli.azure.deploy import (
+    DeployAzureContainerAppsOptions,
+    run_deploy_azure_container_apps,
+)
 from portworld_cli.context import CLIContext
 from portworld_cli.deploy.config import (
     DeployGCPCloudRunOptions,
@@ -127,6 +131,64 @@ def deploy_aws_ecs_fargate_command(
                 bucket=bucket,
                 alb_url=alb_url,
                 ecr_repo=ecr_repo,
+                tag=tag,
+                cors_origins=cors_origins,
+                allowed_hosts=allowed_hosts,
+            ),
+        ),
+    )
+
+
+@deploy_group.command("azure-container-apps")
+@click.option("--subscription", default=None, help="Target Azure subscription id.")
+@click.option("--resource-group", default=None, help="Target Azure resource group.")
+@click.option("--region", default=None, help="Target Azure region.")
+@click.option("--environment", default=None, help="Container Apps environment name.")
+@click.option("--app", default=None, help="Container App name.")
+@click.option("--database-url", default=None, help="Existing managed PostgreSQL URL.")
+@click.option("--storage-account", default=None, help="Azure Storage account name.")
+@click.option("--blob-container", default=None, help="Azure Blob container name.")
+@click.option("--blob-endpoint", default=None, help="Azure Blob endpoint URL.")
+@click.option("--acr-server", default=None, help="Azure Container Registry login server.")
+@click.option("--acr-repo", default=None, help="ACR repository name.")
+@click.option("--tag", default=None, help="Container image tag.")
+@click.option("--cors-origins", default=None, help="Explicit production CORS origins (comma-separated).")
+@click.option("--allowed-hosts", default=None, help="Explicit production allowed hosts (comma-separated).")
+@click.pass_obj
+def deploy_azure_container_apps_command(
+    cli_context: CLIContext,
+    subscription: str | None,
+    resource_group: str | None,
+    region: str | None,
+    environment: str | None,
+    app: str | None,
+    database_url: str | None,
+    storage_account: str | None,
+    blob_container: str | None,
+    blob_endpoint: str | None,
+    acr_server: str | None,
+    acr_repo: str | None,
+    tag: str | None,
+    cors_origins: str | None,
+    allowed_hosts: str | None,
+) -> None:
+    """Deploy PortWorld backend to Azure Container Apps."""
+    exit_with_result(
+        cli_context,
+        run_deploy_azure_container_apps(
+            cli_context,
+            DeployAzureContainerAppsOptions(
+                subscription=subscription,
+                resource_group=resource_group,
+                region=region,
+                environment=environment,
+                app=app,
+                database_url=database_url,
+                storage_account=storage_account,
+                blob_container=blob_container,
+                blob_endpoint=blob_endpoint,
+                acr_server=acr_server,
+                acr_repo=acr_repo,
                 tag=tag,
                 cors_origins=cors_origins,
                 allowed_hosts=allowed_hosts,
