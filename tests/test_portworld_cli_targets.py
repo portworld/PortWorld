@@ -1,0 +1,34 @@
+from __future__ import annotations
+
+from pathlib import Path
+import unittest
+
+from portworld_cli.targets import (
+    ManagedTargetStatePaths,
+    TARGET_GCP_CLOUD_RUN,
+)
+
+
+class ManagedTargetStatePathsTests(unittest.TestCase):
+    def test_gcp_state_file_and_legacy_status_key(self) -> None:
+        paths = ManagedTargetStatePaths(Path("/tmp/portworld/.portworld/state"))
+        self.assertEqual(
+            paths.file_for_target(TARGET_GCP_CLOUD_RUN),
+            Path("/tmp/portworld/.portworld/state/gcp-cloud-run.json"),
+        )
+        self.assertEqual(
+            paths.status_payload(exposed_only=True),
+            {
+                "gcp_cloud_run": "/tmp/portworld/.portworld/state/gcp-cloud-run.json",
+            },
+        )
+
+    def test_unknown_target_is_rejected(self) -> None:
+        paths = ManagedTargetStatePaths(Path("/tmp/portworld/.portworld/state"))
+        with self.assertRaises(ValueError):
+            paths.file_for_target("unknown-target")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
