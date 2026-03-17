@@ -28,11 +28,34 @@ from backend.vision.providers.shared import (
     is_response_format_compatibility_error,
     normalize_observation,
     post_json_with_vision_errors,
+    sanitize_sensitive_text,
+    sanitize_url_for_logging,
 )
 
 DEFAULT_GROQ_BASE_URL = "https://api.groq.com"
 
 logger = logging.getLogger(__name__)
+
+
+def _is_max_completion_tokens_compatibility_error(error: VisionProviderError) -> bool:
+    if error.status_code != 400:
+        return False
+    message = " ".join(
+        [
+            (error.provider_message or "").strip().lower(),
+            (error.payload_excerpt or "").strip().lower(),
+        ]
+    ).strip()
+    if "max_completion_tokens" not in message and "max completion tokens" not in message:
+        return False
+    code = (error.provider_error_code or "").strip().lower()
+    if not code:
+        return True
+    return (
+        "unknown_parameter" in code
+        or "invalid_parameter" in code
+        or "unsupported" in code
+    )
 
 
 def validate_groq_vision_settings(settings: Settings) -> None:
@@ -60,6 +83,7 @@ class GroqVisionAnalyzer:
     provider_name: str = field(default="groq", init=False)
     _client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _supports_response_format: bool = field(default=True, init=False, repr=False)
+    _uses_legacy_max_tokens: bool = field(default=False, init=False, repr=False)
 
     async def startup(self) -> None:
         if self._client is None:
@@ -90,30 +114,57 @@ class GroqVisionAnalyzer:
             frame_context=frame_context,
             image_media_type=image_media_type,
             include_response_format=self._supports_response_format,
+            use_legacy_max_tokens=self._uses_legacy_max_tokens,
         )
 
-        try:
-            response = await self._post_completion(client=client, request_body=request_body)
-        except VisionProviderError as exc:
-            if self._supports_response_format and is_response_format_compatibility_error(exc):
-                self._supports_response_format = False
-                logger.warning(
-                    "Vision provider rejected response_format; retrying without structured output provider=%s model=%s base_url=%s provider_message=%s",
-                    self.provider_name,
-                    self.model_name,
-                    (self.base_url or DEFAULT_GROQ_BASE_URL).rstrip("/"),
-                    (exc.provider_message or "").strip()[:220] or None,
+        while True:
+            try:
+                response = await self._post_completion(client=client, request_body=request_body)
+                break
+            except VisionProviderError as exc:
+                base_url_for_log = sanitize_url_for_logging(
+                    (self.base_url or DEFAULT_GROQ_BASE_URL).rstrip("/")
                 )
-                response = await self._post_completion(
-                    client=client,
-                    request_body=self._build_request_body(
+                provider_message_excerpt = (sanitize_sensitive_text(exc.provider_message) or "")[
+                    :220
+                ] or None
+                if (
+                    not self._uses_legacy_max_tokens
+                    and _is_max_completion_tokens_compatibility_error(exc)
+                ):
+                    self._uses_legacy_max_tokens = True
+                    logger.warning(
+                        "Vision provider rejected max_completion_tokens; retrying with legacy max_tokens provider=%s model=%s base_url=%s provider_message=%s",
+                        self.provider_name,
+                        self.model_name,
+                        base_url_for_log,
+                        provider_message_excerpt,
+                    )
+                    request_body = self._build_request_body(
+                        image_bytes=image_bytes,
+                        frame_context=frame_context,
+                        image_media_type=image_media_type,
+                        include_response_format=self._supports_response_format,
+                        use_legacy_max_tokens=True,
+                    )
+                    continue
+                if self._supports_response_format and is_response_format_compatibility_error(exc):
+                    self._supports_response_format = False
+                    logger.warning(
+                        "Vision provider rejected response_format; retrying without structured output provider=%s model=%s base_url=%s provider_message=%s",
+                        self.provider_name,
+                        self.model_name,
+                        base_url_for_log,
+                        provider_message_excerpt,
+                    )
+                    request_body = self._build_request_body(
                         image_bytes=image_bytes,
                         frame_context=frame_context,
                         image_media_type=image_media_type,
                         include_response_format=False,
-                    ),
-                )
-            else:
+                        use_legacy_max_tokens=self._uses_legacy_max_tokens,
+                    )
+                    continue
                 raise
 
         try:
@@ -163,13 +214,13 @@ class GroqVisionAnalyzer:
         frame_context: VisionFrameContext,
         image_media_type: str,
         include_response_format: bool,
+        use_legacy_max_tokens: bool,
     ) -> dict[str, Any]:
         data_url = build_data_url(image_bytes=image_bytes, image_media_type=image_media_type)
         payload: dict[str, Any] = {
             "model": self.model_name,
             "temperature": DEFAULT_VISION_TEMPERATURE,
             "top_p": DEFAULT_VISION_TOP_P,
-            "max_tokens": DEFAULT_VISION_MAX_TOKENS,
             "messages": [
                 {"role": "system", "content": VISION_SYSTEM_PROMPT},
                 {
@@ -181,6 +232,8 @@ class GroqVisionAnalyzer:
                 },
             ],
         }
+        token_field_name = "max_tokens" if use_legacy_max_tokens else "max_completion_tokens"
+        payload[token_field_name] = DEFAULT_VISION_MAX_TOKENS
         if include_response_format:
             payload["response_format"] = {"type": "json_object"}
         return payload

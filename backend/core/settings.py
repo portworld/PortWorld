@@ -95,8 +95,6 @@ def _parse_csv_env(*names: str, default: str) -> list[str]:
 @dataclass(frozen=True)
 class Settings:
     openai_api_key: str | None
-    mistral_api_key: str | None
-    mistral_base_url: str | None
     vision_mistral_api_key: str | None
     vision_mistral_base_url: str | None
     vision_openai_api_key: str | None
@@ -115,8 +113,6 @@ class Settings:
     vision_bedrock_aws_session_token: str | None
     vision_groq_api_key: str | None
     vision_groq_base_url: str | None
-    vision_provider_api_key: str | None
-    vision_provider_base_url: str | None
     tavily_api_key: str | None
     tavily_base_url: str | None
     backend_bearer_token: str | None
@@ -384,10 +380,7 @@ class Settings:
         provider_name = (provider or self.vision_memory_provider).strip().lower()
         if provider_name == "bedrock":
             region = (self.vision_bedrock_region or "").strip()
-            if region:
-                return region
-            fallback = (_get_env("AWS_REGION") or "").strip()
-            return fallback or None
+            return region or None
         return None
 
     def resolve_vision_provider_aws_access_key_id(
@@ -398,10 +391,7 @@ class Settings:
         provider_name = (provider or self.vision_memory_provider).strip().lower()
         if provider_name == "bedrock":
             access_key_id = (self.vision_bedrock_aws_access_key_id or "").strip()
-            if access_key_id:
-                return access_key_id
-            fallback = (_get_env("AWS_ACCESS_KEY_ID") or "").strip()
-            return fallback or None
+            return access_key_id or None
         return None
 
     def resolve_vision_provider_aws_secret_access_key(
@@ -412,10 +402,7 @@ class Settings:
         provider_name = (provider or self.vision_memory_provider).strip().lower()
         if provider_name == "bedrock":
             secret_access_key = (self.vision_bedrock_aws_secret_access_key or "").strip()
-            if secret_access_key:
-                return secret_access_key
-            fallback = (_get_env("AWS_SECRET_ACCESS_KEY") or "").strip()
-            return fallback or None
+            return secret_access_key or None
         return None
 
     def resolve_vision_provider_aws_session_token(
@@ -426,10 +413,7 @@ class Settings:
         provider_name = (provider or self.vision_memory_provider).strip().lower()
         if provider_name == "bedrock":
             session_token = (self.vision_bedrock_aws_session_token or "").strip()
-            if session_token:
-                return session_token
-            fallback = (_get_env("AWS_SESSION_TOKEN") or "").strip()
-            return fallback or None
+            return session_token or None
         return None
 
     def resolve_vision_provider_api_key(self, *, provider: str | None = None) -> str | None:
@@ -437,12 +421,6 @@ class Settings:
         key = self._resolve_vision_provider_scoped_api_key(provider=provider_name)
         if key:
             return key
-        key = (self.vision_provider_api_key or "").strip()
-        if key:
-            return key or None
-        if provider_name == "mistral":
-            key = (self.mistral_api_key or "").strip()
-            return key or None
         return None
 
     def resolve_vision_provider_base_url(self, *, provider: str | None = None) -> str | None:
@@ -450,12 +428,6 @@ class Settings:
         base_url = self._resolve_vision_provider_scoped_base_url(provider=provider_name)
         if base_url:
             return base_url
-        base_url = (self.vision_provider_base_url or "").strip()
-        if base_url:
-            return base_url or None
-        if provider_name == "mistral":
-            base_url = (self.mistral_base_url or "").strip()
-            return base_url or None
         return None
 
     def require_vision_provider_api_key(self, *, provider: str | None = None) -> str:
@@ -469,12 +441,12 @@ class Settings:
             return key
         if provider_name == "mistral":
             raise RuntimeError(
-                "VISION_MISTRAL_API_KEY or VISION_PROVIDER_API_KEY or MISTRAL_API_KEY "
+                "VISION_MISTRAL_API_KEY "
                 "is required when VISION_MEMORY_ENABLED=true and VISION_MEMORY_PROVIDER=mistral"
             )
         raise RuntimeError(
             f"Missing vision provider API key for provider={provider_name!r}. "
-            f"Set VISION_{provider_name.upper()}_API_KEY or VISION_PROVIDER_API_KEY."
+            f"Set VISION_{provider_name.upper()}_API_KEY."
         )
 
     def validate_vision_provider_credentials(self, *, provider: str | None = None) -> None:
@@ -485,12 +457,12 @@ class Settings:
         model_name = (self.vision_memory_model or "").strip()
         if provider_name == "mistral" and model_name and key == model_name:
             raise RuntimeError(
-                "VISION_MISTRAL_API_KEY / VISION_PROVIDER_API_KEY is invalid: "
+                "VISION_MISTRAL_API_KEY is invalid: "
                 "it matches VISION_MEMORY_MODEL. Set an API key, not a model id."
             )
         if provider_name == "mistral" and key.lower().startswith("mistralai/"):
             raise RuntimeError(
-                "VISION_MISTRAL_API_KEY / VISION_PROVIDER_API_KEY looks like a model id, "
+                "VISION_MISTRAL_API_KEY looks like a model id, "
                 "not an API key."
             )
 
@@ -501,8 +473,6 @@ class Settings:
 def _load_credentials_settings() -> dict[str, str | None]:
     return {
         "openai_api_key": os.getenv("OPENAI_API_KEY"),
-        "mistral_api_key": os.getenv("MISTRAL_API_KEY"),
-        "mistral_base_url": _get_env("MISTRAL_BASE_URL"),
         "vision_mistral_api_key": os.getenv("VISION_MISTRAL_API_KEY"),
         "vision_mistral_base_url": _get_env("VISION_MISTRAL_BASE_URL"),
         "vision_openai_api_key": os.getenv("VISION_OPENAI_API_KEY"),
@@ -523,8 +493,6 @@ def _load_credentials_settings() -> dict[str, str | None]:
         "vision_bedrock_aws_session_token": os.getenv("VISION_BEDROCK_AWS_SESSION_TOKEN"),
         "vision_groq_api_key": os.getenv("VISION_GROQ_API_KEY"),
         "vision_groq_base_url": _get_env("VISION_GROQ_BASE_URL"),
-        "vision_provider_api_key": os.getenv("VISION_PROVIDER_API_KEY"),
-        "vision_provider_base_url": _get_env("VISION_PROVIDER_BASE_URL"),
         "tavily_api_key": os.getenv("TAVILY_API_KEY"),
         "tavily_base_url": _get_env("TAVILY_BASE_URL"),
     }

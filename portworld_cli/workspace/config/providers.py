@@ -178,6 +178,12 @@ def _validate_provider_flag_conflicts(options: ProviderEditOptions) -> None:
         raise ConfigUsageError("Use only one of --with-vision or --without-vision.")
     if options.with_tooling and options.without_tooling:
         raise ConfigUsageError("Use only one of --with-tooling or --without-tooling.")
+    if (options.openai_api_key or "").strip():
+        raise ConfigUsageError("--openai-api-key has been removed. Use --realtime-api-key.")
+    if (options.vision_provider_api_key or "").strip():
+        raise ConfigUsageError("--vision-provider-api-key has been removed. Use --vision-api-key.")
+    if (options.tavily_api_key or "").strip():
+        raise ConfigUsageError("--tavily-api-key has been removed. Use --search-api-key.")
 
 
 def _selected_providers(selection_inputs: dict[str, str]):
@@ -187,13 +193,7 @@ def _selected_providers(selection_inputs: dict[str, str]):
 
 
 def _existing_env_values(session: ConfigSession) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if session.existing_env is None:
-        return values
-    values.update({key: str(value) for key, value in session.existing_env.known_values.items()})
-    values.update({key: str(value) for key, value in session.existing_env.legacy_alias_values.items()})
-    values.update({key: str(value) for key, value in session.existing_env.preserved_overrides.items()})
-    return values
+    return session.merged_env_values()
 
 
 def _default_choice(current: str, *, choices: tuple[str, ...]) -> str:
@@ -216,12 +216,12 @@ def _explicit_secret_value(
     options: ProviderEditOptions,
 ) -> str | None:
     if env_key == "OPENAI_API_KEY":
-        return options.realtime_api_key or options.openai_api_key
+        return options.realtime_api_key
     if env_key == "GEMINI_LIVE_API_KEY":
         return options.realtime_api_key
     if env_key == "TAVILY_API_KEY" and selected_search_provider == "tavily":
-        return options.search_api_key or options.tavily_api_key
+        return options.search_api_key
     if env_key.startswith("VISION_") and env_key.endswith("_API_KEY"):
-        return options.vision_api_key or options.vision_provider_api_key
+        return options.vision_api_key
 
     return None

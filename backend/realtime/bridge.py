@@ -41,6 +41,7 @@ class IOSRealtimeBridge:
         tooling_runtime: RealtimeToolingRuntime | None = None,
         session_instructions: str | None = None,
         auto_start_response: bool = False,
+        response_create_starts_turn: bool = True,
     ) -> None:
         self._session_id = session_id
         self._upstream_client = upstream_client
@@ -49,8 +50,10 @@ class IOSRealtimeBridge:
         self._tooling_runtime = tooling_runtime
         self._session_instructions = session_instructions
         self._auto_start_response = auto_start_response
+        self._response_create_starts_turn = response_create_starts_turn
 
         self._upstream_task: asyncio.Task[None] | None = None
+        self._tool_dispatch_tasks: set[asyncio.Task[None]] = set()
         self._closed = False
         self._session_ready_confirmed = False
         self._session_ready_event = asyncio.Event()
@@ -87,6 +90,7 @@ class IOSRealtimeBridge:
             audio_uplink=self._audio_uplink,
             tool_dispatcher=self._tool_dispatcher,
             send_envelope=send_envelope,
+            response_create_starts_turn=response_create_starts_turn,
         )
 
     async def connect_and_start(self) -> None:
@@ -134,6 +138,14 @@ class IOSRealtimeBridge:
         self._closed = True
 
         self._turn_manager.cancel_all_tasks()
+
+        tool_dispatch_tasks = list(self._tool_dispatch_tasks)
+        self._tool_dispatch_tasks.clear()
+        for task in tool_dispatch_tasks:
+            task.cancel()
+        for task in tool_dispatch_tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
         task = self._upstream_task
         self._upstream_task = None
@@ -253,10 +265,40 @@ class IOSRealtimeBridge:
 
     async def _handle_function_call_done(self, event: NormalizedRealtimeEvent) -> None:
         raw_event = self._payload_dict(event)
-        await self._tool_dispatcher.handle_event(raw_event)
+        task = asyncio.create_task(
+            self._tool_dispatcher.handle_event(raw_event),
+            name=f"tool_dispatch:{self._session_id}",
+        )
+        self._tool_dispatch_tasks.add(task)
+        task.add_done_callback(self._on_tool_dispatch_task_done)
+
+    async def _handle_function_call_cancelled(self, event: NormalizedRealtimeEvent) -> None:
+        payload = self._payload_dict(event)
+        raw_call_ids = payload.get("call_ids")
+        if not isinstance(raw_call_ids, list):
+            return
+        call_ids = [call_id for call_id in raw_call_ids if isinstance(call_id, str) and call_id]
+        if not call_ids:
+            return
+        self._tool_dispatcher.cancel_pending_tool_calls(
+            call_ids=call_ids,
+            source=str(event.get("source") or "tool.call.cancelled"),
+        )
 
     async def _handle_error_event(self, event: NormalizedRealtimeEvent) -> None:
         await self._on_upstream_error_event(event)
+
+    def _on_tool_dispatch_task_done(self, task: asyncio.Task[None]) -> None:
+        self._tool_dispatch_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.exception(
+                "Tool dispatch task failed session=%s",
+                self._session_id,
+                exc_info=exc,
+            )
 
     async def _handle_session_ready(self, event: NormalizedRealtimeEvent) -> None:
         source = event.get("source", "session.ready")
@@ -275,6 +317,7 @@ class IOSRealtimeBridge:
         NormalizedRealtimeEventTypes.INPUT_SPEECH_STOPPED: _handle_speech_stopped,
         NormalizedRealtimeEventTypes.RESPONSE_CREATED: _handle_response_created,
         NormalizedRealtimeEventTypes.TOOL_CALL_COMPLETED: _handle_function_call_done,
+        NormalizedRealtimeEventTypes.TOOL_CALL_CANCELLED: _handle_function_call_cancelled,
         NormalizedRealtimeEventTypes.INPUT_AUDIO_COMMITTED: _handle_input_audio_committed,
         NormalizedRealtimeEventTypes.ERROR: _handle_error_event,
     }
@@ -485,8 +528,14 @@ class IOSRealtimeBridge:
 
     async def _send_response_create(self, source: str) -> None:
         await self._upstream_client.create_response()
-        self._turn_manager.on_response_created()
-        logger.info("Upstream response.create sent session=%s source=%s", self._session_id, source)
+        if self._response_create_starts_turn:
+            self._turn_manager.on_response_created()
+        logger.info(
+            "Upstream response.create sent session=%s source=%s starts_turn=%s",
+            self._session_id,
+            source,
+            self._response_create_starts_turn,
+        )
 
     async def _send_onboarding_profile_ready(self, payload: dict[str, Any]) -> None:
         missing_required_fields = payload.get("missing_required_fields")

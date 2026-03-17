@@ -28,6 +28,8 @@ from backend.vision.providers.shared import (
     is_response_format_compatibility_error,
     normalize_observation,
     post_json_with_vision_errors,
+    sanitize_sensitive_text,
+    sanitize_url_for_logging,
 )
 
 DEFAULT_MISTRAL_BASE_URL = "https://api.mistral.ai"
@@ -92,12 +94,15 @@ class MistralVisionAnalyzer:
         except VisionProviderError as exc:
             if self._supports_response_format and is_response_format_compatibility_error(exc):
                 self._supports_response_format = False
+                base_url_for_log = sanitize_url_for_logging(
+                    (self.base_url or DEFAULT_MISTRAL_BASE_URL).rstrip("/")
+                )
                 logger.warning(
                     "Vision provider rejected response_format; retrying without structured output provider=%s model=%s base_url=%s provider_message=%s",
                     self.provider_name,
                     self.model_name,
-                    (self.base_url or DEFAULT_MISTRAL_BASE_URL).rstrip("/"),
-                    (exc.provider_message or "").strip()[:220] or None,
+                    base_url_for_log,
+                    (sanitize_sensitive_text(exc.provider_message) or "")[:220] or None,
                 )
                 fallback_body = self._build_request_body(
                     image_bytes=image_bytes,

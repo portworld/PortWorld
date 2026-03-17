@@ -20,6 +20,7 @@ class NormalizedRealtimeEventTypes:
     INPUT_SPEECH_STOPPED = "input.speech.stopped"
     INPUT_AUDIO_COMMITTED = "input.audio.committed"
     TOOL_CALL_COMPLETED = "tool.call.completed"
+    TOOL_CALL_CANCELLED = "tool.call.cancelled"
     ERROR = "error"
     UNHANDLED = "provider.event.unhandled"
 

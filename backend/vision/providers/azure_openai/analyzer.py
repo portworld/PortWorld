@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
 from pydantic import ValidationError
@@ -28,11 +30,78 @@ from backend.vision.providers.shared import (
     is_response_format_compatibility_error,
     normalize_observation,
     post_json_with_vision_errors,
+    sanitize_sensitive_text,
+    sanitize_url_for_logging,
 )
 
 DEFAULT_AZURE_OPENAI_API_VERSION = "2024-10-21"
+_AZURE_DEPLOYMENT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_AZURE_API_VERSION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_azure_endpoint(endpoint: str) -> str:
+    candidate = endpoint.strip()
+    if not candidate:
+        raise RuntimeError(
+            "VISION_AZURE_OPENAI_ENDPOINT is required when VISION_MEMORY_PROVIDER=azure_openai"
+        )
+    parsed = urlsplit(candidate)
+    if parsed.scheme.lower() != "https":
+        raise RuntimeError("VISION_AZURE_OPENAI_ENDPOINT must start with https://")
+    if not parsed.netloc:
+        raise RuntimeError(
+            "VISION_AZURE_OPENAI_ENDPOINT must include a valid host when VISION_MEMORY_PROVIDER=azure_openai"
+        )
+    if parsed.username or parsed.password:
+        raise RuntimeError(
+            "VISION_AZURE_OPENAI_ENDPOINT must not include embedded credentials"
+        )
+    if parsed.query or parsed.fragment:
+        raise RuntimeError(
+            "VISION_AZURE_OPENAI_ENDPOINT must not include query or fragment components"
+        )
+    normalized_path = parsed.path.rstrip("/")
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc, normalized_path, "", ""))
+
+
+def _normalize_azure_deployment(deployment: str) -> str:
+    candidate = deployment.strip()
+    if not candidate:
+        raise RuntimeError(
+            "VISION_AZURE_OPENAI_DEPLOYMENT or VISION_MEMORY_MODEL is required when VISION_MEMORY_PROVIDER=azure_openai"
+        )
+    if any(character.isspace() for character in candidate):
+        raise RuntimeError("VISION_AZURE_OPENAI_DEPLOYMENT must not contain whitespace")
+    if any(character in candidate for character in ["/", "\\", "?", "#", "&", "="]):
+        raise RuntimeError(
+            "VISION_AZURE_OPENAI_DEPLOYMENT contains unsupported delimiter characters"
+        )
+    if not _AZURE_DEPLOYMENT_PATTERN.fullmatch(candidate):
+        raise RuntimeError(
+            "VISION_AZURE_OPENAI_DEPLOYMENT contains unsupported characters"
+        )
+    return candidate
+
+
+def _normalize_azure_api_version(api_version: str) -> str:
+    candidate = api_version.strip()
+    if not candidate:
+        raise RuntimeError(
+            "VISION_AZURE_OPENAI_API_VERSION cannot be empty when VISION_MEMORY_PROVIDER=azure_openai"
+        )
+    if any(character.isspace() for character in candidate):
+        raise RuntimeError("VISION_AZURE_OPENAI_API_VERSION must not contain whitespace")
+    if any(character in candidate for character in ["/", "\\", "?", "#", "&", "="]):
+        raise RuntimeError(
+            "VISION_AZURE_OPENAI_API_VERSION contains unsupported delimiter characters"
+        )
+    if not _AZURE_API_VERSION_PATTERN.fullmatch(candidate):
+        raise RuntimeError(
+            "VISION_AZURE_OPENAI_API_VERSION contains unsupported characters"
+        )
+    return candidate
 
 
 def validate_azure_openai_vision_settings(settings: Settings) -> None:
@@ -43,20 +112,18 @@ def validate_azure_openai_vision_settings(settings: Settings) -> None:
         raise RuntimeError(
             "VISION_AZURE_OPENAI_ENDPOINT is required when VISION_MEMORY_PROVIDER=azure_openai"
         )
-    normalized_endpoint = endpoint.strip().lower()
-    if not (
-        normalized_endpoint.startswith("https://")
-        or normalized_endpoint.startswith("http://")
-    ):
-        raise RuntimeError(
-            "VISION_AZURE_OPENAI_ENDPOINT must start with https:// or http://"
-        )
+    _normalize_azure_endpoint(endpoint)
 
     deployment = settings.resolve_vision_provider_deployment(provider="azure_openai")
     if not deployment:
         raise RuntimeError(
             "VISION_AZURE_OPENAI_DEPLOYMENT or VISION_MEMORY_MODEL is required when VISION_MEMORY_PROVIDER=azure_openai"
         )
+    _normalize_azure_deployment(deployment)
+
+    api_version = settings.resolve_vision_provider_api_version(provider="azure_openai")
+    if api_version:
+        _normalize_azure_api_version(api_version)
 
 
 def build_azure_openai_vision_analyzer(*, settings: Settings) -> "AzureOpenAIVisionAnalyzer":
@@ -78,9 +145,9 @@ def build_azure_openai_vision_analyzer(*, settings: Settings) -> "AzureOpenAIVis
 
     return AzureOpenAIVisionAnalyzer(
         api_key=settings.require_vision_provider_api_key(provider="azure_openai"),
-        deployment=deployment,
-        endpoint=endpoint,
-        api_version=api_version,
+        deployment=_normalize_azure_deployment(deployment),
+        endpoint=_normalize_azure_endpoint(endpoint),
+        api_version=_normalize_azure_api_version(api_version),
     )
 
 
@@ -107,6 +174,9 @@ class AzureOpenAIVisionAnalyzer:
             )
 
     def __post_init__(self) -> None:
+        self.endpoint = _normalize_azure_endpoint(self.endpoint)
+        self.deployment = _normalize_azure_deployment(self.deployment)
+        self.api_version = _normalize_azure_api_version(self.api_version)
         self.model_name = self.deployment
 
     async def shutdown(self) -> None:
@@ -133,12 +203,13 @@ class AzureOpenAIVisionAnalyzer:
         except VisionProviderError as exc:
             if self._supports_response_format and is_response_format_compatibility_error(exc):
                 self._supports_response_format = False
+                endpoint_for_log = sanitize_url_for_logging(self.endpoint.rstrip("/"))
                 logger.warning(
                     "Vision provider rejected response_format; retrying without structured output provider=%s deployment=%s endpoint=%s provider_message=%s",
                     self.provider_name,
                     self.deployment,
-                    self.endpoint.rstrip("/"),
-                    (exc.provider_message or "").strip()[:220] or None,
+                    endpoint_for_log,
+                    (sanitize_sensitive_text(exc.provider_message) or "")[:220] or None,
                 )
                 response = await self._post_completion(
                     client=client,
@@ -185,14 +256,13 @@ class AzureOpenAIVisionAnalyzer:
         client: httpx.AsyncClient,
         request_body: dict[str, Any],
     ) -> httpx.Response:
-        path = (
-            f"/openai/deployments/{self.deployment}/chat/completions"
-            f"?api-version={self.api_version}"
-        )
+        deployment = quote(self.deployment, safe="")
+        path = f"/openai/deployments/{deployment}/chat/completions"
         return await post_json_with_vision_errors(
             client=client,
             url=path,
             request_body=request_body,
+            query_params={"api-version": self.api_version},
         )
 
     def _build_request_body(

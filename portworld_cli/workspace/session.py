@@ -4,6 +4,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from dotenv import dotenv_values
+
 from backend.core.provider_requirements import (
     build_missing_secret_diagnostics,
     compute_selected_provider_key_set,
@@ -107,7 +109,13 @@ class WorkspaceSession:
         if self.template is None or self.existing_env is None:
             return {}
         env_values = self.template.defaults()
-        env_values.update(self.existing_env.known_values)
+        env_values.update(
+            _build_effective_env_values(
+                template=self.template,
+                existing_env=self.existing_env,
+                config_overrides=build_env_overrides_from_project_config(self.project_config),
+            )
+        )
         return dict(env_values)
 
     def secret_readiness(self) -> SecretReadiness:
@@ -129,6 +137,7 @@ class WorkspaceSession:
             )
 
         env_values = _build_effective_env_values(
+            template=self.template,
             existing_env=self.existing_env,
             config_overrides=config_selection,
         )
@@ -149,7 +158,7 @@ class WorkspaceSession:
             optional_secret_keys=diagnostics.optional_env_keys,
             missing_required_secret_keys=diagnostics.missing_required_env_keys,
             key_presence=key_presence,
-            bearer_token_present=bool((self.existing_env.known_values.get("BACKEND_BEARER_TOKEN", "")).strip()),
+            bearer_token_present=bool((env_values.get("BACKEND_BEARER_TOKEN", "")).strip()),
         )
 
     @property
@@ -378,12 +387,34 @@ def _strip(value: str | None) -> str | None:
 
 def _build_effective_env_values(
     *,
+    template: EnvTemplate,
     existing_env: ParsedEnvFile,
     config_overrides: dict[str, str],
 ) -> dict[str, str]:
-    values: dict[str, str] = {}
-    values.update({key: str(value) for key, value in existing_env.known_values.items()})
-    values.update({key: str(value) for key, value in existing_env.legacy_alias_values.items()})
-    values.update({key: str(value) for key, value in existing_env.preserved_overrides.items()})
+    values = _explicit_template_env_values(template=template, existing_env=existing_env)
+    for key, value in existing_env.preserved_overrides.items():
+        if key in existing_env.legacy_alias_values:
+            continue
+        values[key] = str(value)
     values.update(config_overrides)
+    return values
+
+
+def _explicit_template_env_values(
+    *,
+    template: EnvTemplate,
+    existing_env: ParsedEnvFile,
+) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not existing_env.path.is_file():
+        return values
+    try:
+        parsed_items = dotenv_values(existing_env.path)
+    except Exception:
+        parsed_items = {}
+
+    for key, raw_value in parsed_items.items():
+        if key is None or key not in template.default_values:
+            continue
+        values[key] = "" if raw_value is None else str(raw_value)
     return values

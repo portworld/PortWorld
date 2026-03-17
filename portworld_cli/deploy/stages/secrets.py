@@ -5,6 +5,7 @@ import re
 from collections import OrderedDict
 
 from backend.core.provider_requirements import (
+    build_provider_requirement_diagnostics,
     compute_selected_provider_key_set,
     resolve_effective_env_value,
     resolve_selected_providers,
@@ -24,6 +25,17 @@ def ensure_core_secrets(
     provider_secret_values: dict[str, str] = {}
     selected = resolve_selected_providers(env_values)
     key_set = compute_selected_provider_key_set(selected)
+    requirement_diagnostics = build_provider_requirement_diagnostics(
+        env_values,
+        selected=selected,
+    )
+    if requirement_diagnostics.missing_required_non_secret_env_keys:
+        missing_keys = ", ".join(requirement_diagnostics.missing_required_non_secret_env_keys)
+        raise DeployUsageError(
+            "Missing required non-secret provider configuration for Cloud Run deploy: "
+            f"{missing_keys}. Set these keys in backend/.env for the selected provider configuration."
+        )
+
     for entry in key_set.entries:
         for env_key in entry.secret_binding.required_env_keys:
             if env_key in provider_secret_names:

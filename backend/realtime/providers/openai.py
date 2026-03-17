@@ -73,5 +73,6 @@ def build_openai_session_bridge(
         tooling_runtime=realtime_tooling_runtime,
         session_instructions=effective_instructions,
         auto_start_response=auto_start_response,
+        response_create_starts_turn=True,
     )
     return BridgeBinding(bridge=bridge, context=context)

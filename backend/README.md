@@ -141,6 +141,8 @@ Use `/livez` for public and Cloud Run liveness checks. `/healthz` remains availa
 
 Copy `.env.example` to `.env` and edit. The full reference with all options and defaults is in `.env.example`.
 Use `portworld providers list` and `portworld providers show <provider_id>` to inspect current provider requirements.
+Legacy provider alias keys are not supported. Use canonical provider-scoped keys only (for example
+`VISION_MISTRAL_API_KEY`, not `VISION_PROVIDER_API_KEY` or `MISTRAL_API_KEY`).
 
 **Provider selection toggles**
 
@@ -165,10 +167,10 @@ Use `portworld providers list` and `portworld providers show <provider_id>` to i
 |---|---|
 | `mistral` | `VISION_MISTRAL_API_KEY` |
 | `openai` | `VISION_OPENAI_API_KEY` |
-| `azure_openai` | `VISION_AZURE_OPENAI_API_KEY` |
+| `azure_openai` | `VISION_AZURE_OPENAI_API_KEY` plus `VISION_AZURE_OPENAI_ENDPOINT` |
 | `gemini` | `VISION_GEMINI_API_KEY` |
 | `claude` | `VISION_CLAUDE_API_KEY` |
-| `bedrock` | no required static key (set `VISION_BEDROCK_REGION` and optional AWS credentials as needed) |
+| `bedrock` | required config: `VISION_BEDROCK_REGION` (optional AWS credentials: `VISION_BEDROCK_AWS_ACCESS_KEY_ID`, `VISION_BEDROCK_AWS_SECRET_ACCESS_KEY`, `VISION_BEDROCK_AWS_SESSION_TOKEN`) |
 | `groq` | `VISION_GROQ_API_KEY` |
 
 **Search provider required keys (when `REALTIME_TOOLING_ENABLED=true`)**

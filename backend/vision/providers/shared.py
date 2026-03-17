@@ -4,7 +4,9 @@ import base64
 import datetime as dt
 import email.utils
 import json
+import re
 from typing import Any, Mapping
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -30,6 +32,59 @@ VISION_SYSTEM_PROMPT = (
     "Set salient_change to the JSON boolean true or false. "
     "Set confidence as a JSON number between 0.0 and 1.0."
 )
+
+_URL_PATTERN = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_AUTHORIZATION_PATTERN = re.compile(r"(?i)\b(authorization\s*[:=]\s*)([^\s,;]+)")
+_BEARER_TOKEN_PATTERN = re.compile(r"(?i)\b(bearer\s+)([A-Za-z0-9._~+/=-]+)")
+_SENSITIVE_KEY_VALUE_PATTERN = re.compile(
+    r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|sig|signature)\b\s*[:=]\s*([^\s,;]+)"
+)
+
+
+def sanitize_url_for_logging(url: str | None) -> str | None:
+    if url is None:
+        return None
+    candidate = url.strip()
+    if not candidate:
+        return None
+    try:
+        parsed = urlsplit(candidate)
+    except Exception:
+        return "<redacted-url>"
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in {"http", "https"}:
+        return "<redacted-url>"
+
+    hostname = parsed.hostname or ""
+    if not hostname:
+        return "<redacted-url>"
+
+    port = parsed.port
+    netloc = f"{hostname}:{port}" if port is not None else hostname
+    path = parsed.path or ""
+    sanitized = urlunsplit((scheme, netloc, path, "", ""))
+    if parsed.query:
+        sanitized = f"{sanitized}?<redacted>"
+    return sanitized
+
+
+def _sanitize_url_match(match: re.Match[str]) -> str:
+    return sanitize_url_for_logging(match.group(0)) or "<redacted-url>"
+
+
+def sanitize_sensitive_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+
+    sanitized = _URL_PATTERN.sub(_sanitize_url_match, text)
+    sanitized = _AUTHORIZATION_PATTERN.sub(r"\1<redacted>", sanitized)
+    sanitized = _BEARER_TOKEN_PATTERN.sub(r"\1<redacted>", sanitized)
+    sanitized = _SENSITIVE_KEY_VALUE_PATTERN.sub(r"\1=<redacted>", sanitized)
+    return sanitized
 
 
 def build_data_url(*, image_bytes: bytes, image_media_type: str) -> str:
@@ -152,7 +207,9 @@ def extract_http_error_details(response: httpx.Response) -> dict[str, str | None
 
     raw_text = response.text.strip()
     if raw_text:
-        payload_excerpt = raw_text[:400]
+        payload_excerpt = sanitize_sensitive_text(raw_text)
+        if payload_excerpt is not None:
+            payload_excerpt = payload_excerpt[:400]
 
     try:
         payload = response.json()
@@ -171,11 +228,13 @@ def extract_http_error_details(response: httpx.Response) -> dict[str, str | None
                 provider_error_code = error_code.strip()
             message = error_payload.get("message")
             if isinstance(message, str) and message.strip():
-                provider_message = message.strip()
+                provider_message = sanitize_sensitive_text(message.strip())
         elif isinstance(error_payload, str) and error_payload.strip():
-            provider_message = error_payload.strip()
+            provider_message = sanitize_sensitive_text(error_payload.strip())
         elif payload_excerpt is None:
-            payload_excerpt = str(payload)[:400]
+            payload_excerpt = sanitize_sensitive_text(str(payload))
+            if payload_excerpt is not None:
+                payload_excerpt = payload_excerpt[:400]
 
     return {
         "provider_error_code": provider_error_code,
@@ -189,18 +248,27 @@ async def post_json_with_vision_errors(
     client: httpx.AsyncClient,
     url: str,
     request_body: Mapping[str, Any],
+    query_params: Mapping[str, Any] | None = None,
 ) -> httpx.Response:
     try:
-        response = await client.post(url, json=request_body)
+        response = await client.post(url, json=request_body, params=query_params)
     except httpx.ReadTimeout as exc:
         raise VisionProviderError(
             provider_error_code="provider_read_timeout",
             provider_message="Vision provider request timed out while waiting for a response",
         ) from exc
     except httpx.RequestError as exc:
+        request_url: str | None = None
+        if exc.request is not None:
+            request_url = sanitize_url_for_logging(str(exc.request.url))
+        transport_message = sanitize_sensitive_text(str(exc))
+        if request_url:
+            provider_message = f"{type(exc).__name__} while requesting {request_url}"
+        else:
+            provider_message = f"{type(exc).__name__}: {transport_message or 'request failed'}"
         raise VisionProviderError(
             provider_error_code="provider_transport_error",
-            provider_message=f"{type(exc).__name__}: {exc}",
+            provider_message=provider_message,
         ) from exc
 
     try:
@@ -255,13 +323,17 @@ def provider_error_from_exception(
 ) -> VisionProviderError:
     return VisionProviderError(
         provider_error_code=error_code,
-        provider_message=message,
-        payload_excerpt=payload_excerpt,
+        provider_message=sanitize_sensitive_text(message),
+        payload_excerpt=sanitize_sensitive_text(payload_excerpt),
     )
 
 
 def safe_json_excerpt(payload: object) -> str | None:
     try:
-        return json.dumps(payload)[:400]
+        serialized = json.dumps(payload)
     except Exception:
-        return str(payload)[:400]
+        serialized = str(payload)
+    sanitized = sanitize_sensitive_text(serialized)
+    if sanitized is None:
+        return None
+    return sanitized[:400]

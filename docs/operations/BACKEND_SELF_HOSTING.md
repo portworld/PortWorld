@@ -20,6 +20,8 @@ Optional, depending on enabled features and selected providers:
 
 - visual memory provider credentials when `VISION_MEMORY_ENABLED=true`
 - search provider credentials (`TAVILY_API_KEY`) when `REALTIME_TOOLING_ENABLED=true`
+- canonical provider-scoped keys only (legacy aliases such as `VISION_PROVIDER_*`, `MISTRAL_*`, and
+  AWS fallback aliases are not read)
 
 For authoritative required/optional provider settings, use:
 
@@ -95,6 +97,9 @@ If you prefer the manual path, `cp backend/.env.example backend/.env` still work
   - set `VISION_MEMORY_PROVIDER` to one of:
     - `mistral`, `openai`, `azure_openai`, `gemini`, `claude`, `bedrock`, `groq`
   - set the selected vision provider key(s)
+  - provider-specific required config:
+    - `VISION_AZURE_OPENAI_ENDPOINT` when `VISION_MEMORY_PROVIDER=azure_openai`
+    - `VISION_BEDROCK_REGION` when `VISION_MEMORY_PROVIDER=bedrock`
 - realtime plus tooling
   - set `REALTIME_PROVIDER` and the selected realtime provider key
   - set `REALTIME_TOOLING_ENABLED=true`

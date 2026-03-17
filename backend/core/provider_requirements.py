@@ -31,6 +31,10 @@ class ProviderRequirementEntry:
     summary: str
     required_env_keys: tuple[str, ...]
     optional_env_keys: tuple[str, ...] = ()
+    required_secret_env_keys: tuple[str, ...] = ()
+    optional_secret_env_keys: tuple[str, ...] = ()
+    required_non_secret_env_keys: tuple[str, ...] = ()
+    optional_non_secret_env_keys: tuple[str, ...] = ()
     legacy_alias_keys: tuple[str, ...] = ()
     capability_tags: tuple[str, ...] = ()
     alias_precedence_by_key: Mapping[str, tuple[str, ...]] = field(
@@ -55,6 +59,10 @@ class SelectedProviderKeySet:
     entries: tuple[ProviderRequirementEntry, ...]
     required_env_keys: tuple[str, ...]
     optional_env_keys: tuple[str, ...]
+    required_secret_env_keys: tuple[str, ...]
+    optional_secret_env_keys: tuple[str, ...]
+    required_non_secret_env_keys: tuple[str, ...]
+    optional_non_secret_env_keys: tuple[str, ...]
     legacy_alias_keys: tuple[str, ...]
     secret_binding_required_env_keys: tuple[str, ...]
     secret_binding_optional_env_keys: tuple[str, ...]
@@ -88,6 +96,42 @@ class MissingSecretDiagnostics:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderRequirementDiagnostics:
+    selected: SelectedProviders
+    required_secret_env_keys: tuple[str, ...]
+    optional_secret_env_keys: tuple[str, ...]
+    required_non_secret_env_keys: tuple[str, ...]
+    optional_non_secret_env_keys: tuple[str, ...]
+    missing_required_secret_env_keys: tuple[str, ...]
+    missing_required_non_secret_env_keys: tuple[str, ...]
+    secret_key_presence: Mapping[str, bool]
+    non_secret_key_presence: Mapping[str, bool]
+    resolved_values: Mapping[str, str | None]
+    resolved_sources: Mapping[str, str | None]
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "selected": {
+                "realtime_provider": self.selected.realtime_provider,
+                "vision_enabled": self.selected.vision_enabled,
+                "vision_provider": self.selected.vision_provider,
+                "search_enabled": self.selected.search_enabled,
+                "search_provider": self.selected.search_provider,
+            },
+            "required_secret_env_keys": list(self.required_secret_env_keys),
+            "optional_secret_env_keys": list(self.optional_secret_env_keys),
+            "required_non_secret_env_keys": list(self.required_non_secret_env_keys),
+            "optional_non_secret_env_keys": list(self.optional_non_secret_env_keys),
+            "missing_required_secret_env_keys": list(self.missing_required_secret_env_keys),
+            "missing_required_non_secret_env_keys": list(self.missing_required_non_secret_env_keys),
+            "secret_key_presence": dict(self.secret_key_presence),
+            "non_secret_key_presence": dict(self.non_secret_key_presence),
+            "resolved_values": dict(self.resolved_values),
+            "resolved_sources": dict(self.resolved_sources),
+        }
+
+
 PROVIDER_REQUIREMENTS: tuple[ProviderRequirementEntry, ...] = (
     ProviderRequirementEntry(
         kind=PROVIDER_KIND_REALTIME,
@@ -96,6 +140,12 @@ PROVIDER_REQUIREMENTS: tuple[ProviderRequirementEntry, ...] = (
         summary="Realtime session provider backed by OpenAI.",
         required_env_keys=("OPENAI_API_KEY",),
         optional_env_keys=(
+            "OPENAI_REALTIME_MODEL",
+            "OPENAI_REALTIME_VOICE",
+            "OPENAI_REALTIME_INSTRUCTIONS",
+        ),
+        required_secret_env_keys=("OPENAI_API_KEY",),
+        optional_non_secret_env_keys=(
             "OPENAI_REALTIME_MODEL",
             "OPENAI_REALTIME_VOICE",
             "OPENAI_REALTIME_INSTRUCTIONS",
@@ -117,6 +167,12 @@ PROVIDER_REQUIREMENTS: tuple[ProviderRequirementEntry, ...] = (
             "GEMINI_LIVE_BASE_URL",
             "GEMINI_LIVE_ENDPOINT",
         ),
+        required_secret_env_keys=("GEMINI_LIVE_API_KEY",),
+        optional_non_secret_env_keys=(
+            "GEMINI_LIVE_MODEL",
+            "GEMINI_LIVE_BASE_URL",
+            "GEMINI_LIVE_ENDPOINT",
+        ),
         capability_tags=("realtime_sessions", "audio_streaming", "tool_calling"),
         secret_binding=SecretBindingMetadata(
             eligible=True,
@@ -130,25 +186,9 @@ PROVIDER_REQUIREMENTS: tuple[ProviderRequirementEntry, ...] = (
         summary="Vision-memory provider using the native Mistral adapter.",
         required_env_keys=("VISION_MISTRAL_API_KEY",),
         optional_env_keys=("VISION_MISTRAL_BASE_URL",),
-        legacy_alias_keys=(
-            "VISION_PROVIDER_API_KEY",
-            "VISION_PROVIDER_BASE_URL",
-            "MISTRAL_API_KEY",
-            "MISTRAL_BASE_URL",
-        ),
+        required_secret_env_keys=("VISION_MISTRAL_API_KEY",),
+        optional_non_secret_env_keys=("VISION_MISTRAL_BASE_URL",),
         capability_tags=("vision_memory", "structured_output_fallback"),
-        alias_precedence_by_key=MappingProxyType(
-            {
-                "VISION_MISTRAL_API_KEY": (
-                    "VISION_PROVIDER_API_KEY",
-                    "MISTRAL_API_KEY",
-                ),
-                "VISION_MISTRAL_BASE_URL": (
-                    "VISION_PROVIDER_BASE_URL",
-                    "MISTRAL_BASE_URL",
-                ),
-            }
-        ),
         secret_binding=SecretBindingMetadata(
             eligible=True,
             required_env_keys=("VISION_MISTRAL_API_KEY",),
@@ -161,14 +201,9 @@ PROVIDER_REQUIREMENTS: tuple[ProviderRequirementEntry, ...] = (
         summary="Vision-memory provider using OpenAI responses.",
         required_env_keys=("VISION_OPENAI_API_KEY",),
         optional_env_keys=("VISION_OPENAI_BASE_URL",),
-        legacy_alias_keys=("VISION_PROVIDER_API_KEY", "VISION_PROVIDER_BASE_URL"),
+        required_secret_env_keys=("VISION_OPENAI_API_KEY",),
+        optional_non_secret_env_keys=("VISION_OPENAI_BASE_URL",),
         capability_tags=("vision_memory", "structured_output"),
-        alias_precedence_by_key=MappingProxyType(
-            {
-                "VISION_OPENAI_API_KEY": ("VISION_PROVIDER_API_KEY",),
-                "VISION_OPENAI_BASE_URL": ("VISION_PROVIDER_BASE_URL",),
-            }
-        ),
         secret_binding=SecretBindingMetadata(
             eligible=True,
             required_env_keys=("VISION_OPENAI_API_KEY",),
@@ -181,17 +216,16 @@ PROVIDER_REQUIREMENTS: tuple[ProviderRequirementEntry, ...] = (
         summary="Vision-memory provider backed by Azure OpenAI deployments.",
         required_env_keys=("VISION_AZURE_OPENAI_API_KEY",),
         optional_env_keys=(
-            "VISION_AZURE_OPENAI_ENDPOINT",
             "VISION_AZURE_OPENAI_API_VERSION",
             "VISION_AZURE_OPENAI_DEPLOYMENT",
         ),
-        legacy_alias_keys=("VISION_PROVIDER_API_KEY",),
-        capability_tags=("vision_memory", "structured_output"),
-        alias_precedence_by_key=MappingProxyType(
-            {
-                "VISION_AZURE_OPENAI_API_KEY": ("VISION_PROVIDER_API_KEY",),
-            }
+        required_secret_env_keys=("VISION_AZURE_OPENAI_API_KEY",),
+        required_non_secret_env_keys=("VISION_AZURE_OPENAI_ENDPOINT",),
+        optional_non_secret_env_keys=(
+            "VISION_AZURE_OPENAI_API_VERSION",
+            "VISION_AZURE_OPENAI_DEPLOYMENT",
         ),
+        capability_tags=("vision_memory", "structured_output"),
         secret_binding=SecretBindingMetadata(
             eligible=True,
             required_env_keys=("VISION_AZURE_OPENAI_API_KEY",),
@@ -204,14 +238,9 @@ PROVIDER_REQUIREMENTS: tuple[ProviderRequirementEntry, ...] = (
         summary="Vision-memory provider using the Gemini multimodal API.",
         required_env_keys=("VISION_GEMINI_API_KEY",),
         optional_env_keys=("VISION_GEMINI_BASE_URL",),
-        legacy_alias_keys=("VISION_PROVIDER_API_KEY", "VISION_PROVIDER_BASE_URL"),
+        required_secret_env_keys=("VISION_GEMINI_API_KEY",),
+        optional_non_secret_env_keys=("VISION_GEMINI_BASE_URL",),
         capability_tags=("vision_memory", "structured_output"),
-        alias_precedence_by_key=MappingProxyType(
-            {
-                "VISION_GEMINI_API_KEY": ("VISION_PROVIDER_API_KEY",),
-                "VISION_GEMINI_BASE_URL": ("VISION_PROVIDER_BASE_URL",),
-            }
-        ),
         secret_binding=SecretBindingMetadata(
             eligible=True,
             required_env_keys=("VISION_GEMINI_API_KEY",),
@@ -224,14 +253,9 @@ PROVIDER_REQUIREMENTS: tuple[ProviderRequirementEntry, ...] = (
         summary="Vision-memory provider using Anthropic Claude messages.",
         required_env_keys=("VISION_CLAUDE_API_KEY",),
         optional_env_keys=("VISION_CLAUDE_BASE_URL",),
-        legacy_alias_keys=("VISION_PROVIDER_API_KEY", "VISION_PROVIDER_BASE_URL"),
+        required_secret_env_keys=("VISION_CLAUDE_API_KEY",),
+        optional_non_secret_env_keys=("VISION_CLAUDE_BASE_URL",),
         capability_tags=("vision_memory"),
-        alias_precedence_by_key=MappingProxyType(
-            {
-                "VISION_CLAUDE_API_KEY": ("VISION_PROVIDER_API_KEY",),
-                "VISION_CLAUDE_BASE_URL": ("VISION_PROVIDER_BASE_URL",),
-            }
-        ),
         secret_binding=SecretBindingMetadata(
             eligible=True,
             required_env_keys=("VISION_CLAUDE_API_KEY",),
@@ -244,26 +268,17 @@ PROVIDER_REQUIREMENTS: tuple[ProviderRequirementEntry, ...] = (
         summary="Vision-memory provider using AWS Bedrock runtime credentials.",
         required_env_keys=(),
         optional_env_keys=(
-            "VISION_BEDROCK_REGION",
             "VISION_BEDROCK_AWS_ACCESS_KEY_ID",
             "VISION_BEDROCK_AWS_SECRET_ACCESS_KEY",
             "VISION_BEDROCK_AWS_SESSION_TOKEN",
         ),
-        legacy_alias_keys=(
-            "AWS_REGION",
-            "AWS_ACCESS_KEY_ID",
-            "AWS_SECRET_ACCESS_KEY",
-            "AWS_SESSION_TOKEN",
+        required_non_secret_env_keys=("VISION_BEDROCK_REGION",),
+        optional_secret_env_keys=(
+            "VISION_BEDROCK_AWS_ACCESS_KEY_ID",
+            "VISION_BEDROCK_AWS_SECRET_ACCESS_KEY",
+            "VISION_BEDROCK_AWS_SESSION_TOKEN",
         ),
         capability_tags=("vision_memory", "aws_sdk"),
-        alias_precedence_by_key=MappingProxyType(
-            {
-                "VISION_BEDROCK_REGION": ("AWS_REGION",),
-                "VISION_BEDROCK_AWS_ACCESS_KEY_ID": ("AWS_ACCESS_KEY_ID",),
-                "VISION_BEDROCK_AWS_SECRET_ACCESS_KEY": ("AWS_SECRET_ACCESS_KEY",),
-                "VISION_BEDROCK_AWS_SESSION_TOKEN": ("AWS_SESSION_TOKEN",),
-            }
-        ),
         secret_binding=SecretBindingMetadata(
             eligible=True,
             optional_env_keys=(
@@ -280,14 +295,9 @@ PROVIDER_REQUIREMENTS: tuple[ProviderRequirementEntry, ...] = (
         summary="Vision-memory provider using Groq multimodal inference.",
         required_env_keys=("VISION_GROQ_API_KEY",),
         optional_env_keys=("VISION_GROQ_BASE_URL",),
-        legacy_alias_keys=("VISION_PROVIDER_API_KEY", "VISION_PROVIDER_BASE_URL"),
+        required_secret_env_keys=("VISION_GROQ_API_KEY",),
+        optional_non_secret_env_keys=("VISION_GROQ_BASE_URL",),
         capability_tags=("vision_memory", "structured_output"),
-        alias_precedence_by_key=MappingProxyType(
-            {
-                "VISION_GROQ_API_KEY": ("VISION_PROVIDER_API_KEY",),
-                "VISION_GROQ_BASE_URL": ("VISION_PROVIDER_BASE_URL",),
-            }
-        ),
         secret_binding=SecretBindingMetadata(
             eligible=True,
             required_env_keys=("VISION_GROQ_API_KEY",),
@@ -300,6 +310,8 @@ PROVIDER_REQUIREMENTS: tuple[ProviderRequirementEntry, ...] = (
         summary="Web-search provider used by realtime tooling.",
         required_env_keys=("TAVILY_API_KEY",),
         optional_env_keys=("TAVILY_BASE_URL",),
+        required_secret_env_keys=("TAVILY_API_KEY",),
+        optional_non_secret_env_keys=("TAVILY_BASE_URL",),
         capability_tags=("web_search",),
         secret_binding=SecretBindingMetadata(
             eligible=True,
@@ -336,10 +348,6 @@ _SETTINGS_ATTR_BY_ENV_KEY: Mapping[str, str] = MappingProxyType(
         "VISION_BEDROCK_AWS_SESSION_TOKEN": "vision_bedrock_aws_session_token",
         "VISION_GROQ_API_KEY": "vision_groq_api_key",
         "VISION_GROQ_BASE_URL": "vision_groq_base_url",
-        "VISION_PROVIDER_API_KEY": "vision_provider_api_key",
-        "VISION_PROVIDER_BASE_URL": "vision_provider_base_url",
-        "MISTRAL_API_KEY": "mistral_api_key",
-        "MISTRAL_BASE_URL": "mistral_base_url",
         "TAVILY_API_KEY": "tavily_api_key",
         "TAVILY_BASE_URL": "tavily_base_url",
         "REALTIME_PROVIDER": "realtime_provider",
@@ -427,13 +435,27 @@ def compute_selected_provider_key_set(selected: SelectedProviders) -> SelectedPr
 
     required: list[str] = []
     optional: list[str] = []
+    required_secret: list[str] = []
+    optional_secret: list[str] = []
+    required_non_secret: list[str] = []
+    optional_non_secret: list[str] = []
     legacy: list[str] = []
     secret_binding_required: list[str] = []
     secret_binding_optional: list[str] = []
 
     for entry in entries:
+        (
+            entry_required_secret,
+            entry_optional_secret,
+            entry_required_non_secret,
+            entry_optional_non_secret,
+        ) = _entry_key_groups(entry)
         _append_unique(required, entry.required_env_keys)
         _append_unique(optional, entry.optional_env_keys)
+        _append_unique(required_secret, entry_required_secret)
+        _append_unique(optional_secret, entry_optional_secret)
+        _append_unique(required_non_secret, entry_required_non_secret)
+        _append_unique(optional_non_secret, entry_optional_non_secret)
         _append_unique(legacy, entry.legacy_alias_keys)
         if entry.secret_binding.eligible:
             _append_unique(secret_binding_required, entry.secret_binding.required_env_keys)
@@ -443,6 +465,10 @@ def compute_selected_provider_key_set(selected: SelectedProviders) -> SelectedPr
         entries=tuple(entries),
         required_env_keys=tuple(required),
         optional_env_keys=tuple(optional),
+        required_secret_env_keys=tuple(required_secret),
+        optional_secret_env_keys=tuple(optional_secret),
+        required_non_secret_env_keys=tuple(required_non_secret),
+        optional_non_secret_env_keys=tuple(optional_non_secret),
         legacy_alias_keys=tuple(legacy),
         secret_binding_required_env_keys=tuple(secret_binding_required),
         secret_binding_optional_env_keys=tuple(secret_binding_optional),
@@ -465,17 +491,44 @@ def build_missing_secret_diagnostics(
     *,
     selected: SelectedProviders | None = None,
 ) -> MissingSecretDiagnostics:
+    diagnostics = build_provider_requirement_diagnostics(source, selected=selected)
+    merged_presence = dict(diagnostics.secret_key_presence)
+    return MissingSecretDiagnostics(
+        selected=diagnostics.selected,
+        required_env_keys=diagnostics.required_secret_env_keys,
+        optional_env_keys=diagnostics.optional_secret_env_keys,
+        missing_required_env_keys=diagnostics.missing_required_secret_env_keys,
+        key_presence=MappingProxyType(merged_presence),
+        resolved_values=diagnostics.resolved_values,
+        resolved_sources=diagnostics.resolved_sources,
+    )
+
+
+def build_provider_requirement_diagnostics(
+    source: Mapping[str, Any] | object,
+    *,
+    selected: SelectedProviders | None = None,
+) -> ProviderRequirementDiagnostics:
     selected_providers = selected or resolve_selected_providers(source)
     key_set = compute_selected_provider_key_set(selected_providers)
 
-    required_presence: dict[str, bool] = {}
+    required_secret_presence: dict[str, bool] = {}
+    required_non_secret_presence: dict[str, bool] = {}
     resolved_values: dict[str, str | None] = {}
     resolved_sources: dict[str, str | None] = {}
-    missing_required: list[str] = []
+    missing_required_secret: list[str] = []
+    missing_required_non_secret: list[str] = []
 
     for entry in key_set.entries:
-        for env_key in entry.required_env_keys:
-            if env_key in required_presence:
+        (
+            entry_required_secret,
+            entry_optional_secret,
+            entry_required_non_secret,
+            entry_optional_non_secret,
+        ) = _entry_key_groups(entry)
+
+        for env_key in entry_required_secret:
+            if env_key in required_secret_presence:
                 continue
             value, source_key = _resolve_effective_env_value_for_entry(
                 values=source,
@@ -485,12 +538,26 @@ def build_missing_secret_diagnostics(
             resolved_values[env_key] = value
             resolved_sources[env_key] = source_key
             is_present = bool((value or "").strip())
-            required_presence[env_key] = is_present
+            required_secret_presence[env_key] = is_present
             if not is_present:
-                missing_required.append(env_key)
+                missing_required_secret.append(env_key)
 
-    for entry in key_set.entries:
-        for env_key in entry.optional_env_keys:
+        for env_key in entry_required_non_secret:
+            if env_key in required_non_secret_presence:
+                continue
+            value, source_key = _resolve_effective_env_value_for_entry(
+                values=source,
+                entry=entry,
+                env_key=env_key,
+            )
+            resolved_values[env_key] = value
+            resolved_sources[env_key] = source_key
+            is_present = bool((value or "").strip())
+            required_non_secret_presence[env_key] = is_present
+            if not is_present:
+                missing_required_non_secret.append(env_key)
+
+        for env_key in (*entry_optional_secret, *entry_optional_non_secret):
             if env_key in resolved_values:
                 continue
             value, source_key = _resolve_effective_env_value_for_entry(
@@ -501,12 +568,16 @@ def build_missing_secret_diagnostics(
             resolved_values[env_key] = value
             resolved_sources[env_key] = source_key
 
-    return MissingSecretDiagnostics(
+    return ProviderRequirementDiagnostics(
         selected=selected_providers,
-        required_env_keys=key_set.required_env_keys,
-        optional_env_keys=key_set.optional_env_keys,
-        missing_required_env_keys=tuple(missing_required),
-        key_presence=MappingProxyType(required_presence),
+        required_secret_env_keys=key_set.required_secret_env_keys,
+        optional_secret_env_keys=key_set.optional_secret_env_keys,
+        required_non_secret_env_keys=key_set.required_non_secret_env_keys,
+        optional_non_secret_env_keys=key_set.optional_non_secret_env_keys,
+        missing_required_secret_env_keys=tuple(missing_required_secret),
+        missing_required_non_secret_env_keys=tuple(missing_required_non_secret),
+        secret_key_presence=MappingProxyType(required_secret_presence),
+        non_secret_key_presence=MappingProxyType(required_non_secret_presence),
         resolved_values=MappingProxyType(resolved_values),
         resolved_sources=MappingProxyType(resolved_sources),
     )
@@ -518,13 +589,12 @@ def _resolve_effective_env_value_for_entry(
     entry: ProviderRequirementEntry,
     env_key: str,
 ) -> tuple[str | None, str | None]:
-    for key in (env_key, *entry.alias_precedence_by_key.get(env_key, ())):
-        raw_value = _source_value(values, key)
-        if raw_value is None:
-            continue
-        text = str(raw_value).strip()
-        if text:
-            return text, key
+    raw_value = _source_value(values, env_key)
+    if raw_value is None:
+        return None, None
+    text = str(raw_value).strip()
+    if text:
+        return text, env_key
     return None, None
 
 
@@ -565,3 +635,40 @@ def _append_unique(target: list[str], values: tuple[str, ...]) -> None:
     for value in values:
         if value not in target:
             target.append(value)
+
+
+def _entry_key_groups(
+    entry: ProviderRequirementEntry,
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    required_secret = _merged_unique_tuple(
+        entry.required_secret_env_keys,
+        (
+            entry.secret_binding.required_env_keys
+            if entry.secret_binding.eligible
+            else ()
+        ),
+    )
+    optional_secret = _merged_unique_tuple(
+        entry.optional_secret_env_keys,
+        (
+            entry.secret_binding.optional_env_keys
+            if entry.secret_binding.eligible
+            else ()
+        ),
+    )
+    required_non_secret = _merged_unique_tuple(
+        entry.required_non_secret_env_keys,
+        tuple(key for key in entry.required_env_keys if key not in required_secret),
+    )
+    optional_non_secret = _merged_unique_tuple(
+        entry.optional_non_secret_env_keys,
+        tuple(key for key in entry.optional_env_keys if key not in optional_secret),
+    )
+    return required_secret, optional_secret, required_non_secret, optional_non_secret
+
+
+def _merged_unique_tuple(*groups: tuple[str, ...]) -> tuple[str, ...]:
+    values: list[str] = []
+    for group in groups:
+        _append_unique(values, group)
+    return tuple(values)

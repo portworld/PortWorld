@@ -26,12 +26,16 @@ from backend.vision.providers.shared import (
     safe_json_excerpt,
 )
 
+BEDROCK_CONNECT_TIMEOUT_SECONDS = 8
+BEDROCK_READ_TIMEOUT_SECONDS = 25
+BEDROCK_MAX_RETRY_ATTEMPTS = 5
+
 
 def validate_bedrock_vision_settings(settings: Settings) -> None:
     region = settings.resolve_vision_provider_region(provider="bedrock")
     if not region:
         raise RuntimeError(
-            "VISION_BEDROCK_REGION or AWS_REGION is required when VISION_MEMORY_PROVIDER=bedrock"
+            "VISION_BEDROCK_REGION is required when VISION_MEMORY_PROVIDER=bedrock"
         )
 
     model_name = settings.vision_memory_model.strip()
@@ -45,7 +49,7 @@ def build_bedrock_vision_analyzer(*, settings: Settings) -> "BedrockVisionAnalyz
     region = settings.resolve_vision_provider_region(provider="bedrock")
     if region is None:
         raise RuntimeError(
-            "VISION_BEDROCK_REGION or AWS_REGION is required when VISION_MEMORY_PROVIDER=bedrock"
+            "VISION_BEDROCK_REGION is required when VISION_MEMORY_PROVIDER=bedrock"
         )
 
     return BedrockVisionAnalyzer(
@@ -74,14 +78,23 @@ class BedrockVisionAnalyzer:
             return
         try:
             import boto3
+            from botocore.config import Config as BotocoreConfig
         except ImportError as exc:
             raise RuntimeError(
-                "boto3 is required when VISION_MEMORY_PROVIDER=bedrock"
+                "boto3 and botocore are required when VISION_MEMORY_PROVIDER=bedrock"
             ) from exc
 
         client_kwargs: dict[str, Any] = {
             "service_name": "bedrock-runtime",
             "region_name": self.region_name,
+            "config": BotocoreConfig(
+                connect_timeout=BEDROCK_CONNECT_TIMEOUT_SECONDS,
+                read_timeout=BEDROCK_READ_TIMEOUT_SECONDS,
+                retries={
+                    "mode": "standard",
+                    "max_attempts": BEDROCK_MAX_RETRY_ATTEMPTS,
+                },
+            ),
         }
         if self.aws_access_key_id:
             client_kwargs["aws_access_key_id"] = self.aws_access_key_id

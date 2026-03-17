@@ -3,9 +3,10 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import websockets
 from websockets import exceptions as ws_exceptions
@@ -94,6 +95,10 @@ def build_gemini_live_session_bridge(
 ) -> BridgeBinding:
     context = BridgeBindingContext()
     api_key = settings.require_realtime_api_key(provider="gemini_live")
+    if not settings.openai_realtime_enable_manual_turn_fallback:
+        logger.warning(
+            "Gemini Live requires manual turn finalization; ignoring openai_realtime_enable_manual_turn_fallback=false"
+        )
     base_instructions = settings.openai_realtime_instructions
     if isinstance(session_instructions, str) and session_instructions.strip():
         base_instructions = session_instructions.strip()
@@ -123,11 +128,12 @@ def build_gemini_live_session_bridge(
         ),
         send_binary_frame=send_server_audio,
         server_turn_detection_enabled=False,
-        manual_turn_fallback_enabled=settings.openai_realtime_enable_manual_turn_fallback,
+        manual_turn_fallback_enabled=True,
         manual_turn_fallback_delay_ms=settings.openai_realtime_manual_turn_fallback_delay_ms,
         tooling_runtime=realtime_tooling_runtime,
         session_instructions=effective_instructions,
         auto_start_response=auto_start_response,
+        response_create_starts_turn=False,
     )
     return BridgeBinding(bridge=bridge, context=context)
 
@@ -137,7 +143,7 @@ class GeminiLiveRealtimeClient:
 
     Protocol assumptions are intentionally explicit and conservative:
     - setup is sent through a `setup` envelope once per session init
-    - audio uplink uses `realtimeInput.mediaChunks`
+    - audio uplink uses `realtimeInput.audio`
     - turn commit sends `realtimeInput.audioStreamEnd`
     - tool results use `toolResponse.functionResponses`
     """
@@ -176,6 +182,8 @@ class GeminiLiveRealtimeClient:
         self._response_sequence = 0
         self._active_response_id: str | None = None
         self._tool_call_names_by_id: dict[str, str] = {}
+        self._pending_tool_call_ids: set[str] = set()
+        self._cancelled_tool_call_ids: set[str] = set()
 
     @property
     def is_connected(self) -> bool:
@@ -189,6 +197,10 @@ class GeminiLiveRealtimeClient:
         query = urlencode({"key": self._api_key})
         return f"{self._base_url}{self._endpoint}?{query}"
 
+    @property
+    def redacted_websocket_url(self) -> str:
+        return self._redact_sensitive_url(self.websocket_url)
+
     async def connect(self) -> None:
         if self.is_connected:
             return
@@ -196,20 +208,22 @@ class GeminiLiveRealtimeClient:
         try:
             self._ws = await websockets.connect(self.websocket_url)
         except Exception as exc:
+            safe_endpoint = self.redacted_websocket_url
+            safe_detail = self._redact_sensitive_text(str(exc))
             logger.warning(
                 "Gemini Live websocket connect failed type=%s detail=%s endpoint=%s",
                 type(exc).__name__,
-                str(exc),
-                self.websocket_url,
+                safe_detail,
+                safe_endpoint,
             )
             raise RealtimeConnectionError(
-                f"Failed to connect to realtime endpoint: {self.websocket_url}"
+                f"Failed to connect to realtime endpoint: {safe_endpoint}"
             ) from exc
 
         if self._trace_events:
             logger.info(
                 "Gemini Live websocket connected endpoint=%s model=%s",
-                self.websocket_url,
+                self.redacted_websocket_url,
                 self._model,
             )
 
@@ -260,12 +274,10 @@ class GeminiLiveRealtimeClient:
         await self.send_json(
             {
                 "realtimeInput": {
-                    "mediaChunks": [
-                        {
-                            "mimeType": _GEMINI_AUDIO_MIME_TYPE,
-                            "data": base64.b64encode(pcm16_audio).decode("ascii"),
-                        }
-                    ]
+                    "audio": {
+                        "mimeType": _GEMINI_AUDIO_MIME_TYPE,
+                        "data": base64.b64encode(pcm16_audio).decode("ascii"),
+                    }
                 }
             }
         )
@@ -302,7 +314,15 @@ class GeminiLiveRealtimeClient:
         call_id: str,
         output: str,
     ) -> None:
-        tool_name = self._tool_call_names_by_id.get(call_id, "tool")
+        if call_id not in self._pending_tool_call_ids:
+            logger.info(
+                "Ignoring Gemini toolResponse for non-pending or cancelled call session_call_id=%s",
+                call_id,
+            )
+            return
+        self._pending_tool_call_ids.discard(call_id)
+        self._cancelled_tool_call_ids.discard(call_id)
+        tool_name = self._tool_call_names_by_id.pop(call_id, "tool")
         parsed_output = self._decode_tool_output(output)
         await self.send_json(
             {
@@ -347,10 +367,11 @@ class GeminiLiveRealtimeClient:
             raise RealtimeSendError("Failed to send event") from exc
 
         if self._trace_events:
-            if "realtimeInput" in event and "mediaChunks" in event["realtimeInput"]:
+            realtime_input = event.get("realtimeInput")
+            if isinstance(realtime_input, dict) and "audio" in realtime_input:
                 self._input_audio_append_count += 1
                 if self._input_audio_append_count == 1:
-                    logger.debug("Gemini Live send type=realtimeInput.mediaChunks count=1")
+                    logger.debug("Gemini Live send type=realtimeInput.audio count=1")
             elif "setup" in event:
                 logger.debug("Gemini Live send type=setup")
             elif "toolResponse" in event:
@@ -443,7 +464,7 @@ class GeminiLiveRealtimeClient:
                         if message is not None
                         else "Unknown upstream error"
                     ),
-                    "retriable": True,
+                    "retriable": self._is_retriable_error(error_payload),
                 }
             }
             return [
@@ -454,6 +475,9 @@ class GeminiLiveRealtimeClient:
                     raw=event,
                 )
             ]
+
+        if "toolCallCancellation" in event:
+            return self._normalize_tool_call_cancellation_events(event)
 
         if "toolCall" in event:
             return self._normalize_tool_call_events(event)
@@ -525,6 +549,8 @@ class GeminiLiveRealtimeClient:
                 )
             )
             self._active_response_id = None
+            self._pending_tool_call_ids.clear()
+            self._cancelled_tool_call_ids.clear()
 
         if not events:
             events.append(
@@ -571,6 +597,11 @@ class GeminiLiveRealtimeClient:
             call_id = function_call.get("id")
             if not isinstance(call_id, str) or not call_id:
                 call_id = f"tool_call_{now_ms()}"
+            if call_id in self._cancelled_tool_call_ids:
+                self._cancelled_tool_call_ids.discard(call_id)
+                self._pending_tool_call_ids.discard(call_id)
+                self._tool_call_names_by_id.pop(call_id, None)
+                continue
             tool_name = function_call.get("name")
             if not isinstance(tool_name, str) or not tool_name:
                 tool_name = "unknown_tool"
@@ -583,6 +614,7 @@ class GeminiLiveRealtimeClient:
                 args_payload = {"value": args}
 
             self._tool_call_names_by_id[call_id] = tool_name
+            self._pending_tool_call_ids.add(call_id)
             normalized_events.append(
                 self._normalized_event(
                     normalized_type=NormalizedRealtimeEventTypes.TOOL_CALL_COMPLETED,
@@ -612,6 +644,63 @@ class GeminiLiveRealtimeClient:
                 normalized_type=NormalizedRealtimeEventTypes.UNHANDLED,
                 source="toolCall",
                 payload=raw_event,
+                raw=raw_event,
+            )
+        ]
+
+    def _normalize_tool_call_cancellation_events(
+        self,
+        raw_event: dict[str, Any],
+    ) -> list[NormalizedRealtimeEvent]:
+        cancellation = raw_event.get("toolCallCancellation")
+        if not isinstance(cancellation, dict):
+            return [
+                self._normalized_event(
+                    normalized_type=NormalizedRealtimeEventTypes.UNHANDLED,
+                    source="toolCallCancellation",
+                    payload=raw_event,
+                    raw=raw_event,
+                )
+            ]
+
+        raw_ids = cancellation.get("ids")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            return [
+                self._normalized_event(
+                    normalized_type=NormalizedRealtimeEventTypes.UNHANDLED,
+                    source="toolCallCancellation",
+                    payload=raw_event,
+                    raw=raw_event,
+                )
+            ]
+
+        call_ids: list[str] = []
+        for raw_call_id in raw_ids:
+            if not isinstance(raw_call_id, str) or not raw_call_id:
+                continue
+            call_ids.append(raw_call_id)
+            self._cancelled_tool_call_ids.add(raw_call_id)
+            self._pending_tool_call_ids.discard(raw_call_id)
+            self._tool_call_names_by_id.pop(raw_call_id, None)
+
+        if not call_ids:
+            return [
+                self._normalized_event(
+                    normalized_type=NormalizedRealtimeEventTypes.UNHANDLED,
+                    source="toolCallCancellation",
+                    payload=raw_event,
+                    raw=raw_event,
+                )
+            ]
+
+        return [
+            self._normalized_event(
+                normalized_type=NormalizedRealtimeEventTypes.TOOL_CALL_CANCELLED,
+                source="toolCallCancellation",
+                payload={
+                    "type": "tool.call.cancelled",
+                    "call_ids": call_ids,
+                },
                 raw=raw_event,
             )
         ]
@@ -681,6 +770,124 @@ class GeminiLiveRealtimeClient:
         if isinstance(parsed, dict):
             return parsed
         return {"output": parsed}
+
+    @staticmethod
+    def _is_retriable_error(error_payload: dict[str, Any]) -> bool:
+        explicit = error_payload.get("retriable")
+        explicit_bool = GeminiLiveRealtimeClient._parse_optional_bool(explicit)
+        if explicit_bool is not None:
+            return explicit_bool
+
+        code = error_payload.get("code")
+        status = error_payload.get("status")
+        message = error_payload.get("message")
+        normalized = " ".join(
+            str(part).strip().lower()
+            for part in (code, status, message)
+            if part is not None and str(part).strip()
+        )
+
+        numeric_code: int | None = None
+        if isinstance(code, int):
+            numeric_code = code
+        elif isinstance(code, str) and code.strip().isdigit():
+            numeric_code = int(code.strip())
+
+        if numeric_code is not None:
+            if numeric_code in {408, 425, 429, 500, 502, 503, 504}:
+                return True
+            if 500 <= numeric_code <= 599:
+                return True
+            if 400 <= numeric_code <= 499:
+                return False
+
+        non_retriable_markers = (
+            "invalid_argument",
+            "failed_precondition",
+            "unauthenticated",
+            "permission_denied",
+            "not_found",
+            "already_exists",
+            "out_of_range",
+            "unimplemented",
+            "unsupported",
+            "forbidden",
+            "authentication",
+            "invalid api key",
+            "api key not valid",
+            "malformed",
+        )
+        if any(marker in normalized for marker in non_retriable_markers):
+            return False
+
+        retriable_markers = (
+            "resource_exhausted",
+            "unavailable",
+            "deadline_exceeded",
+            "internal",
+            "aborted",
+            "timeout",
+            "temporar",
+            "try again",
+            "rate limit",
+        )
+        if any(marker in normalized for marker in retriable_markers):
+            return True
+
+        return False
+
+    @staticmethod
+    def _parse_optional_bool(raw: Any) -> bool | None:
+        if isinstance(raw, bool):
+            return raw
+        if isinstance(raw, (int, float)):
+            return raw != 0
+        if isinstance(raw, str):
+            normalized = raw.strip().lower()
+            if normalized in {"true", "1", "yes", "on", "t", "y"}:
+                return True
+            if normalized in {"false", "0", "no", "off", "f", "n"}:
+                return False
+        return None
+
+    def _redact_sensitive_text(self, value: str) -> str:
+        safe = value.replace(self.websocket_url, self.redacted_websocket_url)
+        return re.sub(
+            r"([?&](?:key|api_key|apikey|token|access_token)=)[^&\s]+",
+            r"\1[REDACTED]",
+            safe,
+            flags=re.IGNORECASE,
+        )
+
+    @staticmethod
+    def _redact_sensitive_url(url: str) -> str:
+        try:
+            parsed = urlsplit(url)
+        except Exception:
+            return re.sub(
+                r"([?&](?:key|api_key|apikey|token|access_token)=)[^&\s]+",
+                r"\1[REDACTED]",
+                url,
+                flags=re.IGNORECASE,
+            )
+
+        query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+        safe_query_pairs: list[tuple[str, str]] = []
+        for key, value in query_pairs:
+            if key.lower() in {"key", "api_key", "apikey", "token", "access_token"}:
+                safe_query_pairs.append((key, "[REDACTED]"))
+            else:
+                safe_query_pairs.append((key, value))
+
+        return urlunsplit(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                urlencode(safe_query_pairs, doseq=True),
+                parsed.fragment,
+            )
+        )
 
     @staticmethod
     def _normalize_base_url(raw: str | None) -> str:

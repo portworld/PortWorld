@@ -18,7 +18,6 @@ from backend.vision.contracts import (
 from backend.vision.providers.shared import (
     DEFAULT_VISION_MAX_TOKENS,
     DEFAULT_VISION_TEMPERATURE,
-    DEFAULT_VISION_TOP_P,
     VISION_SYSTEM_PROMPT,
     build_base64_data,
     build_user_prompt,
@@ -143,7 +142,6 @@ class ClaudeVisionAnalyzer:
             "system": VISION_SYSTEM_PROMPT,
             "max_tokens": DEFAULT_VISION_MAX_TOKENS,
             "temperature": DEFAULT_VISION_TEMPERATURE,
-            "top_p": DEFAULT_VISION_TOP_P,
             "messages": [
                 {
                     "role": "user",

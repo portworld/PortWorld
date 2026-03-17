@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.core.provider_requirements import build_missing_secret_diagnostics
+from backend.core.provider_requirements import build_provider_requirement_diagnostics
 from portworld_cli.deploy_artifacts import (
     IMAGE_NAME,
     IMAGE_SOURCE_MODE_PUBLISHED_RELEASE,
@@ -41,7 +41,10 @@ class GCPDoctorSecretReadiness:
     selected_search_provider: str | None
     required_secret_keys: tuple[str, ...]
     missing_required_secret_keys: tuple[str, ...]
+    required_non_secret_config_keys: tuple[str, ...]
+    missing_required_non_secret_config_keys: tuple[str, ...]
     key_presence: dict[str, bool]
+    non_secret_config_key_presence: dict[str, bool]
     backend_bearer_token_present: bool
 
     def to_dict(self) -> dict[str, object]:
@@ -51,7 +54,12 @@ class GCPDoctorSecretReadiness:
             "selected_search_provider": self.selected_search_provider,
             "required_secret_keys": list(self.required_secret_keys),
             "missing_required_secret_keys": list(self.missing_required_secret_keys),
+            "required_non_secret_config_keys": list(self.required_non_secret_config_keys),
+            "missing_required_non_secret_config_keys": list(
+                self.missing_required_non_secret_config_keys
+            ),
             "key_presence": dict(self.key_presence),
+            "non_secret_config_key_presence": dict(self.non_secret_config_key_presence),
             "backend_bearer_token_present": self.backend_bearer_token_present,
         }
 
@@ -552,14 +560,23 @@ def _build_runtime_validation_checks(settings: Settings) -> tuple[DiagnosticChec
 
 
 def _build_secret_readiness(settings: Settings) -> GCPDoctorSecretReadiness:
-    diagnostics = build_missing_secret_diagnostics(settings)
+    diagnostics = build_provider_requirement_diagnostics(settings)
     return GCPDoctorSecretReadiness(
         selected_realtime_provider=diagnostics.selected.realtime_provider,
         selected_vision_provider=diagnostics.selected.vision_provider,
         selected_search_provider=diagnostics.selected.search_provider,
-        required_secret_keys=diagnostics.required_env_keys,
-        missing_required_secret_keys=diagnostics.missing_required_env_keys,
-        key_presence={key: diagnostics.key_presence.get(key, False) for key in diagnostics.required_env_keys},
+        required_secret_keys=diagnostics.required_secret_env_keys,
+        missing_required_secret_keys=diagnostics.missing_required_secret_env_keys,
+        required_non_secret_config_keys=diagnostics.required_non_secret_env_keys,
+        missing_required_non_secret_config_keys=diagnostics.missing_required_non_secret_env_keys,
+        key_presence={
+            key: diagnostics.secret_key_presence.get(key, False)
+            for key in diagnostics.required_secret_env_keys
+        },
+        non_secret_config_key_presence={
+            key: diagnostics.non_secret_key_presence.get(key, False)
+            for key in diagnostics.required_non_secret_env_keys
+        },
         backend_bearer_token_present=bool((settings.backend_bearer_token or "").strip()),
     )
 
@@ -580,12 +597,12 @@ def _build_secret_checks(
     secrets: GCPDoctorSecretReadiness,
 ) -> tuple[DiagnosticCheck, ...]:
     checks: list[DiagnosticCheck] = []
-    if not secrets.required_secret_keys:
+    if not secrets.required_secret_keys and not secrets.required_non_secret_config_keys:
         checks.append(
             DiagnosticCheck(
                 id="provider_secrets_ready",
                 status="pass",
-                message="Selected providers do not require managed secret keys.",
+                message="Selected providers do not require additional managed secrets or non-secret provider config.",
             )
         )
     else:
@@ -605,6 +622,28 @@ def _build_secret_checks(
                         None
                         if present
                         else f"Set {key} in backend/.env for the selected provider configuration and rerun the doctor command."
+                    ),
+                )
+            )
+        for key in secrets.required_non_secret_config_keys:
+            present = secrets.non_secret_config_key_presence.get(key, False)
+            check_id = f"provider_config_{key.lower()}"
+            checks.append(
+                DiagnosticCheck(
+                    id=check_id,
+                    status="pass" if present else "fail",
+                    message=(
+                        f"{key} is present locally for selected provider configuration."
+                        if present
+                        else f"{key} is missing from backend/.env."
+                    ),
+                    action=(
+                        None
+                        if present
+                        else (
+                            f"Set {key} in backend/.env for the selected provider configuration "
+                            "and rerun the doctor command."
+                        )
                     ),
                 )
             )

@@ -20,6 +20,24 @@ from portworld_cli.services.config.show_service import run_config_show
 from portworld_cli.services.config.types import CloudEditOptions, SecurityEditOptions
 
 
+def _reject_legacy_secret_flag(
+    _ctx: click.Context,
+    param: click.Parameter,
+    value: str | None,
+) -> None:
+    if value is None:
+        return None
+    migration_targets = {
+        "openai_api_key": "--realtime-api-key",
+        "vision_provider_api_key": "--vision-api-key",
+        "tavily_api_key": "--search-api-key",
+    }
+    replacement = migration_targets.get(param.name, "the canonical provider-scoped flag")
+    raise click.UsageError(
+        f"{param.opts[0]} has been removed. Use {replacement} instead."
+    )
+
+
 @click.group("config")
 def config_group() -> None:
     """Inspect or edit project configuration."""
@@ -66,17 +84,23 @@ def config_edit_group() -> None:
 @click.option(
     "--openai-api-key",
     default=None,
-    help="Legacy shim for --realtime-api-key when --realtime-provider=openai.",
+    hidden=True,
+    expose_value=False,
+    callback=_reject_legacy_secret_flag,
 )
 @click.option(
     "--vision-provider-api-key",
     default=None,
-    help="Legacy shim for --vision-api-key.",
+    hidden=True,
+    expose_value=False,
+    callback=_reject_legacy_secret_flag,
 )
 @click.option(
     "--tavily-api-key",
     default=None,
-    help="Legacy shim for --search-api-key when --search-provider=tavily.",
+    hidden=True,
+    expose_value=False,
+    callback=_reject_legacy_secret_flag,
 )
 @click.pass_obj
 def config_edit_providers_command(
@@ -91,9 +115,6 @@ def config_edit_providers_command(
     realtime_api_key: str | None,
     vision_api_key: str | None,
     search_api_key: str | None,
-    openai_api_key: str | None,
-    vision_provider_api_key: str | None,
-    tavily_api_key: str | None,
 ) -> None:
     """Edit provider choices, feature toggles, and related credentials."""
     exit_with_result(
@@ -111,9 +132,9 @@ def config_edit_providers_command(
                 realtime_api_key=realtime_api_key,
                 vision_api_key=vision_api_key,
                 search_api_key=search_api_key,
-                openai_api_key=openai_api_key,
-                vision_provider_api_key=vision_provider_api_key,
-                tavily_api_key=tavily_api_key,
+                openai_api_key=None,
+                vision_provider_api_key=None,
+                tavily_api_key=None,
             ),
         ),
     )

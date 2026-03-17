@@ -8,7 +8,6 @@ from typing import Any, Iterator
 from backend.core.provider_requirements import (
     compute_selected_provider_key_set,
     list_provider_requirements,
-    resolve_effective_env_value,
     resolve_selected_providers,
 )
 from portworld_cli.deploy.config import DeployStageError, ResolvedDeployConfig
@@ -24,10 +23,20 @@ _PROVIDER_SECRET_ENV_KEYS: tuple[str, ...] = tuple(
     )
     if key.strip()
 )
+_DEPRECATED_SENSITIVE_ENV_KEYS: tuple[str, ...] = (
+    "VISION_PROVIDER_API_KEY",
+    "VISION_PROVIDER_BASE_URL",
+    "MISTRAL_API_KEY",
+    "MISTRAL_BASE_URL",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+)
 _CORE_SENSITIVE_ENV_KEYS: tuple[str, ...] = tuple(
     dict.fromkeys(
         (
             *_PROVIDER_SECRET_ENV_KEYS,
+            *_DEPRECATED_SENSITIVE_ENV_KEYS,
             "BACKEND_BEARER_TOKEN",
             "BACKEND_DATABASE_URL",
         )
@@ -339,17 +348,6 @@ def _effective_sensitive_env_keys(env_values: OrderedDict[str, str]) -> tuple[st
         ):
             if env_key not in sensitive_keys:
                 sensitive_keys.append(env_key)
-            for alias_key in entry.alias_precedence_by_key.get(env_key, ()):
-                if alias_key and alias_key not in sensitive_keys:
-                    sensitive_keys.append(alias_key)
-            resolved_value, resolved_source = resolve_effective_env_value(
-                values=env_values,
-                provider_kind=entry.kind,
-                provider_id=entry.provider_id,
-                env_key=env_key,
-            )
-            if resolved_value and resolved_source and resolved_source not in sensitive_keys:
-                sensitive_keys.append(resolved_source)
     return tuple(sensitive_keys)
 
 

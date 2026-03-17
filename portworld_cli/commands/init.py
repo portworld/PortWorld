@@ -13,6 +13,24 @@ from portworld_cli.output import exit_with_result
 from portworld_cli.services.init import InitOptions, run_init
 
 
+def _reject_legacy_secret_flag(
+    _ctx: click.Context,
+    param: click.Parameter,
+    value: str | None,
+) -> None:
+    if value is None:
+        return None
+    migration_targets = {
+        "openai_api_key": "--realtime-api-key",
+        "vision_provider_api_key": "--vision-api-key",
+        "tavily_api_key": "--search-api-key",
+    }
+    replacement = migration_targets.get(param.name, "the canonical provider-scoped flag")
+    raise click.UsageError(
+        f"{param.opts[0]} has been removed. Use {replacement} instead."
+    )
+
+
 @click.command("init")
 @click.option("--force", is_flag=True, default=False, help="Rewrite backend/.env without overwrite confirmation.")
 @click.option(
@@ -43,17 +61,23 @@ from portworld_cli.services.init import InitOptions, run_init
 @click.option(
     "--openai-api-key",
     default=None,
-    help="Legacy shim for --realtime-api-key when --realtime-provider=openai.",
+    hidden=True,
+    expose_value=False,
+    callback=_reject_legacy_secret_flag,
 )
 @click.option(
     "--vision-provider-api-key",
     default=None,
-    help="Legacy shim for --vision-api-key.",
+    hidden=True,
+    expose_value=False,
+    callback=_reject_legacy_secret_flag,
 )
 @click.option(
     "--tavily-api-key",
     default=None,
-    help="Legacy shim for --search-api-key when --search-provider=tavily.",
+    hidden=True,
+    expose_value=False,
+    callback=_reject_legacy_secret_flag,
 )
 @click.option(
     "--backend-profile",
@@ -111,9 +135,6 @@ def init_command(
     realtime_api_key: str | None,
     vision_api_key: str | None,
     search_api_key: str | None,
-    openai_api_key: str | None,
-    vision_provider_api_key: str | None,
-    tavily_api_key: str | None,
     backend_profile: str | None,
     cors_origins: str | None,
     allowed_hosts: str | None,
@@ -155,9 +176,9 @@ def init_command(
                 realtime_api_key=realtime_api_key,
                 vision_api_key=vision_api_key,
                 search_api_key=search_api_key,
-                openai_api_key=openai_api_key,
-                vision_provider_api_key=vision_provider_api_key,
-                tavily_api_key=tavily_api_key,
+                openai_api_key=None,
+                vision_provider_api_key=None,
+                tavily_api_key=None,
                 backend_profile=backend_profile,
                 cors_origins=cors_origins,
                 allowed_hosts=allowed_hosts,

@@ -58,17 +58,44 @@ _DEFAULT_PROVIDER_IDS: dict[str, str] = {
 }
 
 
+def _merge_key_sets(*key_sets: tuple[str, ...]) -> tuple[str, ...]:
+    ordered: list[str] = []
+    for key_set in key_sets:
+        for key in key_set:
+            if key not in ordered:
+                ordered.append(key)
+    return tuple(ordered)
+
+
 def _runtime_catalog_entries() -> tuple[ProviderCatalogEntry, ...]:
     entries: list[ProviderCatalogEntry] = []
     for requirement in list_provider_requirements():
         setup_notes: list[str] = []
-        if requirement.required_env_keys:
+        required_secrets = _merge_key_sets(
+            requirement.required_secret_env_keys,
+            requirement.secret_binding.required_env_keys,
+        )
+        optional_secrets = _merge_key_sets(
+            requirement.optional_secret_env_keys,
+            requirement.secret_binding.optional_env_keys,
+        )
+        required_config = requirement.required_non_secret_env_keys
+        optional_config = requirement.optional_non_secret_env_keys
+        if required_secrets:
             setup_notes.append(
-                "Required secrets: " + ", ".join(requirement.required_env_keys)
+                "Required secrets: " + ", ".join(required_secrets)
             )
-        if requirement.legacy_alias_keys:
+        if required_config:
             setup_notes.append(
-                "Alias fallback supported: " + ", ".join(requirement.legacy_alias_keys)
+                "Required config: " + ", ".join(required_config)
+            )
+        if optional_secrets:
+            setup_notes.append(
+                "Optional secrets: " + ", ".join(optional_secrets)
+            )
+        if optional_config:
+            setup_notes.append(
+                "Optional config: " + ", ".join(optional_config)
             )
         setup_notes.append(
             "Configure with `portworld init` or `portworld config edit providers`."
@@ -81,8 +108,15 @@ def _runtime_catalog_entries() -> tuple[ProviderCatalogEntry, ...]:
                 summary=requirement.summary,
                 default=_DEFAULT_PROVIDER_IDS.get(requirement.kind) == requirement.provider_id,
                 capability_tags=requirement.capability_tags,
-                required_env_keys=requirement.required_env_keys,
-                optional_env_keys=requirement.optional_env_keys,
+                required_env_keys=_merge_key_sets(
+                    requirement.required_env_keys,
+                    requirement.required_non_secret_env_keys,
+                ),
+                optional_env_keys=_merge_key_sets(
+                    requirement.optional_env_keys,
+                    requirement.optional_secret_env_keys,
+                    requirement.optional_non_secret_env_keys,
+                ),
                 setup_notes=tuple(setup_notes),
                 command_paths=(
                     "portworld init",

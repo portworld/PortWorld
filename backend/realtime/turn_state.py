@@ -53,6 +53,7 @@ class TurnManager:
         audio_uplink: "ClientAudioUplink",
         tool_dispatcher: "ToolCallDispatcher",
         send_envelope: "EnvelopeSender",
+        response_create_starts_turn: bool = True,
     ) -> None:
         self._session_id = session_id
         self._config = config
@@ -61,6 +62,7 @@ class TurnManager:
         self._audio_uplink = audio_uplink
         self._tool_dispatcher = tool_dispatcher
         self._send_envelope = send_envelope
+        self._response_create_starts_turn = response_create_starts_turn
         self._finalize_task: asyncio.Task[None] | None = None
         self._finalize_lock = asyncio.Lock()
 
@@ -178,10 +180,16 @@ class TurnManager:
 
     async def _send_response_create(self, source: str) -> None:
         await self._upstream_client.create_response()
-        self._state.has_active_upstream_response = True
-        self._state.response_started = True
-        self._cancel_finalize_task()
-        logger.info("Upstream response.create sent session=%s source=%s", self._session_id, source)
+        if self._response_create_starts_turn:
+            self._state.has_active_upstream_response = True
+            self._state.response_started = True
+            self._cancel_finalize_task()
+        logger.info(
+            "Upstream response.create sent session=%s source=%s starts_turn=%s",
+            self._session_id,
+            source,
+            self._response_create_starts_turn,
+        )
 
     def _schedule_inactivity_finalize(self) -> None:
         if not self._config.manual_turn_fallback_enabled:
