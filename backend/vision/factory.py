@@ -16,10 +16,26 @@ class VisionSettingsValidator(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class VisionProviderCapabilities:
+    structured_output: bool
+    image_transport: str
+    retry_hint: str | None = None
+    rate_limit_hint: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class VisionProviderDefinition:
     name: str
     build_analyzer: VisionAnalyzerBuilder
     validate_settings: VisionSettingsValidator
+    capabilities: VisionProviderCapabilities = field(
+        default_factory=lambda: VisionProviderCapabilities(
+            structured_output=False,
+            image_transport="unknown",
+            retry_hint=None,
+            rate_limit_hint=None,
+        )
+    )
 
 
 class VisionProviderRegistry:
@@ -48,11 +64,18 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
     )
 
     registry = VisionProviderRegistry()
+    mistral_capabilities = VisionProviderCapabilities(
+        structured_output=False,
+        image_transport="data_url",
+        retry_hint="provider_managed",
+        rate_limit_hint="provider_managed",
+    )
     registry.register(
         VisionProviderDefinition(
             name="mistral",
             build_analyzer=build_mistral_vision_analyzer,
             validate_settings=validate_mistral_vision_settings,
+            capabilities=mistral_capabilities,
         )
     )
     return registry
@@ -76,6 +99,14 @@ class VisionAnalyzerFactory:
     @property
     def provider_name(self) -> str:
         return self._definition.name
+
+    @property
+    def provider_capabilities(self) -> VisionProviderCapabilities:
+        return self._definition.capabilities
+
+    @property
+    def capabilities(self) -> VisionProviderCapabilities:
+        return self.provider_capabilities
 
     def validate_configuration(self) -> None:
         self._definition.validate_settings(self.settings)
