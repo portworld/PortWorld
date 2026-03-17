@@ -44,6 +44,9 @@ def load_workspace_store(workspace_paths: WorkspacePaths) -> WorkspaceStoreSnaps
         else workspace_paths.workspace_env_file
     )
     existing_env = None if template is None else parse_env_file(env_path, template=template)
+    remembered_deploy_state = read_json_state(
+        workspace_paths.state_file_for_target(GCP_CLOUD_RUN_TARGET)
+    )
     loaded_project_config = load_project_config_record(workspace_paths.project_config_file)
     project_config = None if loaded_project_config is None else loaded_project_config.config
     derived_from_legacy = project_config is None
@@ -70,10 +73,11 @@ def load_workspace_store(workspace_paths: WorkspacePaths) -> WorkspaceStoreSnaps
     state_target = (
         preferred_target if preferred_target in MANAGED_TARGETS else GCP_CLOUD_RUN_TARGET
     )
-    remembered_deploy_state = read_json_state(
-        workspace_paths.state_file_for_target(state_target)
-    )
-    if state_target != GCP_CLOUD_RUN_TARGET and not remembered_deploy_state:
+    if state_target != GCP_CLOUD_RUN_TARGET:
+        remembered_deploy_state = read_json_state(
+            workspace_paths.state_file_for_target(state_target)
+        )
+    if not remembered_deploy_state:
         remembered_deploy_state = read_json_state(
             workspace_paths.state_file_for_target(GCP_CLOUD_RUN_TARGET)
         )

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from portworld_cli.aws.doctor import evaluate_aws_ecs_fargate_readiness
+from portworld_cli.azure.doctor import evaluate_azure_container_apps_readiness
 from portworld_cli.context import CLIContext
 from portworld_cli.envfile import EnvFileParseError
 from portworld_cli.gcp.doctor import evaluate_gcp_cloud_run_readiness
@@ -33,6 +34,15 @@ class DoctorOptions:
     aws_certificate_arn: str | None
     aws_database_url: str | None
     aws_s3_bucket: str | None
+    azure_subscription: str | None
+    azure_resource_group: str | None
+    azure_region: str | None
+    azure_environment: str | None
+    azure_app: str | None
+    azure_database_url: str | None
+    azure_storage_account: str | None
+    azure_blob_container: str | None
+    azure_blob_endpoint: str | None
 
 
 def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult:
@@ -46,17 +56,55 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
             or options.aws_certificate_arn is not None
             or options.aws_database_url is not None
             or options.aws_s3_bucket is not None
+            or options.azure_subscription is not None
+            or options.azure_resource_group is not None
+            or options.azure_region is not None
+            or options.azure_environment is not None
+            or options.azure_app is not None
+            or options.azure_database_url is not None
+            or options.azure_storage_account is not None
+            or options.azure_blob_container is not None
+            or options.azure_blob_endpoint is not None
         ):
             return _usage_error_result(
-                "AWS flags are only supported with --target aws-ecs-fargate."
+                "AWS/Azure flags are only supported with their matching cloud targets."
             )
         return _run_gcp_cloud_run_doctor(cli_context, options=options)
     if options.target == "aws-ecs-fargate":
-        if options.project is not None or options.region is not None:
+        if (
+            options.project is not None
+            or options.region is not None
+            or options.azure_subscription is not None
+            or options.azure_resource_group is not None
+            or options.azure_region is not None
+            or options.azure_environment is not None
+            or options.azure_app is not None
+            or options.azure_database_url is not None
+            or options.azure_storage_account is not None
+            or options.azure_blob_container is not None
+            or options.azure_blob_endpoint is not None
+        ):
             return _usage_error_result(
-                "--project and --region are only supported with --target gcp-cloud-run."
+                "GCP/Azure flags are not supported with --target aws-ecs-fargate."
             )
         return _run_aws_ecs_fargate_doctor(cli_context, options=options)
+    if options.target == "azure-container-apps":
+        if (
+            options.project is not None
+            or options.region is not None
+            or options.aws_region is not None
+            or options.aws_cluster is not None
+            or options.aws_service is not None
+            or options.aws_vpc_id is not None
+            or options.aws_subnet_ids is not None
+            or options.aws_certificate_arn is not None
+            or options.aws_database_url is not None
+            or options.aws_s3_bucket is not None
+        ):
+            return _usage_error_result(
+                "GCP/AWS flags are not supported with --target azure-container-apps."
+            )
+        return _run_azure_container_apps_doctor(cli_context, options=options)
     if (
         options.project is not None
         or options.region is not None
@@ -68,9 +116,18 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
         or options.aws_certificate_arn is not None
         or options.aws_database_url is not None
         or options.aws_s3_bucket is not None
+        or options.azure_subscription is not None
+        or options.azure_resource_group is not None
+        or options.azure_region is not None
+        or options.azure_environment is not None
+        or options.azure_app is not None
+        or options.azure_database_url is not None
+        or options.azure_storage_account is not None
+        or options.azure_blob_container is not None
+        or options.azure_blob_endpoint is not None
     ):
         return _usage_error_result(
-            "Cloud target options are only supported with --target gcp-cloud-run or --target aws-ecs-fargate."
+            "Cloud target options are only supported with --target gcp-cloud-run, --target aws-ecs-fargate, or --target azure-container-apps."
         )
     return _run_local_doctor(cli_context, full=options.full)
 
@@ -350,6 +407,128 @@ def _run_aws_ecs_fargate_doctor(
             ("aws_subnet_ids", ",".join(details.subnet_ids)),
             ("aws_certificate_arn", details.certificate_arn),
             ("s3_bucket_name", details.bucket_name),
+        ),
+        data={
+            "target": options.target,
+            "workspace_root": str(session.workspace_root),
+            "project_root": (
+                None
+                if session.project_paths is None
+                else str(session.project_paths.project_root)
+            ),
+            "workspace_resolution_source": session.workspace_resolution_source,
+            "active_workspace_root": (
+                None if session.active_workspace_root is None else str(session.active_workspace_root)
+            ),
+            "full": options.full,
+            "details": details.to_dict(),
+        },
+        checks=checks,
+        exit_code=0 if evaluation.ok else 1,
+    )
+
+
+def _run_azure_container_apps_doctor(
+    cli_context: CLIContext,
+    *,
+    options: DoctorOptions,
+) -> CommandResult:
+    try:
+        session = load_workspace_session(cli_context)
+    except ProjectRootResolutionError as exc:
+        return CommandResult(
+            ok=False,
+            command=COMMAND_NAME,
+            message=format_key_value_lines(
+                ("target", options.target),
+                ("full", options.full),
+                ("azure_subscription", options.azure_subscription),
+            ),
+            data={
+                "target": options.target,
+                "project_root": None,
+                "full": options.full,
+                "status": "error",
+                "error_type": type(exc).__name__,
+            },
+            checks=(
+                DiagnosticCheck(
+                    id="project_root_detected",
+                    status="fail",
+                    message=str(exc),
+                    action="Run from a PortWorld repo checkout, a published workspace, or pass --project-root.",
+                ),
+            ),
+            exit_code=1,
+        )
+    except (
+        CLIStateDecodeError,
+        CLIStateTypeError,
+        EnvFileParseError,
+        ProjectConfigError,
+        ConfigRuntimeError,
+    ) as exc:
+        return CommandResult(
+            ok=False,
+            command=COMMAND_NAME,
+            message=str(exc),
+            data={
+                "target": options.target,
+                "workspace_root": None,
+                "project_root": None,
+                "full": options.full,
+                "status": "error",
+                "error_type": type(exc).__name__,
+            },
+            exit_code=2,
+        )
+
+    root_check = DiagnosticCheck(
+        id="workspace_root_detected",
+        status="pass",
+        message=(
+            f"PortWorld source workspace detected at {session.workspace_root}"
+            if session.project_paths is not None
+            else f"PortWorld published workspace detected at {session.workspace_root}"
+        ),
+    )
+    evaluation = evaluate_azure_container_apps_readiness(
+        explicit_subscription=options.azure_subscription,
+        explicit_resource_group=options.azure_resource_group,
+        explicit_region=options.azure_region,
+        explicit_environment=options.azure_environment,
+        explicit_app=options.azure_app,
+        explicit_database_url=options.azure_database_url,
+        explicit_storage_account=options.azure_storage_account,
+        explicit_blob_container=options.azure_blob_container,
+        explicit_blob_endpoint=options.azure_blob_endpoint,
+        env_values=session.merged_env_values(),
+        project_config=session.project_config,
+    )
+    checks = (root_check, *evaluation.checks)
+    details = evaluation.details
+    return CommandResult(
+        ok=evaluation.ok,
+        command=COMMAND_NAME,
+        message=format_key_value_lines(
+            ("target", options.target),
+            ("full", options.full),
+            ("workspace_root", session.workspace_root),
+            ("workspace_resolution_source", session.workspace_resolution_source),
+            ("active_workspace_root", session.active_workspace_root),
+            (
+                "project_root",
+                None if session.project_paths is None else session.project_paths.project_root,
+            ),
+            ("azure_subscription", details.subscription_id),
+            ("azure_resource_group", details.resource_group),
+            ("azure_region", details.region),
+            ("azure_environment", details.environment_name),
+            ("azure_app", details.app_name),
+            ("azure_fqdn", details.fqdn),
+            ("azure_storage_account", details.storage_account),
+            ("azure_blob_container", details.blob_container),
+            ("azure_blob_endpoint", details.blob_endpoint),
         ),
         data={
             "target": options.target,

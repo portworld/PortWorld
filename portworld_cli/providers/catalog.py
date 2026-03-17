@@ -95,6 +95,27 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         ),
     ),
     ProviderCatalogEntry(
+        id="azure",
+        display_name="Azure Container Apps",
+        kind="cloud",
+        summary="Managed deployment path for PortWorld on Azure Container Apps with provider FQDN HTTPS.",
+        default=False,
+        aliases=("azure-container-apps",),
+        capability_tags=("deploy", "status"),
+        supported_targets=("azure-container-apps",),
+        required_clis=("az",),
+        setup_notes=(
+            "Authenticate with `az login` before managed commands.",
+            "Provide subscription/resource group/environment/app and managed storage/database inputs.",
+            "Use `portworld doctor --target azure-container-apps` before first deploy.",
+        ),
+        command_paths=(
+            "portworld doctor --target azure-container-apps",
+            "portworld deploy azure-container-apps",
+            "portworld status",
+        ),
+    ),
+    ProviderCatalogEntry(
         id="openai",
         display_name="OpenAI Realtime",
         kind="realtime",
