@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from backend.core.provider_requirements import build_missing_secret_diagnostics
 from portworld_cli.deploy_artifacts import (
     IMAGE_NAME,
     IMAGE_SOURCE_MODE_PUBLISHED_RELEASE,
@@ -35,20 +36,22 @@ SUGGESTED_DEFAULT_REGION = DEFAULT_GCP_REGION
 
 @dataclass(frozen=True, slots=True)
 class GCPDoctorSecretReadiness:
-    openai_api_key_present: bool
-    vision_provider_secret_required: bool
-    vision_provider_api_key_present: bool | None
-    tavily_secret_required: bool
-    tavily_api_key_present: bool | None
+    selected_realtime_provider: str
+    selected_vision_provider: str | None
+    selected_search_provider: str | None
+    required_secret_keys: tuple[str, ...]
+    missing_required_secret_keys: tuple[str, ...]
+    key_presence: dict[str, bool]
     backend_bearer_token_present: bool
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "openai_api_key_present": self.openai_api_key_present,
-            "vision_provider_secret_required": self.vision_provider_secret_required,
-            "vision_provider_api_key_present": self.vision_provider_api_key_present,
-            "tavily_secret_required": self.tavily_secret_required,
-            "tavily_api_key_present": self.tavily_api_key_present,
+            "selected_realtime_provider": self.selected_realtime_provider,
+            "selected_vision_provider": self.selected_vision_provider,
+            "selected_search_provider": self.selected_search_provider,
+            "required_secret_keys": list(self.required_secret_keys),
+            "missing_required_secret_keys": list(self.missing_required_secret_keys),
+            "key_presence": dict(self.key_presence),
             "backend_bearer_token_present": self.backend_bearer_token_present,
         }
 
@@ -549,20 +552,14 @@ def _build_runtime_validation_checks(settings: Settings) -> tuple[DiagnosticChec
 
 
 def _build_secret_readiness(settings: Settings) -> GCPDoctorSecretReadiness:
-    vision_key_present: bool | None = None
-    if settings.vision_memory_enabled:
-        vision_key_present = bool((settings.vision_provider_api_key or settings.mistral_api_key or "").strip())
-
-    tavily_key_present: bool | None = None
-    if settings.realtime_tooling_enabled:
-        tavily_key_present = bool((settings.tavily_api_key or "").strip())
-
+    diagnostics = build_missing_secret_diagnostics(settings)
     return GCPDoctorSecretReadiness(
-        openai_api_key_present=bool((settings.openai_api_key or "").strip()),
-        vision_provider_secret_required=settings.vision_memory_enabled,
-        vision_provider_api_key_present=vision_key_present,
-        tavily_secret_required=settings.realtime_tooling_enabled,
-        tavily_api_key_present=tavily_key_present,
+        selected_realtime_provider=diagnostics.selected.realtime_provider,
+        selected_vision_provider=diagnostics.selected.vision_provider,
+        selected_search_provider=diagnostics.selected.search_provider,
+        required_secret_keys=diagnostics.required_env_keys,
+        missing_required_secret_keys=diagnostics.missing_required_env_keys,
+        key_presence={key: diagnostics.key_presence.get(key, False) for key in diagnostics.required_env_keys},
         backend_bearer_token_present=bool((settings.backend_bearer_token or "").strip()),
     )
 
@@ -583,87 +580,76 @@ def _build_secret_checks(
     secrets: GCPDoctorSecretReadiness,
 ) -> tuple[DiagnosticCheck, ...]:
     checks: list[DiagnosticCheck] = []
-    checks.append(
-        DiagnosticCheck(
-            id="openai_secret_ready",
-            status="pass" if secrets.openai_api_key_present else "fail",
-            message=(
-                "OPENAI_API_KEY is present locally and can be uploaded to Secret Manager."
-                if secrets.openai_api_key_present
-                else "OPENAI_API_KEY is missing from backend/.env."
-            ),
-            action=None if secrets.openai_api_key_present else "Set OPENAI_API_KEY in backend/.env and rerun the doctor command.",
-        )
-    )
-
-    if not settings.vision_memory_enabled:
+    if not secrets.required_secret_keys:
         checks.append(
             DiagnosticCheck(
-                id="vision_secret_ready",
+                id="provider_secrets_ready",
                 status="pass",
-                message="Visual memory is disabled; no vision secret is required.",
+                message="Selected providers do not require managed secret keys.",
             )
         )
     else:
+        for key in secrets.required_secret_keys:
+            present = secrets.key_presence.get(key, False)
+            check_id = f"provider_secret_{key.lower()}"
+            checks.append(
+                DiagnosticCheck(
+                    id=check_id,
+                    status="pass" if present else "fail",
+                    message=(
+                        f"{key} is present locally and can be uploaded to Secret Manager."
+                        if present
+                        else f"{key} is missing from backend/.env."
+                    ),
+                    action=(
+                        None
+                        if present
+                        else f"Set {key} in backend/.env for the selected provider configuration and rerun the doctor command."
+                    ),
+                )
+            )
+
+    if settings.vision_memory_enabled:
         try:
             settings.validate_vision_provider_credentials()
             checks.append(
                 DiagnosticCheck(
-                    id="vision_secret_ready",
+                    id="vision_provider_credentials_ready",
                     status="pass",
-                    message="Vision provider credentials are present locally and can be uploaded to Secret Manager.",
+                    message=(
+                        f"Vision provider '{settings.vision_memory_provider}' credential shape validation passed."
+                    ),
                 )
             )
         except Exception as exc:
             checks.append(
                 DiagnosticCheck(
-                    id="vision_secret_ready",
+                    id="vision_provider_credentials_ready",
                     status="fail",
                     message=str(exc),
-                    action="Set a valid VISION_PROVIDER_API_KEY or MISTRAL_API_KEY in backend/.env and rerun the doctor command.",
+                    action="Fix vision-provider credentials in backend/.env for the selected provider and rerun the doctor command.",
                 )
             )
 
-    if not settings.realtime_tooling_enabled:
-        checks.append(
-            DiagnosticCheck(
-                id="tooling_secret_ready",
-                status="pass",
-                message="Realtime tooling is disabled; no web-search secret is required.",
-            )
-        )
-    else:
+    if settings.realtime_tooling_enabled:
         try:
             search_provider_factory = SearchProviderFactory(settings=settings)
+            checks.append(
+                DiagnosticCheck(
+                    id="tooling_provider_selected",
+                    status="pass",
+                    message=(
+                        f"Realtime tooling uses search provider '{search_provider_factory.provider_name}'."
+                    ),
+                )
+            )
         except Exception as exc:
             checks.append(
                 DiagnosticCheck(
-                    id="tooling_secret_ready",
+                    id="tooling_provider_selected",
                     status="fail",
                     message=str(exc),
                     action="Fix REALTIME_WEB_SEARCH_PROVIDER in backend/.env and rerun the doctor command.",
-                )
-            )
-            return tuple(checks)
-        if search_provider_factory.is_enabled():
-            checks.append(
-                DiagnosticCheck(
-                    id="tooling_secret_ready",
-                    status="pass",
-                    message=(
-                        f"Realtime tooling credentials for provider '{search_provider_factory.provider_name}' are present locally."
-                    ),
-                )
-            )
-        else:
-            checks.append(
-                DiagnosticCheck(
-                    id="tooling_secret_ready",
-                    status="warn",
-                    message=(
-                        "Realtime tooling is enabled but the configured web-search provider does not have active local credentials."
-                    ),
-                    action="Set TAVILY_API_KEY in backend/.env or disable realtime tooling before deploy.",
                 )
             )
 

@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import click
 
+from backend.core.provider_requirements import (
+    PROVIDER_KIND_REALTIME,
+    PROVIDER_KIND_SEARCH,
+    PROVIDER_KIND_VISION,
+    supported_provider_ids,
+)
 from portworld_cli.providers.types import ProviderEditOptions
 from portworld_cli.context import CLIContext
 from portworld_cli.output import exit_with_result
@@ -32,20 +38,59 @@ def config_edit_group() -> None:
 
 
 @config_edit_group.command("providers")
+@click.option(
+    "--realtime-provider",
+    type=click.Choice(supported_provider_ids(PROVIDER_KIND_REALTIME)),
+    default=None,
+    help="Select the realtime provider id.",
+)
 @click.option("--with-vision", is_flag=True, default=False, help="Enable visual memory.")
 @click.option("--without-vision", is_flag=True, default=False, help="Disable visual memory.")
+@click.option(
+    "--vision-provider",
+    type=click.Choice(supported_provider_ids(PROVIDER_KIND_VISION)),
+    default=None,
+    help="Select the vision provider id when visual memory is enabled.",
+)
 @click.option("--with-tooling", is_flag=True, default=False, help="Enable realtime tooling.")
 @click.option("--without-tooling", is_flag=True, default=False, help="Disable realtime tooling.")
-@click.option("--openai-api-key", default=None, help="OpenAI API key for realtime sessions.")
-@click.option("--vision-provider-api-key", default=None, help="Vision provider API key.")
-@click.option("--tavily-api-key", default=None, help="Tavily API key for web search.")
+@click.option(
+    "--search-provider",
+    type=click.Choice(supported_provider_ids(PROVIDER_KIND_SEARCH)),
+    default=None,
+    help="Select the web-search provider id when tooling is enabled.",
+)
+@click.option("--realtime-api-key", default=None, help="Realtime provider API key for the selected realtime provider.")
+@click.option("--vision-api-key", default=None, help="Vision provider API key for the selected vision provider.")
+@click.option("--search-api-key", default=None, help="Search provider API key for the selected search provider.")
+@click.option(
+    "--openai-api-key",
+    default=None,
+    help="Legacy shim for --realtime-api-key when --realtime-provider=openai.",
+)
+@click.option(
+    "--vision-provider-api-key",
+    default=None,
+    help="Legacy shim for --vision-api-key.",
+)
+@click.option(
+    "--tavily-api-key",
+    default=None,
+    help="Legacy shim for --search-api-key when --search-provider=tavily.",
+)
 @click.pass_obj
 def config_edit_providers_command(
     cli_context: CLIContext,
+    realtime_provider: str | None,
     with_vision: bool,
     without_vision: bool,
+    vision_provider: str | None,
     with_tooling: bool,
     without_tooling: bool,
+    search_provider: str | None,
+    realtime_api_key: str | None,
+    vision_api_key: str | None,
+    search_api_key: str | None,
     openai_api_key: str | None,
     vision_provider_api_key: str | None,
     tavily_api_key: str | None,
@@ -56,10 +101,16 @@ def config_edit_providers_command(
         run_edit_providers(
             cli_context,
             ProviderEditOptions(
+                realtime_provider=realtime_provider,
                 with_vision=with_vision,
                 without_vision=without_vision,
+                vision_provider=vision_provider,
                 with_tooling=with_tooling,
                 without_tooling=without_tooling,
+                search_provider=search_provider,
+                realtime_api_key=realtime_api_key,
+                vision_api_key=vision_api_key,
+                search_api_key=search_api_key,
                 openai_api_key=openai_api_key,
                 vision_provider_api_key=vision_provider_api_key,
                 tavily_api_key=tavily_api_key,

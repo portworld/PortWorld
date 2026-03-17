@@ -237,9 +237,8 @@ def run_deploy_gcp_cloud_run(
 
         (
             non_db_secret_names,
-            openai_secret_name,
-            vision_secret_name,
-            tavily_secret_name,
+            provider_secret_names,
+            provider_secret_values,
             bearer_secret_name,
             bearer_token_for_validation,
         ) = stage_ensure_core_secrets(
@@ -294,9 +293,7 @@ def run_deploy_gcp_cloud_run(
             bucket_name=bucket_name,
         )
         secret_bindings = stage_build_cloud_run_secret_bindings(
-            openai_secret_name=openai_secret_name,
-            vision_secret_name=vision_secret_name,
-            tavily_secret_name=tavily_secret_name,
+            provider_secret_names=provider_secret_names,
             bearer_secret_name=bearer_secret_name,
             database_url_secret_name=database_url_secret_name,
         )
@@ -304,6 +301,7 @@ def run_deploy_gcp_cloud_run(
             env_vars=env_vars,
             env_values=env_values,
             secret_placeholders={
+                **provider_secret_values,
                 "BACKEND_BEARER_TOKEN": bearer_token_for_validation,
                 "BACKEND_DATABASE_URL": database_url_for_validation,
             },

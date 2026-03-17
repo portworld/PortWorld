@@ -351,20 +351,10 @@ def build_status_message(
             [
                 "Secrets",
                 format_key_value_lines(
-                    ("openai_api_key", presence_label(secret_readiness.openai_api_key_present)),
+                    ("required_provider_secrets", _required_secret_status(secret_readiness)),
                     (
-                        "vision_provider_api_key",
-                        required_presence_label(
-                            secret_readiness.vision_provider_secret_required,
-                            secret_readiness.vision_provider_api_key_present,
-                        ),
-                    ),
-                    (
-                        "tavily_api_key",
-                        required_presence_label(
-                            secret_readiness.tavily_secret_required,
-                            secret_readiness.tavily_api_key_present,
-                        ),
+                        "missing_provider_secrets",
+                        ",".join(secret_readiness.missing_required_secret_keys) or "none",
                     ),
                     ("bearer_token", presence_label(secret_readiness.bearer_token_present)),
                 ),
@@ -387,7 +377,10 @@ def presence_label(is_present: bool | None) -> str:
     return "present" if is_present else "missing"
 
 
-def required_presence_label(required: bool, present: bool | None) -> str:
-    if not required:
-        return "not_required"
-    return "present" if present else "missing"
+def _required_secret_status(secret_readiness: SecretReadiness) -> str:
+    if not secret_readiness.required_secret_keys:
+        return "none_required"
+    parts: list[str] = []
+    for key in secret_readiness.required_secret_keys:
+        parts.append(f"{key}:{presence_label(secret_readiness.key_presence.get(key))}")
+    return ",".join(parts)

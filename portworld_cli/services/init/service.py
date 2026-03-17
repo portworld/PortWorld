@@ -59,10 +59,16 @@ COMMAND_NAME = "portworld init"
 @dataclass(frozen=True, slots=True)
 class InitOptions:
     force: bool
+    realtime_provider: str | None
     with_vision: bool
     without_vision: bool
+    vision_provider: str | None
     with_tooling: bool
     without_tooling: bool
+    search_provider: str | None
+    realtime_api_key: str | None
+    vision_api_key: str | None
+    search_api_key: str | None
     openai_api_key: str | None
     vision_provider_api_key: str | None
     tavily_api_key: str | None
@@ -406,10 +412,16 @@ def _collect_init_sections(
     provider_result = collect_provider_section(
         session,
         ProviderEditOptions(
+            realtime_provider=options.realtime_provider,
             with_vision=options.with_vision,
             without_vision=options.without_vision,
+            vision_provider=options.vision_provider,
             with_tooling=options.with_tooling,
             without_tooling=options.without_tooling,
+            search_provider=options.search_provider,
+            realtime_api_key=options.realtime_api_key,
+            vision_api_key=options.vision_api_key,
+            search_api_key=options.search_api_key,
             openai_api_key=options.openai_api_key,
             vision_provider_api_key=options.vision_provider_api_key,
             tavily_api_key=options.tavily_api_key,

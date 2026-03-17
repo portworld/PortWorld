@@ -4,6 +4,11 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from backend.core.provider_requirements import (
+    build_missing_secret_diagnostics,
+    compute_selected_provider_key_set,
+    resolve_selected_providers,
+)
 from portworld_cli.context import CLIContext
 from portworld_cli.deploy_state import DeployState
 from portworld_cli.envfile import EnvTemplate, ParsedEnvFile
@@ -17,6 +22,7 @@ from portworld_cli.workspace.project_config import (
     RUNTIME_SOURCE_PUBLISHED,
     RUNTIME_SOURCE_SOURCE,
     ProjectConfig,
+    build_env_overrides_from_project_config,
 )
 from portworld_cli.workspace.discovery.locator import ResolvedWorkspace, resolve_workspace
 from portworld_cli.workspace.store import WorkspaceStoreSnapshot, load_workspace_store
@@ -24,15 +30,24 @@ from portworld_cli.workspace.store import WorkspaceStoreSnapshot, load_workspace
 
 @dataclass(frozen=True, slots=True)
 class SecretReadiness:
-    openai_api_key_present: bool | None
-    vision_provider_secret_required: bool
-    vision_provider_api_key_present: bool | None
-    tavily_secret_required: bool
-    tavily_api_key_present: bool | None
+    selected_realtime_provider: str
+    selected_vision_provider: str | None
+    selected_search_provider: str | None
+    required_secret_keys: tuple[str, ...]
+    optional_secret_keys: tuple[str, ...]
+    missing_required_secret_keys: tuple[str, ...]
+    key_presence: dict[str, bool | None]
     bearer_token_present: bool | None
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "selected_realtime_provider": self.selected_realtime_provider,
+            "selected_vision_provider": self.selected_vision_provider,
+            "selected_search_provider": self.selected_search_provider,
+            "required_secret_keys": list(self.required_secret_keys),
+            "optional_secret_keys": list(self.optional_secret_keys),
+            "missing_required_secret_keys": list(self.missing_required_secret_keys),
+            "key_presence": dict(self.key_presence),
             "openai_api_key_present": self.openai_api_key_present,
             "vision_provider_secret_required": self.vision_provider_secret_required,
             "vision_provider_api_key_present": self.vision_provider_api_key_present,
@@ -40,6 +55,36 @@ class SecretReadiness:
             "tavily_api_key_present": self.tavily_api_key_present,
             "bearer_token_present": self.bearer_token_present,
         }
+
+    @property
+    def openai_api_key_present(self) -> bool | None:
+        return self.key_presence.get("OPENAI_API_KEY")
+
+    @property
+    def vision_provider_secret_required(self) -> bool:
+        return any(
+            key.startswith("VISION_") and key.endswith("_API_KEY")
+            for key in self.required_secret_keys
+        )
+
+    @property
+    def vision_provider_api_key_present(self) -> bool | None:
+        if not self.vision_provider_secret_required:
+            return None
+        for key in self.required_secret_keys:
+            if key.startswith("VISION_") and key.endswith("_API_KEY"):
+                return self.key_presence.get(key)
+        return False
+
+    @property
+    def tavily_secret_required(self) -> bool:
+        return "TAVILY_API_KEY" in self.required_secret_keys
+
+    @property
+    def tavily_api_key_present(self) -> bool | None:
+        if not self.tavily_secret_required:
+            return None
+        return self.key_presence.get("TAVILY_API_KEY")
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,36 +111,44 @@ class WorkspaceSession:
         return dict(env_values)
 
     def secret_readiness(self) -> SecretReadiness:
+        config_selection = build_env_overrides_from_project_config(self.project_config)
+        selected = resolve_selected_providers(config_selection)
+        key_set = compute_selected_provider_key_set(selected)
+
         if self.existing_env is None:
+            key_presence = {key: None for key in key_set.required_env_keys}
             return SecretReadiness(
-                openai_api_key_present=None,
-                vision_provider_secret_required=self.project_config.providers.vision.enabled,
-                vision_provider_api_key_present=None,
-                tavily_secret_required=self.project_config.providers.tooling.enabled,
-                tavily_api_key_present=None,
+                selected_realtime_provider=selected.realtime_provider,
+                selected_vision_provider=selected.vision_provider,
+                selected_search_provider=selected.search_provider,
+                required_secret_keys=key_set.required_env_keys,
+                optional_secret_keys=key_set.optional_env_keys,
+                missing_required_secret_keys=(),
+                key_presence=key_presence,
                 bearer_token_present=None,
             )
-        openai_present = bool((self.existing_env.known_values.get("OPENAI_API_KEY", "")).strip())
-        vision_required = self.project_config.providers.vision.enabled
-        vision_present: bool | None = None
-        if vision_required:
-            vision_present = bool(
-                (
-                    self.existing_env.known_values.get("VISION_PROVIDER_API_KEY", "")
-                    or self.existing_env.legacy_alias_values.get("MISTRAL_API_KEY", "")
-                ).strip()
-            )
-        tavily_required = self.project_config.providers.tooling.enabled
-        tavily_present: bool | None = None
-        if tavily_required:
-            tavily_present = bool((self.existing_env.known_values.get("TAVILY_API_KEY", "")).strip())
+
+        env_values = _build_effective_env_values(
+            existing_env=self.existing_env,
+            config_overrides=config_selection,
+        )
+        diagnostics = build_missing_secret_diagnostics(
+            env_values,
+            selected=selected,
+        )
+        key_presence = {
+            key: diagnostics.key_presence.get(key, False)
+            for key in diagnostics.required_env_keys
+        }
 
         return SecretReadiness(
-            openai_api_key_present=openai_present,
-            vision_provider_secret_required=vision_required,
-            vision_provider_api_key_present=vision_present,
-            tavily_secret_required=tavily_required,
-            tavily_api_key_present=tavily_present,
+            selected_realtime_provider=diagnostics.selected.realtime_provider,
+            selected_vision_provider=diagnostics.selected.vision_provider,
+            selected_search_provider=diagnostics.selected.search_provider,
+            required_secret_keys=diagnostics.required_env_keys,
+            optional_secret_keys=diagnostics.optional_env_keys,
+            missing_required_secret_keys=diagnostics.missing_required_env_keys,
+            key_presence=key_presence,
             bearer_token_present=bool((self.existing_env.known_values.get("BACKEND_BEARER_TOKEN", "")).strip()),
         )
 
@@ -321,3 +374,16 @@ def _strip(value: str | None) -> str | None:
         return None
     text = value.strip()
     return text or None
+
+
+def _build_effective_env_values(
+    *,
+    existing_env: ParsedEnvFile,
+    config_overrides: dict[str, str],
+) -> dict[str, str]:
+    values: dict[str, str] = {}
+    values.update({key: str(value) for key, value in existing_env.known_values.items()})
+    values.update({key: str(value) for key, value in existing_env.legacy_alias_values.items()})
+    values.update({key: str(value) for key, value in existing_env.preserved_overrides.items()})
+    values.update(config_overrides)
+    return values

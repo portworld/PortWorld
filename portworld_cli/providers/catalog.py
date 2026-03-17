@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from backend.core.provider_requirements import list_provider_requirements
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderCatalogEntry:
@@ -49,6 +51,51 @@ class ProviderCatalogEntry:
         return payload
 
 
+_DEFAULT_PROVIDER_IDS: dict[str, str] = {
+    "realtime": "openai",
+    "vision": "mistral",
+    "search": "tavily",
+}
+
+
+def _runtime_catalog_entries() -> tuple[ProviderCatalogEntry, ...]:
+    entries: list[ProviderCatalogEntry] = []
+    for requirement in list_provider_requirements():
+        setup_notes: list[str] = []
+        if requirement.required_env_keys:
+            setup_notes.append(
+                "Required secrets: " + ", ".join(requirement.required_env_keys)
+            )
+        if requirement.legacy_alias_keys:
+            setup_notes.append(
+                "Alias fallback supported: " + ", ".join(requirement.legacy_alias_keys)
+            )
+        setup_notes.append(
+            "Configure with `portworld init` or `portworld config edit providers`."
+        )
+        entries.append(
+            ProviderCatalogEntry(
+                id=requirement.provider_id,
+                display_name=requirement.display_name,
+                kind=requirement.kind,
+                summary=requirement.summary,
+                default=_DEFAULT_PROVIDER_IDS.get(requirement.kind) == requirement.provider_id,
+                capability_tags=requirement.capability_tags,
+                required_env_keys=requirement.required_env_keys,
+                optional_env_keys=requirement.optional_env_keys,
+                setup_notes=tuple(setup_notes),
+                command_paths=(
+                    "portworld init",
+                    "portworld config edit providers",
+                    "portworld config show",
+                    "portworld doctor --target local",
+                    "portworld doctor --target gcp-cloud-run",
+                ),
+            )
+        )
+    return tuple(entries)
+
+
 PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
     ProviderCatalogEntry(
         id="gcp",
@@ -73,63 +120,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
             "portworld update deploy",
         ),
     ),
-    ProviderCatalogEntry(
-        id="openai",
-        display_name="OpenAI Realtime",
-        kind="realtime",
-        summary="Realtime session provider used by the current backend runtime.",
-        default=True,
-        capability_tags=("realtime_sessions",),
-        required_env_keys=("OPENAI_API_KEY",),
-        setup_notes=(
-            "Required for all current realtime websocket sessions.",
-            "Configured through `portworld init` or `portworld config edit providers`.",
-        ),
-        command_paths=(
-            "portworld init",
-            "portworld config edit providers",
-            "portworld config show",
-        ),
-    ),
-    ProviderCatalogEntry(
-        id="mistral",
-        display_name="Mistral-Compatible Vision",
-        kind="vision",
-        summary="Vision-memory provider used when visual memory is enabled.",
-        default=True,
-        capability_tags=("vision_memory",),
-        required_env_keys=("VISION_PROVIDER_API_KEY", "MISTRAL_API_KEY"),
-        optional_env_keys=("VISION_PROVIDER_BASE_URL", "MISTRAL_BASE_URL"),
-        setup_notes=(
-            "Only required when `VISION_MEMORY_ENABLED=true`.",
-            "Legacy `MISTRAL_API_KEY` and `MISTRAL_BASE_URL` aliases remain supported.",
-            "The API key must be a provider credential, not a model id.",
-        ),
-        command_paths=(
-            "portworld init",
-            "portworld config edit providers",
-            "portworld config show",
-        ),
-    ),
-    ProviderCatalogEntry(
-        id="tavily",
-        display_name="Tavily Web Search",
-        kind="search",
-        summary="Web-search provider used by the optional realtime tooling path.",
-        default=True,
-        capability_tags=("web_search",),
-        required_env_keys=("TAVILY_API_KEY",),
-        optional_env_keys=("TAVILY_BASE_URL",),
-        setup_notes=(
-            "Only used when realtime tooling is enabled and web search should be available.",
-            "If tooling is enabled without `TAVILY_API_KEY`, the backend still runs but omits `web_search`.",
-        ),
-        command_paths=(
-            "portworld init",
-            "portworld config edit providers",
-            "portworld config show",
-        ),
-    ),
+    *_runtime_catalog_entries(),
 )
 
 

@@ -1,7 +1,13 @@
 from __future__ import annotations
 
-import click
-
+from backend.core.provider_requirements import (
+    PROVIDER_KIND_REALTIME,
+    PROVIDER_KIND_SEARCH,
+    PROVIDER_KIND_VISION,
+    compute_selected_provider_key_set,
+    resolve_effective_env_value,
+    supported_provider_ids,
+)
 from portworld_cli.workspace.project_config import (
     ProjectConfig,
     ToolingConfig,
@@ -15,18 +21,27 @@ def collect_provider_section(
     session: ConfigSession,
     options: ProviderEditOptions,
 ) -> ProviderSectionResult:
-    from portworld_cli.services.config.prompts import resolve_secret_value, resolve_toggle
+    from portworld_cli.services.config.prompts import (
+        resolve_choice_value,
+        resolve_secret_value,
+        resolve_toggle,
+    )
 
     _validate_provider_flag_conflicts(options)
 
-    existing_env = session.existing_env
-    openai_api_key = resolve_secret_value(
+    existing_values = _existing_env_values(session)
+
+    realtime_provider = resolve_choice_value(
         session.cli_context,
-        label="OpenAI API key",
-        existing_value="" if existing_env is None else existing_env.known_values.get("OPENAI_API_KEY", ""),
-        explicit_value=options.openai_api_key,
-        required=True,
+        prompt="Realtime provider",
+        current_value=_default_choice(
+            session.project_config.providers.realtime.provider,
+            choices=supported_provider_ids(PROVIDER_KIND_REALTIME),
+        ),
+        explicit_value=options.realtime_provider,
+        choices=supported_provider_ids(PROVIDER_KIND_REALTIME),
     )
+
     vision_enabled = resolve_toggle(
         session.cli_context,
         prompt="Enable visual memory?",
@@ -34,25 +49,17 @@ def collect_provider_section(
         explicit_enable=options.with_vision,
         explicit_disable=options.without_vision,
     )
-    vision_provider_api_key = ""
+    vision_provider = _default_choice(
+        session.project_config.providers.vision.provider,
+        choices=supported_provider_ids(PROVIDER_KIND_VISION),
+    )
     if vision_enabled:
-        if not session.cli_context.non_interactive:
-            click.echo(
-                f"Visual memory provider: {session.project_config.providers.vision.provider}"
-            )
-        vision_provider_api_key = resolve_secret_value(
+        vision_provider = resolve_choice_value(
             session.cli_context,
-            label="Vision provider API key",
-            existing_value=(
-                ""
-                if existing_env is None
-                else (
-                    existing_env.known_values.get("VISION_PROVIDER_API_KEY", "")
-                    or existing_env.legacy_alias_values.get("MISTRAL_API_KEY", "")
-                )
-            ),
-            explicit_value=options.vision_provider_api_key,
-            required=True,
+            prompt="Vision provider",
+            current_value=vision_provider,
+            explicit_value=options.vision_provider,
+            choices=supported_provider_ids(PROVIDER_KIND_VISION),
         )
 
     tooling_enabled = resolve_toggle(
@@ -62,27 +69,60 @@ def collect_provider_section(
         explicit_enable=options.with_tooling,
         explicit_disable=options.without_tooling,
     )
-    tavily_api_key = ""
+    search_provider = _default_choice(
+        session.project_config.providers.tooling.web_search_provider,
+        choices=supported_provider_ids(PROVIDER_KIND_SEARCH),
+    )
     if tooling_enabled:
-        if not session.cli_context.non_interactive:
-            click.echo(
-                "Web search provider: "
-                f"{session.project_config.providers.tooling.web_search_provider}"
-            )
-        tavily_api_key = resolve_secret_value(
+        search_provider = resolve_choice_value(
             session.cli_context,
-            label="Tavily API key (optional)",
-            existing_value="" if existing_env is None else existing_env.known_values.get("TAVILY_API_KEY", ""),
-            explicit_value=options.tavily_api_key,
-            required=False,
+            prompt="Realtime web-search provider",
+            current_value=search_provider,
+            explicit_value=options.search_provider,
+            choices=supported_provider_ids(PROVIDER_KIND_SEARCH),
         )
 
+    selection_inputs = {
+        "REALTIME_PROVIDER": realtime_provider,
+        "VISION_MEMORY_ENABLED": "true" if vision_enabled else "false",
+        "VISION_MEMORY_PROVIDER": vision_provider,
+        "REALTIME_TOOLING_ENABLED": "true" if tooling_enabled else "false",
+        "REALTIME_WEB_SEARCH_PROVIDER": search_provider,
+    }
+    key_set = compute_selected_provider_key_set(
+        selected=_selected_providers(selection_inputs)
+    )
+
+    secret_env_updates: dict[str, str] = {}
+    for entry in key_set.entries:
+        for env_key in entry.required_env_keys:
+            existing_value, _ = resolve_effective_env_value(
+                values=existing_values,
+                provider_kind=entry.kind,
+                provider_id=entry.provider_id,
+                env_key=env_key,
+            )
+            explicit_value = _explicit_secret_value(
+                env_key=env_key,
+                selected_search_provider=search_provider,
+                options=options,
+            )
+            label = f"{env_key} ({entry.display_name})"
+            secret_env_updates[env_key] = resolve_secret_value(
+                session.cli_context,
+                label=label,
+                existing_value=existing_value or "",
+                explicit_value=explicit_value,
+                required=True,
+            )
+
     return ProviderSectionResult(
+        realtime_provider=realtime_provider,
         vision_enabled=vision_enabled,
+        vision_provider=vision_provider,
         tooling_enabled=tooling_enabled,
-        openai_api_key=openai_api_key,
-        vision_provider_api_key=vision_provider_api_key,
-        tavily_api_key=tavily_api_key,
+        search_provider=search_provider,
+        secret_env_updates=secret_env_updates,
     )
 
 
@@ -96,24 +136,38 @@ def apply_provider_section(
         runtime_source=project_config.runtime_source,
         cloud_provider=project_config.cloud_provider,
         providers=type(project_config.providers)(
-            realtime=project_config.providers.realtime,
+            realtime=type(project_config.providers.realtime)(
+                provider=result.realtime_provider,
+            ),
             vision=VisionProviderConfig(
                 enabled=result.vision_enabled,
-                provider=project_config.providers.vision.provider,
+                provider=result.vision_provider,
             ),
             tooling=ToolingConfig(
                 enabled=result.tooling_enabled,
-                web_search_provider=project_config.providers.tooling.web_search_provider,
+                web_search_provider=result.search_provider,
             ),
         ),
         security=project_config.security,
         deploy=project_config.deploy,
     )
-    env_updates = {
-        "OPENAI_API_KEY": result.openai_api_key,
-        "VISION_PROVIDER_API_KEY": result.vision_provider_api_key if result.vision_enabled else "",
-        "TAVILY_API_KEY": result.tavily_api_key if result.tooling_enabled else "",
+
+    env_updates: dict[str, str] = {
+        "REALTIME_PROVIDER": result.realtime_provider,
+        "VISION_MEMORY_ENABLED": "true" if result.vision_enabled else "false",
+        "VISION_MEMORY_PROVIDER": result.vision_provider,
+        "REALTIME_TOOLING_ENABLED": "true" if result.tooling_enabled else "false",
+        "REALTIME_WEB_SEARCH_PROVIDER": result.search_provider,
     }
+    env_updates.update(result.secret_env_updates)
+
+    if not result.vision_enabled:
+        for key in _required_keys_for_provider(PROVIDER_KIND_VISION, result.vision_provider):
+            env_updates.setdefault(key, "")
+    if not result.tooling_enabled:
+        for key in _required_keys_for_provider(PROVIDER_KIND_SEARCH, result.search_provider):
+            env_updates.setdefault(key, "")
+
     return updated_project_config, env_updates
 
 
@@ -124,3 +178,50 @@ def _validate_provider_flag_conflicts(options: ProviderEditOptions) -> None:
         raise ConfigUsageError("Use only one of --with-vision or --without-vision.")
     if options.with_tooling and options.without_tooling:
         raise ConfigUsageError("Use only one of --with-tooling or --without-tooling.")
+
+
+def _selected_providers(selection_inputs: dict[str, str]):
+    from backend.core.provider_requirements import resolve_selected_providers
+
+    return resolve_selected_providers(selection_inputs)
+
+
+def _existing_env_values(session: ConfigSession) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if session.existing_env is None:
+        return values
+    values.update({key: str(value) for key, value in session.existing_env.known_values.items()})
+    values.update({key: str(value) for key, value in session.existing_env.legacy_alias_values.items()})
+    values.update({key: str(value) for key, value in session.existing_env.preserved_overrides.items()})
+    return values
+
+
+def _default_choice(current: str, *, choices: tuple[str, ...]) -> str:
+    normalized = (current or "").strip().lower()
+    if normalized in choices:
+        return normalized
+    return choices[0]
+
+
+def _required_keys_for_provider(kind: str, provider_id: str) -> tuple[str, ...]:
+    from backend.core.provider_requirements import get_provider_requirement
+
+    return get_provider_requirement(kind=kind, provider_id=provider_id).required_env_keys
+
+
+def _explicit_secret_value(
+    *,
+    env_key: str,
+    selected_search_provider: str,
+    options: ProviderEditOptions,
+) -> str | None:
+    if env_key == "OPENAI_API_KEY":
+        return options.realtime_api_key or options.openai_api_key
+    if env_key == "GEMINI_LIVE_API_KEY":
+        return options.realtime_api_key
+    if env_key == "TAVILY_API_KEY" and selected_search_provider == "tavily":
+        return options.search_api_key or options.tavily_api_key
+    if env_key.startswith("VISION_") and env_key.endswith("_API_KEY"):
+        return options.vision_api_key or options.vision_provider_api_key
+
+    return None
