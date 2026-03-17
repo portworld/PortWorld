@@ -105,5 +105,6 @@ curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworl
 ## More Docs
 
 - backend runtime and self-hosting details: `backend/README.md`
-- self-host quickstart and operator notes: `docs/BACKEND_SELF_HOSTING.md`
-- release process and TestPyPI/PyPI notes: `docs/CLI_RELEASE_PROCESS.md`
+- self-host quickstart and operator notes: `docs/operations/BACKEND_SELF_HOSTING.md`
+- release process and TestPyPI/PyPI notes: `docs/operations/CLI_RELEASE_PROCESS.md`
+- changelog and release history: `CHANGELOG.md`

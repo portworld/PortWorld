@@ -34,6 +34,9 @@
 - [Backend API Surface](#backend-api-surface)
 - [Troubleshooting](#troubleshooting)
 - [Security Notes](#security-notes)
+- [Community](#community)
+- [Legal And Provenance](#legal-and-provenance)
+- [Releases](#releases)
 - [Additional Docs](#additional-docs)
 
 ## Architecture
@@ -49,7 +52,7 @@
 
 ## Repository Layout
 
-- `framework/`: backend framework (FastAPI, runtime config, providers, agents, tracing).
+- `backend/`: active backend runtime (FastAPI, realtime session relay, memory, tooling, deploy support).
 - `IOS/`: iOS client app (`PortWorld`) for Meta Wearables DAT integration.
 
 ## Quick Start (5 Minutes)
@@ -63,36 +66,34 @@ cd PortWorld
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-pip install -r framework/requirements.txt
+pip install -r backend/requirements.txt
 ```
 
 ### 2) Configure Backend Environment
 
 ```bash
-cp framework/.env.example .env
+cp backend/.env.example backend/.env
 ```
 
-Update `.env` with your keys (minimum recommended):
+Update `backend/.env` with your keys (minimum required):
 
-- `MAIN_LLM_API_KEY` (agents other STT)
-- `VOXTRAL_API_KEY` (or other STT)
-- `NEMOTRON_BASE_URL` (or other VTT)
-- `NEMOTRON_API_KEY`
-- `ELEVENLABS_API_KEY` 
-- optional: `EDGE_API_KEY` (for BREV NVIDIA token deployment - for Mistral Worlwide Hackathon)
+- `OPENAI_API_KEY`
+- optional depending on enabled features:
+  - `VISION_PROVIDER_API_KEY` + `VISION_PROVIDER_BASE_URL`
+  - `TAVILY_API_KEY`
+  - `BACKEND_BEARER_TOKEN` (required for production profile)
 
 ### 3) Run Backend
 
 ```bash
-HOST=0.0.0.0 PORT=8082 python framework/app.py
+python -m backend.cli serve
 ```
 
 ### 4) Smoke Test Backend
 
 ```bash
-curl -sS http://127.0.0.1:8082/healthz | jq
-curl -sS http://127.0.0.1:8082/v1/agents | jq
-curl -sS http://127.0.0.1:8082/v1/config/quickstart-template | jq
+curl -sS http://127.0.0.1:8080/livez | jq
+curl -sS http://127.0.0.1:8080/healthz | jq
 ```
 
 ## iOS Setup (Simulator + Real iPhone)
@@ -107,8 +108,8 @@ open IOS/PortWorld.xcodeproj
 
 Edit `SON_BACKEND_BASE_URL` in [`IOS/Info.plist`](IOS/Info.plist):
 
-- iOS Simulator: `http://172.16.0.104:8082`
-- real iPhone: `http://<YOUR_MAC_LAN_IP>:8082`
+- iOS Simulator: `http://127.0.0.1:8080`
+- real iPhone: `http://<YOUR_MAC_LAN_IP>:8080`
 
 Get your Mac LAN IP:
 
@@ -167,9 +168,9 @@ Backend should log a `POST /v1/pipeline/tts-stream` request.
 
 ## Troubleshooting
 
-### `Connection refused` to `127.0.0.1:8080`
+### `Connection refused` to backend URL
 
-Cause: app points to port `8080` while backend runs on `8082`.  
+Cause: app points to the wrong host/port or backend is not running.  
 Fix: set `SON_BACKEND_BASE_URL` to correct host/port.
 
 ### `The Internet connection appears to be offline` with `Local network prohibited`
@@ -203,12 +204,33 @@ Non-blocking image/profile warning in logs. Usually unrelated to network/audio f
 - Use `.env` locally and rotate keys if accidentally shared.
 - Use `EDGE_API_KEY` when exposing backend beyond local/private network.
 
+## Community
+
+- Security policy: [SECURITY.md](SECURITY.md)
+- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+
+## Legal And Provenance
+
+- We only publish code and assets that maintainers have the right to redistribute.
+- Before release, verify third-party asset and snippet licenses (images, diagrams, screenshots, copied code/text).
+- Remove or replace material that cannot be redistributed under this repository license.
+- Keep model/provider names in docs as factual compatibility references, not endorsements.
+
+## Releases
+
+- Changelog (canonical release history): [CHANGELOG.md](CHANGELOG.md)
+- GitHub Releases (tag artifacts and published notes): [Releases](https://github.com/portworld/PortWorld/releases)
 
 ## Additional Docs
 
-- Backend details: [`framework/README.md`](framework/README.md)
+- Backend details: [`backend/README.md`](backend/README.md)
 - iOS details: [`IOS/README.md`](IOS/README.md)
+- Backend operations: [`docs/operations/BACKEND_SELF_HOSTING.md`](docs/operations/BACKEND_SELF_HOSTING.md)
+- Release process: [`docs/operations/CLI_RELEASE_PROCESS.md`](docs/operations/CLI_RELEASE_PROCESS.md)
+- Archived maintainer/history docs: [`docs/archived/README.md`](docs/archived/README.md)
 
 ## License
 
-Recommended for open-source release: Apache-2.0 or MIT.
+This repository is licensed under the MIT License.
+See [LICENSE](LICENSE).

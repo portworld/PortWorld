@@ -362,8 +362,8 @@ Make the new provider surface visible and operable from the public CLI and docs.
 #### Docs likely affected
 
 - `backend/README.md`
-- `docs/BACKEND_SELF_HOSTING.md`
-- `docs/roadmap/backend/...` references to managed deploy targets
+- `docs/operations/BACKEND_SELF_HOSTING.md`
+- `docs/archived/maintainer-roadmaps/backend/...` references to managed deploy targets
 
 #### Required result
 

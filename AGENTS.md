@@ -23,8 +23,8 @@ The codebase is a hackathon MVP being cleaned up and stabilized for production.
 
 Historical docs:
 
-- `IOS/docs/archived/`
-- `docs/archived/`
+- `docs/archived/ios-history/`
+- `docs/archived/maintainer-roadmaps/`
 
 Use archived docs only for migration context, historical rationale, or explicit user-requested research.
 

@@ -1,0 +1,65 @@
+name: Feature request
+description: Propose a focused improvement aligned with current project priorities.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Outside contributions are welcome, but this repository is maintainer-gated.
+        Roadmap-shaping proposals may be declined based on project priorities.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Requested area
+      options:
+        - backend
+        - iOS
+        - CLI
+        - docs
+        - release/CI
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user/operator problem does this solve?
+      placeholder: Today it is difficult to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the intended user-visible behavior, not just implementation details.
+      placeholder: Add a command that...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      placeholder: Existing workaround is...
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and non-goals
+      description: Keep the request narrow and explicit.
+      placeholder: In scope... / Out of scope...
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I searched for existing issues and discussions first.
+          required: true
+        - label: I understand maintainers may decline roadmap-shaping requests.
+          required: true

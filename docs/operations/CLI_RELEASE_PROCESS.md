@@ -2,6 +2,17 @@
 
 This documents the tagged release flow for the public `portworld` CLI.
 
+## Changelog And Release Notes Convention
+
+- `CHANGELOG.md` is the canonical, human-readable release history for developers.
+- Each user-visible change should be added to `## [Unreleased]` as it lands.
+- When cutting a release, move the relevant `Unreleased` items into a new
+  version section (for example `## [v0.2.1] - 2026-03-20`).
+- GitHub Release notes for tag `vX.Y.Z` must mirror the corresponding
+  `CHANGELOG.md` section for `vX.Y.Z`.
+- Avoid vague entries such as `fix api`; describe concrete behavior changes and
+  impact (what changed for operators, contributors, or runtime behavior).
+
 ## Version Source
 
 - The packaged CLI version is sourced from `backend.__version__`.
@@ -18,7 +29,10 @@ This documents the tagged release flow for the public `portworld` CLI.
 - Create GitHub Actions environments named `testpypi` and `pypi`.
 - Ensure GitHub Actions in `portworld/PortWorld` can publish packages to GHCR with `GITHUB_TOKEN`.
 - Be ready to set the first published GHCR package visibility to public if GitHub does not inherit it automatically.
-- Use annotated tags so the GitHub Release can reuse the tag message via `gh release create --notes-from-tag`.
+- Use annotated tags so the GitHub Release can reuse the tag message via
+  `gh release create --notes-from-tag`.
+- The annotated tag message should be copied from the matching
+  `CHANGELOG.md` version section.
 
 ## Release Steps
 
@@ -32,13 +46,18 @@ This documents the tagged release flow for the public `portworld` CLI.
 3. Verify installer syntax and non-interactive path
    - `bash -n install.sh`
    - if needed, use `PORTWORLD_INSTALL_SOURCE_URL=. PORTWORLD_NO_INIT=1 PORTWORLD_NON_INTERACTIVE=1 bash install.sh`
-4. Commit the version bump and related release notes/docs
-5. Create an annotated tag
+4. Update `CHANGELOG.md`
+   - ensure `## [Unreleased]` contains all relevant user-visible changes
+   - create/update `## [vX.Y.Z] - YYYY-MM-DD` with behavior-focused notes
+5. Commit the version bump and changelog/docs updates
+6. Create an annotated tag
    - `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
-6. Push the branch and tag
+   - if your team prefers rich release notes from tags, set the tag annotation
+     body to the exact `CHANGELOG.md` entry for `vX.Y.Z`
+7. Push the branch and tag
    - `git push origin <branch>`
    - `git push origin vX.Y.Z`
-7. Wait for the `CLI Release` workflow on the pushed tag
+8. Wait for the `CLI Release` workflow on the pushed tag
    - `validate`: assert `vX.Y.Z` matches `backend.__version__` and capture the package name from `pyproject.toml`
    - `build`: build sdist and wheel once, then upload them as the shared workflow artifact
    - `publish_testpypi`: publish the built artifacts to TestPyPI through trusted publishing
@@ -47,7 +66,7 @@ This documents the tagged release flow for the public `portworld` CLI.
    - `attest_sign_scan_backend_image`: attach GitHub provenance, keyless-sign the image with Cosign, scan it with Trivy, and upload `backend-image-manifest.json`
    - `publish_pypi`: publish the same downloaded artifacts to PyPI through trusted publishing
    - `github_release`: attach the Python artifacts and `backend-image-manifest.json` to the GitHub Release for the tag
-8. Verify the public install paths against the new release
+9. Verify the public install paths against the new release
    - installer: `curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash`
    - pinned installer: `curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash -s -- --version vX.Y.Z`
    - manual fallback: `uv tool install "portworld==X.Y.Z"`
@@ -88,3 +107,5 @@ uv tool install --default-index https://test.pypi.org/simple --index https://pyp
 - The release workflow never rebuilds after validation; PyPI and GitHub Release both reuse the `build` job artifacts.
 - The public bootstrap installs `uv` automatically and downloads Python 3.11+ when needed.
 - Release images are immutable and use only `vX.Y.Z` tags in H+1; no `latest` or `stable` image tags are published yet.
+- GitHub Release notes are part of the supported release surface and should stay
+  synchronized with `CHANGELOG.md`.
