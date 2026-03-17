@@ -49,7 +49,7 @@ def _readiness_checks(request: Request, *, redact_details: bool) -> list[dict[st
     try:
         RealtimeProviderFactory(settings=runtime.settings).validate_configuration()
         checks.append({"name": "realtime_provider_configuration", "ok": True})
-    except RuntimeError as exc:
+    except Exception as exc:
         detail = "check_failed" if redact_details else str(exc)
         checks.append(
             {
@@ -62,7 +62,7 @@ def _readiness_checks(request: Request, *, redact_details: bool) -> list[dict[st
         if runtime.settings.vision_memory_enabled:
             VisionAnalyzerFactory(settings=runtime.settings).validate_configuration()
         checks.append({"name": "vision_provider_configuration", "ok": True})
-    except RuntimeError as exc:
+    except Exception as exc:
         detail = "check_failed" if redact_details else str(exc)
         checks.append(
             {
@@ -75,7 +75,7 @@ def _readiness_checks(request: Request, *, redact_details: bool) -> list[dict[st
         if runtime.settings.realtime_tooling_enabled:
             SearchProviderFactory(settings=runtime.settings)
         checks.append({"name": "realtime_tooling_configuration", "ok": True})
-    except RuntimeError as exc:
+    except Exception as exc:
         detail = "check_failed" if redact_details else str(exc)
         checks.append(
             {
