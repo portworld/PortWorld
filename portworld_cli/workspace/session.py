@@ -18,6 +18,7 @@ from portworld_cli.workspace.project_config import (
     RUNTIME_SOURCE_SOURCE,
     ProjectConfig,
 )
+from portworld_cli.targets import MANAGED_TARGETS
 from portworld_cli.workspace.discovery.locator import ResolvedWorkspace, resolve_workspace
 from portworld_cli.workspace.store import WorkspaceStoreSnapshot, load_workspace_store
 
@@ -138,8 +139,9 @@ class InspectionSession:
     def active_target(self) -> str | None:
         if self.deploy_state.has_data():
             return GCP_CLOUD_RUN_TARGET
-        if self.project_config.deploy.preferred_target == GCP_CLOUD_RUN_TARGET:
-            return GCP_CLOUD_RUN_TARGET
+        preferred_target = self.project_config.deploy.preferred_target
+        if preferred_target in MANAGED_TARGETS:
+            return preferred_target
         return None
 
 

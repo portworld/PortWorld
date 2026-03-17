@@ -60,9 +60,7 @@ def run_status(cli_context: CLIContext) -> CommandResult:
                 else str(session.config_session.active_workspace_root)
             ),
             "project_config_path": str(session.config_session.workspace_paths.project_config_file),
-            "state_paths": {
-                "gcp_cloud_run": str(session.config_session.workspace_paths.gcp_cloud_run_state_file),
-            },
+            "state_paths": session.config_session.workspace_paths.exposed_state_paths_payload(),
             "project_mode": session.project_config.project_mode,
             "runtime_source": session.project_config.runtime_source,
             "configured_runtime_source": session.config_session.configured_runtime_source,

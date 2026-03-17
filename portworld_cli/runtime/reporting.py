@@ -14,7 +14,7 @@ from portworld_cli.workspace.session import (
     resolve_gcp_inspection_target,
 )
 from portworld_cli.output import format_key_value_lines
-from portworld_cli.workspace.project_config import GCP_CLOUD_RUN_TARGET
+from portworld_cli.targets import TARGET_GCP_CLOUD_RUN
 
 
 LIVE_PROBE_TIMEOUT_SECONDS = 3.0
@@ -127,7 +127,7 @@ def collect_live_service_status(
     *,
     active_target: str | None,
 ) -> LiveServiceStatus:
-    if active_target != GCP_CLOUD_RUN_TARGET:
+    if active_target != TARGET_GCP_CLOUD_RUN:
         return LiveServiceStatus(
             attempted=False,
             status="skipped",
