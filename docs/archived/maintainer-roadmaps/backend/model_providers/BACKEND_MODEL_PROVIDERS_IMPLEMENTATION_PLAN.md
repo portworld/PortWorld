@@ -333,7 +333,7 @@ Update docs only after the runtime and CLI shape are settled.
 #### Docs to update
 
 - `backend/README.md`
-- `docs/BACKEND_SELF_HOSTING.md`
+- `docs/operations/BACKEND_SELF_HOSTING.md`
 - `backend/.env.example`
 - provider roadmap docs where needed
 
@@ -409,4 +409,3 @@ This roadmap item is complete when all of the following are true:
 - CLI setup and diagnostics support the new providers
 - current OpenAI + Mistral users can migrate without breakage
 - docs and env templates reflect the new provider surface clearly
-
