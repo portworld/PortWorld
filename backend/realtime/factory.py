@@ -4,11 +4,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from backend.core.settings import Settings
-from backend.realtime.contracts import (
-    BinarySender,
-    EnvelopeSender,
-    RealtimeProviderCapabilities,
-)
+from backend.realtime.contracts import BinarySender, EnvelopeSender
 from backend.tools.runtime import RealtimeToolingRuntime
 from backend.ws.session.session_registry import SessionBridge, SessionRecord
 
@@ -39,19 +35,6 @@ class RealtimeProviderDefinition:
     build_bridge: RealtimeProviderBuilder
     validate_settings: RealtimeSettingsValidator
     validate_on_startup: bool = True
-    capabilities: RealtimeProviderCapabilities = field(
-        default_factory=lambda: RealtimeProviderCapabilities(
-            streaming_audio_input=False,
-            streaming_audio_output=False,
-            server_vad=False,
-            manual_turn_commit_required=False,
-            tool_calling=False,
-            tool_result_submission_mode="unknown",
-            voice_selection=False,
-            interruption_cancel=False,
-            startup_validation=True,
-        )
-    )
 
 
 class RealtimeProviderRegistry:
@@ -74,13 +57,7 @@ class RealtimeProviderRegistry:
 
 
 def build_default_realtime_provider_registry() -> RealtimeProviderRegistry:
-    from backend.realtime.providers.gemini_live import (
-        GEMINI_LIVE_REALTIME_CAPABILITIES,
-        build_gemini_live_session_bridge,
-        validate_gemini_live_realtime_settings,
-    )
     from backend.realtime.providers.openai import (
-        OPENAI_REALTIME_CAPABILITIES,
         build_openai_session_bridge,
         validate_openai_realtime_settings,
     )
@@ -92,16 +69,6 @@ def build_default_realtime_provider_registry() -> RealtimeProviderRegistry:
             build_bridge=build_openai_session_bridge,
             validate_settings=validate_openai_realtime_settings,
             validate_on_startup=True,
-            capabilities=OPENAI_REALTIME_CAPABILITIES,
-        )
-    )
-    registry.register(
-        RealtimeProviderDefinition(
-            name="gemini_live",
-            build_bridge=build_gemini_live_session_bridge,
-            validate_settings=validate_gemini_live_realtime_settings,
-            validate_on_startup=True,
-            capabilities=GEMINI_LIVE_REALTIME_CAPABILITIES,
         )
     )
     return registry
@@ -139,14 +106,6 @@ class RealtimeProviderFactory:
     @property
     def provider_name(self) -> str:
         return self._definition.name
-
-    @property
-    def provider_capabilities(self) -> RealtimeProviderCapabilities:
-        return self._definition.capabilities
-
-    @property
-    def capabilities(self) -> RealtimeProviderCapabilities:
-        return self.provider_capabilities
 
     def validate_configuration(self) -> None:
         self._definition.validate_settings(self.settings)

@@ -315,6 +315,9 @@ class RealtimeToolingRuntime:
     def list_tool_definitions(self) -> list[ToolDefinition]:
         return self.registry.list_definitions()
 
+    def to_openai_tools(self) -> list[dict[str, object]]:
+        return self.registry.to_openai_tools()
+
     def filtered(self, *, allowed_tool_names: frozenset[str] | None) -> "RealtimeToolingRuntime":
         if allowed_tool_names is None:
             return self

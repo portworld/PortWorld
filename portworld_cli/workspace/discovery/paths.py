@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from portworld_cli.targets import ManagedTargetStatePaths, TARGET_GCP_CLOUD_RUN
+
 
 REQUIRED_REPO_MARKERS: tuple[str, ...] = (
     "backend/Dockerfile",
@@ -38,7 +40,9 @@ class WorkspacePaths:
             cli_dir=root / ".portworld",
             project_config_file=root / ".portworld" / "project.json",
             cli_state_dir=root / ".portworld" / "state",
-            gcp_cloud_run_state_file=root / ".portworld" / "state" / "gcp-cloud-run.json",
+            gcp_cloud_run_state_file=ManagedTargetStatePaths(
+                root / ".portworld" / "state"
+            ).file_for_target(TARGET_GCP_CLOUD_RUN),
             workspace_env_file=root / ".env",
             compose_file=root / "docker-compose.yml",
             source_project_paths=source_project_paths,
@@ -57,6 +61,15 @@ class WorkspacePaths:
                 "backend/Dockerfile, backend/.env.example, and docker-compose.yml."
             )
         return self.source_project_paths
+
+    def managed_target_state_paths(self) -> ManagedTargetStatePaths:
+        return ManagedTargetStatePaths(self.cli_state_dir)
+
+    def state_file_for_target(self, target: str) -> Path:
+        return self.managed_target_state_paths().file_for_target(target)
+
+    def exposed_state_paths_payload(self) -> dict[str, str]:
+        return self.managed_target_state_paths().status_payload(exposed_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +98,9 @@ class ProjectPaths:
             cli_dir=root / ".portworld",
             project_config_file=root / ".portworld" / "project.json",
             cli_state_dir=root / ".portworld" / "state",
-            gcp_cloud_run_state_file=root / ".portworld" / "state" / "gcp-cloud-run.json",
+            gcp_cloud_run_state_file=ManagedTargetStatePaths(
+                root / ".portworld" / "state"
+            ).file_for_target(TARGET_GCP_CLOUD_RUN),
         )
 
     def missing_required_markers(self) -> tuple[str, ...]:
@@ -120,6 +135,12 @@ class ProjectPaths:
             "cli_state_dir": str(self.cli_state_dir),
             "gcp_cloud_run_state_file": str(self.gcp_cloud_run_state_file),
         }
+
+    def managed_target_state_paths(self) -> ManagedTargetStatePaths:
+        return ManagedTargetStatePaths(self.cli_state_dir)
+
+    def state_file_for_target(self, target: str) -> Path:
+        return self.managed_target_state_paths().file_for_target(target)
 
 
 def resolve_project_paths(*, explicit_root: Path | None = None, start: Path | None = None) -> ProjectPaths:

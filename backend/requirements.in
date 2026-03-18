@@ -7,6 +7,10 @@ pydantic
 websockets
 certifi
 httpx
+boto3
+botocore
+azure-identity
+azure-storage-blob
 google-cloud-storage
 Pillow
 psycopg[binary]

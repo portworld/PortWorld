@@ -2,12 +2,6 @@ from __future__ import annotations
 
 import click
 
-from backend.core.provider_requirements import (
-    PROVIDER_KIND_REALTIME,
-    PROVIDER_KIND_SEARCH,
-    PROVIDER_KIND_VISION,
-    supported_provider_ids,
-)
 from portworld_cli.providers.types import ProviderEditOptions
 from portworld_cli.context import CLIContext
 from portworld_cli.output import exit_with_result
@@ -18,24 +12,6 @@ from portworld_cli.services.config.edit_service import (
 )
 from portworld_cli.services.config.show_service import run_config_show
 from portworld_cli.services.config.types import CloudEditOptions, SecurityEditOptions
-
-
-def _reject_legacy_secret_flag(
-    _ctx: click.Context,
-    param: click.Parameter,
-    value: str | None,
-) -> None:
-    if value is None:
-        return None
-    migration_targets = {
-        "openai_api_key": "--realtime-api-key",
-        "vision_provider_api_key": "--vision-api-key",
-        "tavily_api_key": "--search-api-key",
-    }
-    replacement = migration_targets.get(param.name, "the canonical provider-scoped flag")
-    raise click.UsageError(
-        f"{param.opts[0]} has been removed. Use {replacement} instead."
-    )
 
 
 @click.group("config")
@@ -56,65 +32,23 @@ def config_edit_group() -> None:
 
 
 @config_edit_group.command("providers")
-@click.option(
-    "--realtime-provider",
-    type=click.Choice(supported_provider_ids(PROVIDER_KIND_REALTIME)),
-    default=None,
-    help="Select the realtime provider id.",
-)
 @click.option("--with-vision", is_flag=True, default=False, help="Enable visual memory.")
 @click.option("--without-vision", is_flag=True, default=False, help="Disable visual memory.")
-@click.option(
-    "--vision-provider",
-    type=click.Choice(supported_provider_ids(PROVIDER_KIND_VISION)),
-    default=None,
-    help="Select the vision provider id when visual memory is enabled.",
-)
 @click.option("--with-tooling", is_flag=True, default=False, help="Enable realtime tooling.")
 @click.option("--without-tooling", is_flag=True, default=False, help="Disable realtime tooling.")
-@click.option(
-    "--search-provider",
-    type=click.Choice(supported_provider_ids(PROVIDER_KIND_SEARCH)),
-    default=None,
-    help="Select the web-search provider id when tooling is enabled.",
-)
-@click.option("--realtime-api-key", default=None, help="Realtime provider API key for the selected realtime provider.")
-@click.option("--vision-api-key", default=None, help="Vision provider API key for the selected vision provider.")
-@click.option("--search-api-key", default=None, help="Search provider API key for the selected search provider.")
-@click.option(
-    "--openai-api-key",
-    default=None,
-    hidden=True,
-    expose_value=False,
-    callback=_reject_legacy_secret_flag,
-)
-@click.option(
-    "--vision-provider-api-key",
-    default=None,
-    hidden=True,
-    expose_value=False,
-    callback=_reject_legacy_secret_flag,
-)
-@click.option(
-    "--tavily-api-key",
-    default=None,
-    hidden=True,
-    expose_value=False,
-    callback=_reject_legacy_secret_flag,
-)
+@click.option("--openai-api-key", default=None, help="OpenAI API key for realtime sessions.")
+@click.option("--vision-provider-api-key", default=None, help="Vision provider API key.")
+@click.option("--tavily-api-key", default=None, help="Tavily API key for web search.")
 @click.pass_obj
 def config_edit_providers_command(
     cli_context: CLIContext,
-    realtime_provider: str | None,
     with_vision: bool,
     without_vision: bool,
-    vision_provider: str | None,
     with_tooling: bool,
     without_tooling: bool,
-    search_provider: str | None,
-    realtime_api_key: str | None,
-    vision_api_key: str | None,
-    search_api_key: str | None,
+    openai_api_key: str | None,
+    vision_provider_api_key: str | None,
+    tavily_api_key: str | None,
 ) -> None:
     """Edit provider choices, feature toggles, and related credentials."""
     exit_with_result(
@@ -122,19 +56,13 @@ def config_edit_providers_command(
         run_edit_providers(
             cli_context,
             ProviderEditOptions(
-                realtime_provider=realtime_provider,
                 with_vision=with_vision,
                 without_vision=without_vision,
-                vision_provider=vision_provider,
                 with_tooling=with_tooling,
                 without_tooling=without_tooling,
-                search_provider=search_provider,
-                realtime_api_key=realtime_api_key,
-                vision_api_key=vision_api_key,
-                search_api_key=search_api_key,
-                openai_api_key=None,
-                vision_provider_api_key=None,
-                tavily_api_key=None,
+                openai_api_key=openai_api_key,
+                vision_provider_api_key=vision_provider_api_key,
+                tavily_api_key=tavily_api_key,
             ),
         ),
     )
@@ -192,6 +120,18 @@ def config_edit_security_command(
     default=None,
     help="Runtime source mode for this workspace.",
 )
+@click.option(
+    "--cloud-provider",
+    type=click.Choice(["gcp", "aws", "azure"]),
+    default=None,
+    help="Managed cloud provider to configure.",
+)
+@click.option(
+    "--target",
+    type=click.Choice(["gcp-cloud-run", "aws-ecs-fargate", "azure-container-apps"]),
+    default=None,
+    help="Managed target to configure.",
+)
 @click.option("--project", default=None, help="Default GCP project id.")
 @click.option("--region", default=None, help="Default GCP region.")
 @click.option("--service", default=None, help="Default Cloud Run service name.")
@@ -204,11 +144,23 @@ def config_edit_security_command(
 @click.option("--concurrency", type=int, default=None, help="Default Cloud Run concurrency.")
 @click.option("--cpu", default=None, help="Default Cloud Run CPU.")
 @click.option("--memory", default=None, help="Default Cloud Run memory.")
+@click.option("--aws-region", default=None, help="Default AWS region.")
+@click.option("--aws-cluster", default=None, help="Default ECS cluster name.")
+@click.option("--aws-service", default=None, help="Default ECS service name.")
+@click.option("--aws-vpc-id", default=None, help="Default VPC id.")
+@click.option("--aws-subnet-ids", default=None, help="Default subnet ids (comma-separated).")
+@click.option("--azure-subscription", default=None, help="Default Azure subscription id.")
+@click.option("--azure-resource-group", default=None, help="Default Azure resource group.")
+@click.option("--azure-region", default=None, help="Default Azure region.")
+@click.option("--azure-environment", default=None, help="Default Container Apps environment name.")
+@click.option("--azure-app", default=None, help="Default Container App name.")
 @click.pass_obj
 def config_edit_cloud_command(
     cli_context: CLIContext,
     project_mode: str | None,
     runtime_source: str | None,
+    cloud_provider: str | None,
+    target: str | None,
     project: str | None,
     region: str | None,
     service: str | None,
@@ -221,6 +173,16 @@ def config_edit_cloud_command(
     concurrency: int | None,
     cpu: str | None,
     memory: str | None,
+    aws_region: str | None,
+    aws_cluster: str | None,
+    aws_service: str | None,
+    aws_vpc_id: str | None,
+    aws_subnet_ids: str | None,
+    azure_subscription: str | None,
+    azure_resource_group: str | None,
+    azure_region: str | None,
+    azure_environment: str | None,
+    azure_app: str | None,
 ) -> None:
     """Edit project mode and managed cloud defaults."""
     exit_with_result(
@@ -230,6 +192,8 @@ def config_edit_cloud_command(
             CloudEditOptions(
                 project_mode=project_mode,
                 runtime_source=runtime_source,
+                cloud_provider=cloud_provider,
+                target=target,
                 project=project,
                 region=region,
                 service=service,
@@ -242,6 +206,16 @@ def config_edit_cloud_command(
                 concurrency=concurrency,
                 cpu=cpu,
                 memory=memory,
+                aws_region=aws_region,
+                aws_cluster=aws_cluster,
+                aws_service=aws_service,
+                aws_vpc_id=aws_vpc_id,
+                aws_subnet_ids=aws_subnet_ids,
+                azure_subscription=azure_subscription,
+                azure_resource_group=azure_resource_group,
+                azure_region=azure_region,
+                azure_environment=azure_environment,
+                azure_app=azure_app,
             ),
         ),
     )

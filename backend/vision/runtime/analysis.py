@@ -6,7 +6,6 @@ from backend.core.storage import now_ms
 from backend.memory.materializer import build_accepted_vision_event
 from backend.vision.contracts import VisionProviderError, VisionRateLimitError
 from backend.vision.policy.gating import AcceptedFrameReference, VisionGateError, VisionRouteDecision, extract_vision_signal_snapshot
-from backend.vision.providers.shared import sanitize_sensitive_text
 from backend.vision.runtime.models import (
     DeferredVisionCandidate,
     PendingVisionFrame,
@@ -298,12 +297,8 @@ class VisionAnalysisMixin:
                 error_details=error_details,
                 last_attempt_at_ms=now_ms(),
             )
-        provider_message = sanitize_sensitive_text(
-            str(error_details.get("provider_message") or "").strip()
-        )
-        payload_excerpt = sanitize_sensitive_text(
-            str(error_details.get("payload_excerpt") or "").strip()
-        )
+        provider_message = str(error_details.get("provider_message") or "").strip()
+        payload_excerpt = str(error_details.get("payload_excerpt") or "").strip()
         logger.warning(
             "VISION_ANALYSIS_FAILED session=%s frame=%s provider=%s model=%s status=%s provider_error_code=%s provider_message=%s payload_excerpt=%s session_closing=%s runtime_shutting_down=%s",
             session_id,
@@ -336,8 +331,8 @@ class VisionAnalysisMixin:
         error_details = {
             "http_status": exc.status_code,
             "provider_error_code": exc.provider_error_code,
-            "provider_message": sanitize_sensitive_text(exc.provider_message),
-            "payload_excerpt": sanitize_sensitive_text(exc.payload_excerpt),
+            "provider_message": exc.provider_message,
+            "payload_excerpt": exc.payload_excerpt,
         }
         session_id = pending_frame.frame_context.session_id
         frame_id = pending_frame.frame_context.frame_id
@@ -505,8 +500,8 @@ class VisionAnalysisMixin:
                 error_details={
                     "http_status": exc.status_code,
                     "provider_error_code": exc.provider_error_code,
-                    "provider_message": sanitize_sensitive_text(exc.provider_message),
-                    "payload_excerpt": sanitize_sensitive_text(exc.payload_excerpt),
+                    "provider_message": exc.provider_message,
+                    "payload_excerpt": exc.payload_excerpt,
                 },
                 bootstrap_reason="provider_request_failed",
             )

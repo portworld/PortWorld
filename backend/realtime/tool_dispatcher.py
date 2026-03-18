@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-from collections.abc import Awaitable, Callable, Sequence
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol
 
-from backend.realtime.contracts import RealtimeLifecycleAdapter
 from backend.tools.contracts import ToolCall
 from backend.tools.runtime import RealtimeToolingRuntime
 from backend.ws.protocol.contracts import now_ms
@@ -14,12 +12,16 @@ from backend.ws.protocol.contracts import now_ms
 logger = logging.getLogger(__name__)
 
 
+class UpstreamToolSender(Protocol):
+    async def send_json(self, event: dict[str, Any]) -> None: ...
+
+
 class ToolCallDispatcher:
     def __init__(
         self,
         *,
         session_id: str,
-        upstream_client: RealtimeLifecycleAdapter,
+        upstream_client: UpstreamToolSender,
         tooling_runtime: RealtimeToolingRuntime | None,
         send_response_create: Callable[[str], Awaitable[None]],
         send_onboarding_profile_ready: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
@@ -32,9 +34,6 @@ class ToolCallDispatcher:
         self._send_onboarding_profile_ready = send_onboarding_profile_ready
         self._processed_tool_call_ids: dict[str, None] = {}
         self._processed_tool_item_ids: dict[str, None] = {}
-        self._pending_tool_call_ids: set[str] = set()
-        self._cancelled_tool_call_ids: dict[str, None] = {}
-        self._inflight_tool_tasks: dict[str, asyncio.Task[Any]] = {}
         self._processed_tool_dedupe_limit = max(1, dedupe_limit)
         self._saw_duplicate_tool_call_event_for_turn = False
 
@@ -44,32 +43,6 @@ class ToolCallDispatcher:
 
     def reset_turn_state(self) -> None:
         self._saw_duplicate_tool_call_event_for_turn = False
-        self._pending_tool_call_ids.clear()
-        self._cancelled_tool_call_ids.clear()
-
-    def cancel_pending_tool_calls(
-        self,
-        *,
-        call_ids: Sequence[str],
-        source: str,
-    ) -> None:
-        cancelled_count = 0
-        for call_id in call_ids:
-            if not isinstance(call_id, str) or not call_id:
-                continue
-            self._remember_processed_tool_id(self._cancelled_tool_call_ids, call_id)
-            self._pending_tool_call_ids.discard(call_id)
-            task = self._inflight_tool_tasks.get(call_id)
-            if task is not None and not task.done():
-                task.cancel()
-            cancelled_count += 1
-        if cancelled_count > 0:
-            logger.info(
-                "Registered upstream tool call cancellations session=%s source=%s cancelled=%s",
-                self._session_id,
-                source,
-                cancelled_count,
-            )
 
     async def handle_event(self, event: dict[str, Any]) -> None:
         if self._tooling_runtime is None:
@@ -81,14 +54,6 @@ class ToolCallDispatcher:
             return
 
         call_id, item_id = self._extract_tool_call_dedupe_ids(event)
-        if call_id is not None and call_id in self._cancelled_tool_call_ids:
-            logger.info(
-                "Skipping cancelled tool call execution session=%s call_id=%s",
-                self._session_id,
-                call_id,
-            )
-            self._mark_tool_call_processed(call_id=call_id, item_id=item_id)
-            return
         duplicate, dedupe_key = self._is_duplicate_tool_call_event(
             call_id=call_id,
             item_id=item_id,
@@ -103,52 +68,40 @@ class ToolCallDispatcher:
             )
             return
         self._mark_tool_call_processed(call_id=call_id, item_id=item_id)
-        if call_id is not None:
-            self._pending_tool_call_ids.add(call_id)
-            current_task = asyncio.current_task()
-            if current_task is not None:
-                self._inflight_tool_tasks[call_id] = current_task
 
-        try:
-            tool_call_or_error = self._extract_tool_call_or_error(event)
-            if isinstance(tool_call_or_error, dict):
-                await self._send_tool_error_output(
-                    call_id=tool_call_or_error["call_id"],
-                    tool_name=tool_call_or_error["tool_name"],
-                    error_code=tool_call_or_error["error_code"],
-                    error_message=tool_call_or_error["error_message"],
-                )
-                return
-
-            assert self._tooling_runtime is not None
-            try:
-                tool_result = await self._tooling_runtime.execute(tool_call_or_error)
-            except Exception as exc:  # pragma: no cover
-                logger.exception(
-                    "Tool execution failed session=%s call_id=%s name=%s",
-                    self._session_id,
-                    tool_call_or_error.call_id,
-                    tool_call_or_error.name,
-                )
-                await self._send_tool_error_output(
-                    call_id=tool_call_or_error.call_id,
-                    tool_name=tool_call_or_error.name,
-                    error_code="TOOL_EXECUTION_FAILED",
-                    error_message=str(exc) or "Tool execution failed",
-                )
-                return
-
-            await self._send_tool_output_and_continue(
-                call_id=tool_result.call_id,
-                output=tool_result.to_output_json(),
+        tool_call_or_error = self._extract_tool_call_or_error(event)
+        if isinstance(tool_call_or_error, dict):
+            await self._send_tool_error_output(
+                call_id=tool_call_or_error["call_id"],
+                tool_name=tool_call_or_error["tool_name"],
+                error_code=tool_call_or_error["error_code"],
+                error_message=tool_call_or_error["error_message"],
             )
-            await self._maybe_emit_onboarding_ready(tool_result)
-        finally:
-            if call_id is not None:
-                self._pending_tool_call_ids.discard(call_id)
-                task = self._inflight_tool_tasks.get(call_id)
-                if task is asyncio.current_task():
-                    self._inflight_tool_tasks.pop(call_id, None)
+            return
+
+        assert self._tooling_runtime is not None
+        try:
+            tool_result = await self._tooling_runtime.execute(tool_call_or_error)
+        except Exception as exc:  # pragma: no cover
+            logger.exception(
+                "Tool execution failed session=%s call_id=%s name=%s",
+                self._session_id,
+                tool_call_or_error.call_id,
+                tool_call_or_error.name,
+            )
+            await self._send_tool_error_output(
+                call_id=tool_call_or_error.call_id,
+                tool_name=tool_call_or_error.name,
+                error_code="TOOL_EXECUTION_FAILED",
+                error_message=str(exc) or "Tool execution failed",
+            )
+            return
+
+        await self._send_tool_output_and_continue(
+            call_id=tool_result.call_id,
+            output=tool_result.to_output_json(),
+        )
+        await self._maybe_emit_onboarding_ready(tool_result)
 
     def _extract_tool_call_dedupe_ids(
         self,
@@ -292,14 +245,16 @@ class ToolCallDispatcher:
         await self._send_tool_output_and_continue(call_id=call_id, output=output_json)
 
     async def _send_tool_output_and_continue(self, *, call_id: str, output: str) -> None:
-        if call_id in self._cancelled_tool_call_ids:
-            logger.info(
-                "Dropping tool output for cancelled call session=%s call_id=%s",
-                self._session_id,
-                call_id,
-            )
-            return
-        await self._upstream_client.submit_tool_result(call_id=call_id, output=output)
+        await self._upstream_client.send_json(
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": output,
+                },
+            }
+        )
         await self._send_response_create("tool_output")
 
     async def _maybe_emit_onboarding_ready(self, tool_result) -> None:

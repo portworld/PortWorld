@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import WebSocket
 
-from backend.core.settings import MissingRealtimeProviderAPIKeyError
+from backend.core.settings import MissingOpenAIAPIKeyError
 from backend.core.storage import BackendStorage
 from backend.realtime.client import RealtimeClientError
 from backend.realtime.factory import BridgeBinding
@@ -75,12 +75,12 @@ async def activate_session(
             session_instructions=session_instructions,
             auto_start_response=auto_start_response,
         )
-    except MissingRealtimeProviderAPIKeyError as exc:
+    except MissingOpenAIAPIKeyError:
         await send_control(
             "error",
             {
-                "code": exc.code,
-                "message": exc.user_message,
+                "code": "MISSING_OPENAI_API_KEY",
+                "message": "Server missing OPENAI_API_KEY",
                 "retriable": False,
             },
             fallback_session_id=envelope.session_id,

@@ -1,7 +1,18 @@
 from __future__ import annotations
 
-from portworld_cli.workspace.project_config import (
+import re
+
+from portworld_cli.targets import (
+    CLOUD_PROVIDER_AWS,
+    CLOUD_PROVIDER_AZURE,
     CLOUD_PROVIDER_GCP,
+    TARGET_AWS_ECS_FARGATE,
+    TARGET_AZURE_CONTAINER_APPS,
+    TARGET_GCP_CLOUD_RUN,
+)
+from portworld_cli.workspace.project_config import (
+    AWSECSFargateConfig,
+    AzureContainerAppsConfig,
     GCP_CLOUD_RUN_TARGET,
     PROJECT_MODE_LOCAL,
     PROJECT_MODE_MANAGED,
@@ -97,8 +108,33 @@ def collect_cloud_section(
         explicit_value=options.runtime_source,
         choices=(RUNTIME_SOURCE_SOURCE, RUNTIME_SOURCE_PUBLISHED),
     )
+    current_cloud_provider = session.project_config.cloud_provider or CLOUD_PROVIDER_GCP
+    current_preferred_target = (
+        session.project_config.deploy.preferred_target or _target_for_provider(current_cloud_provider)
+    )
+    cloud_provider = resolve_choice_value(
+        session.cli_context,
+        prompt="Cloud provider",
+        current_value=current_cloud_provider,
+        explicit_value=options.cloud_provider,
+        choices=(CLOUD_PROVIDER_GCP, CLOUD_PROVIDER_AWS, CLOUD_PROVIDER_AZURE),
+    )
+    default_target = _target_for_provider(cloud_provider)
+    preferred_target = resolve_choice_value(
+        session.cli_context,
+        prompt="Managed target",
+        current_value=current_preferred_target,
+        explicit_value=options.target,
+        choices=(TARGET_GCP_CLOUD_RUN, TARGET_AWS_ECS_FARGATE, TARGET_AZURE_CONTAINER_APPS),
+    )
+    if project_mode == PROJECT_MODE_MANAGED and preferred_target != default_target:
+        raise ConfigValidationError(
+            "Selected managed target does not match selected cloud provider."
+        )
 
     current_gcp = session.project_config.deploy.gcp_cloud_run
+    current_aws = session.project_config.deploy.aws_ecs_fargate
+    current_azure = session.project_config.deploy.azure_container_apps
     explicit_cloud_change = any(
         value is not None
         for value in (
@@ -114,6 +150,16 @@ def collect_cloud_section(
             options.concurrency,
             options.cpu,
             options.memory,
+            options.aws_region,
+            options.aws_cluster,
+            options.aws_service,
+            options.aws_vpc_id,
+            options.aws_subnet_ids,
+            options.azure_subscription,
+            options.azure_resource_group,
+            options.azure_region,
+            options.azure_environment,
+            options.azure_app,
         )
     )
     collect_defaults = (
@@ -123,7 +169,9 @@ def collect_cloud_section(
     )
 
     gcp_cloud_run = current_gcp
-    if collect_defaults:
+    aws_ecs_fargate = current_aws
+    azure_container_apps = current_azure
+    if collect_defaults and cloud_provider == CLOUD_PROVIDER_GCP:
         project_id = resolve_optional_text_value(
             session.cli_context,
             prompt="GCP project id",
@@ -218,11 +266,75 @@ def collect_cloud_section(
             cpu=cpu,
             memory=memory,
         )
+    if collect_defaults and cloud_provider == CLOUD_PROVIDER_AWS:
+        aws_subnet_ids = _resolve_optional_csv(
+            cli_context=session.cli_context,
+            prompt="AWS subnet ids (comma-separated)",
+            current_values=current_aws.subnet_ids,
+            explicit_value=options.aws_subnet_ids,
+        )
+        aws_ecs_fargate = AWSECSFargateConfig(
+            region=resolve_optional_text_value(
+                session.cli_context,
+                prompt="AWS region",
+                current_value=current_aws.region,
+                explicit_value=options.aws_region,
+            ),
+            cluster_name=resolve_optional_text_value(
+                session.cli_context,
+                prompt="AWS ECS cluster name",
+                current_value=current_aws.cluster_name,
+                explicit_value=options.aws_cluster,
+            ),
+            service_name=resolve_optional_text_value(
+                session.cli_context,
+                prompt="AWS ECS service name",
+                current_value=current_aws.service_name,
+                explicit_value=options.aws_service,
+            ),
+            vpc_id=resolve_optional_text_value(
+                session.cli_context,
+                prompt="AWS VPC id",
+                current_value=current_aws.vpc_id,
+                explicit_value=options.aws_vpc_id,
+            ),
+            subnet_ids=aws_subnet_ids,
+        )
+    if collect_defaults and cloud_provider == CLOUD_PROVIDER_AZURE:
+        azure_container_apps = AzureContainerAppsConfig(
+            subscription_id=resolve_optional_text_value(
+                session.cli_context,
+                prompt="Azure subscription id",
+                current_value=current_azure.subscription_id,
+                explicit_value=options.azure_subscription,
+            ),
+            resource_group=resolve_optional_text_value(
+                session.cli_context,
+                prompt="Azure resource group",
+                current_value=current_azure.resource_group,
+                explicit_value=options.azure_resource_group,
+            ),
+            region=resolve_optional_text_value(
+                session.cli_context,
+                prompt="Azure region",
+                current_value=current_azure.region,
+                explicit_value=options.azure_region,
+            ),
+            environment_name=resolve_optional_text_value(
+                session.cli_context,
+                prompt="Azure Container Apps environment name",
+                current_value=current_azure.environment_name,
+                explicit_value=options.azure_environment,
+            ),
+            app_name=resolve_optional_text_value(
+                session.cli_context,
+                prompt="Azure Container Apps app name",
+                current_value=current_azure.app_name,
+                explicit_value=options.azure_app,
+            ),
+        )
 
-    if project_mode == PROJECT_MODE_MANAGED:
-        cloud_provider = CLOUD_PROVIDER_GCP
-        preferred_target = GCP_CLOUD_RUN_TARGET
-    else:
+    if project_mode == PROJECT_MODE_LOCAL:
         cloud_provider = None
         preferred_target = None
 
@@ -232,6 +344,8 @@ def collect_cloud_section(
         cloud_provider=cloud_provider,
         preferred_target=preferred_target,
         gcp_cloud_run=gcp_cloud_run,
+        aws_ecs_fargate=aws_ecs_fargate,
+        azure_container_apps=azure_container_apps,
     )
 
 
@@ -269,6 +383,53 @@ def apply_cloud_section(
         deploy=type(project_config.deploy)(
             preferred_target=result.preferred_target,
             gcp_cloud_run=result.gcp_cloud_run,
+            aws_ecs_fargate=result.aws_ecs_fargate,
+            azure_container_apps=result.azure_container_apps,
+            published_runtime=project_config.deploy.published_runtime,
         ),
     )
     return updated_project_config, {}
+
+
+def _target_for_provider(provider: str) -> str:
+    if provider == CLOUD_PROVIDER_AWS:
+        return TARGET_AWS_ECS_FARGATE
+    if provider == CLOUD_PROVIDER_AZURE:
+        return TARGET_AZURE_CONTAINER_APPS
+    return TARGET_GCP_CLOUD_RUN
+
+
+def _resolve_optional_csv(
+    *,
+    cli_context,
+    prompt: str,
+    current_values: tuple[str, ...],
+    explicit_value: str | None,
+) -> tuple[str, ...]:
+    if explicit_value is not None:
+        return _parse_csv_text(explicit_value)
+    if cli_context.non_interactive:
+        return current_values
+    current_text = ",".join(current_values)
+    response = resolve_optional_text_value(
+        cli_context,
+        prompt=prompt,
+        current_value=current_text,
+        explicit_value=None,
+    )
+    if response is None:
+        return ()
+    return _parse_csv_text(response)
+
+
+def _parse_csv_text(raw: str) -> tuple[str, ...]:
+    values = tuple(
+        value
+        for value in (
+            re.sub(r"\s+", "", part.strip())
+            for part in raw.split(",")
+            if part.strip()
+        )
+        if value
+    )
+    return values

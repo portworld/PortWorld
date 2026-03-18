@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from backend.realtime.audio_uplink import ClientAudioUplink
-    from backend.realtime.contracts import EnvelopeSender, RealtimeLifecycleAdapter
+    from backend.realtime.client import OpenAIRealtimeClient
+    from backend.realtime.contracts import EnvelopeSender
     from backend.realtime.tool_dispatcher import ToolCallDispatcher
 
 logger = logging.getLogger(__name__)
@@ -49,11 +50,10 @@ class TurnManager:
         session_id: str,
         config: TurnConfig,
         state: TurnState,
-        upstream_client: "RealtimeLifecycleAdapter",
+        upstream_client: "OpenAIRealtimeClient",
         audio_uplink: "ClientAudioUplink",
         tool_dispatcher: "ToolCallDispatcher",
         send_envelope: "EnvelopeSender",
-        response_create_starts_turn: bool = True,
     ) -> None:
         self._session_id = session_id
         self._config = config
@@ -62,7 +62,6 @@ class TurnManager:
         self._audio_uplink = audio_uplink
         self._tool_dispatcher = tool_dispatcher
         self._send_envelope = send_envelope
-        self._response_create_starts_turn = response_create_starts_turn
         self._finalize_task: asyncio.Task[None] | None = None
         self._finalize_lock = asyncio.Lock()
 
@@ -174,22 +173,16 @@ class TurnManager:
             self._audio_uplink.queue_size,
             self._audio_uplink.sent_count,
         )
-        await self._upstream_client.commit_client_turn()
+        await self._upstream_client.send_json({"type": "input_audio_buffer.commit"})
         self._state.manual_response_sent = True
         await self._send_response_create(source=f"manual_finalize:{reason}")
 
     async def _send_response_create(self, source: str) -> None:
-        await self._upstream_client.create_response()
-        if self._response_create_starts_turn:
-            self._state.has_active_upstream_response = True
-            self._state.response_started = True
-            self._cancel_finalize_task()
-        logger.info(
-            "Upstream response.create sent session=%s source=%s starts_turn=%s",
-            self._session_id,
-            source,
-            self._response_create_starts_turn,
-        )
+        await self._upstream_client.send_json({"type": "response.create"})
+        self._state.has_active_upstream_response = True
+        self._state.response_started = True
+        self._cancel_finalize_task()
+        logger.info("Upstream response.create sent session=%s source=%s", self._session_id, source)
 
     def _schedule_inactivity_finalize(self) -> None:
         if not self._config.manual_turn_fallback_enabled:

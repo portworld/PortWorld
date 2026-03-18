@@ -10,15 +10,24 @@ from portworld_cli.deploy_artifacts import (
     IMAGE_SOURCE_MODE_PUBLISHED_RELEASE,
     PUBLISHED_ARTIFACT_REPOSITORY_SUFFIX,
 )
+from portworld_cli.targets import (
+    CLOUD_PROVIDER_AWS,
+    CLOUD_PROVIDER_AZURE,
+    CLOUD_PROVIDER_GCP,
+    MANAGED_TARGETS_BY_PROVIDER,
+    MANAGED_TARGETS,
+    TARGET_AWS_ECS_FARGATE,
+    TARGET_AZURE_CONTAINER_APPS,
+    TARGET_GCP_CLOUD_RUN,
+)
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 PROJECT_MODE_LOCAL = "local"
 PROJECT_MODE_MANAGED = "managed"
 RUNTIME_SOURCE_SOURCE = "source"
 RUNTIME_SOURCE_PUBLISHED = "published"
-GCP_CLOUD_RUN_TARGET = "gcp-cloud-run"
-CLOUD_PROVIDER_GCP = "gcp"
+GCP_CLOUD_RUN_TARGET = TARGET_GCP_CLOUD_RUN
 
 DEFAULT_REALTIME_PROVIDER = "openai"
 DEFAULT_VISION_PROVIDER = "mistral"
@@ -156,6 +165,42 @@ class GCPCloudRunConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class AWSECSFargateConfig:
+    region: str | None = None
+    cluster_name: str | None = None
+    service_name: str | None = None
+    vpc_id: str | None = None
+    subnet_ids: tuple[str, ...] = ()
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "region": self.region,
+            "cluster_name": self.cluster_name,
+            "service_name": self.service_name,
+            "vpc_id": self.vpc_id,
+            "subnet_ids": list(self.subnet_ids),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AzureContainerAppsConfig:
+    subscription_id: str | None = None
+    resource_group: str | None = None
+    region: str | None = None
+    environment_name: str | None = None
+    app_name: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "subscription_id": self.subscription_id,
+            "resource_group": self.resource_group,
+            "region": self.region,
+            "environment_name": self.environment_name,
+            "app_name": self.app_name,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class PublishedRuntimeConfig:
     release_tag: str | None = None
     image_ref: str | None = None
@@ -173,12 +218,16 @@ class PublishedRuntimeConfig:
 class DeployConfig:
     preferred_target: str | None = None
     gcp_cloud_run: GCPCloudRunConfig = field(default_factory=GCPCloudRunConfig)
+    aws_ecs_fargate: AWSECSFargateConfig = field(default_factory=AWSECSFargateConfig)
+    azure_container_apps: AzureContainerAppsConfig = field(default_factory=AzureContainerAppsConfig)
     published_runtime: PublishedRuntimeConfig = field(default_factory=PublishedRuntimeConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "preferred_target": self.preferred_target,
             "gcp_cloud_run": self.gcp_cloud_run.to_payload(),
+            "aws_ecs_fargate": self.aws_ecs_fargate.to_payload(),
+            "azure_container_apps": self.azure_container_apps.to_payload(),
             "published_runtime": self.published_runtime.to_payload(),
         }
 
@@ -207,7 +256,7 @@ class ProjectConfig:
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ProjectConfig":
         schema_version = _read_int(payload, "schema_version", default=SCHEMA_VERSION)
-        if schema_version not in {1, 2, SCHEMA_VERSION}:
+        if schema_version not in {1, 2, 3, SCHEMA_VERSION}:
             raise ProjectConfigVersionError(
                 f"Unsupported .portworld/project.json schema_version: {schema_version}."
             )
@@ -227,6 +276,8 @@ class ProjectConfig:
         security_payload = _read_object(payload, "security", default={})
         deploy_payload = _read_object(payload, "deploy", default={})
         gcp_payload = _read_object(deploy_payload, "gcp_cloud_run", default={})
+        aws_payload = _read_object(deploy_payload, "aws_ecs_fargate", default={})
+        azure_payload = _read_object(deploy_payload, "azure_container_apps", default={})
         published_runtime_payload = _read_object(
             deploy_payload,
             "published_runtime",
@@ -236,18 +287,21 @@ class ProjectConfig:
         preferred_target = _read_optional_string(
             deploy_payload,
             "preferred_target",
-            allowed={GCP_CLOUD_RUN_TARGET},
+            allowed=set(MANAGED_TARGETS),
         )
         cloud_provider = _read_optional_string(
             payload,
             "cloud_provider",
-            allowed={CLOUD_PROVIDER_GCP},
+            allowed={CLOUD_PROVIDER_GCP, CLOUD_PROVIDER_AWS, CLOUD_PROVIDER_AZURE},
         )
-        if cloud_provider is None and preferred_target == GCP_CLOUD_RUN_TARGET:
-            cloud_provider = CLOUD_PROVIDER_GCP
+        cloud_provider, preferred_target = _normalize_cloud_selection(
+            project_mode=project_mode,
+            cloud_provider=cloud_provider,
+            preferred_target=preferred_target,
+        )
 
         return cls(
-            schema_version=schema_version,
+            schema_version=SCHEMA_VERSION,
             project_mode=project_mode,
             runtime_source=runtime_source,
             cloud_provider=cloud_provider,
@@ -348,6 +402,24 @@ class ProjectConfig:
                         "memory",
                         default=DEFAULT_GCP_MEMORY,
                     ),
+                ),
+                aws_ecs_fargate=AWSECSFargateConfig(
+                    region=_read_optional_string(aws_payload, "region"),
+                    cluster_name=_read_optional_string(aws_payload, "cluster_name"),
+                    service_name=_read_optional_string(aws_payload, "service_name"),
+                    vpc_id=_read_optional_string(aws_payload, "vpc_id"),
+                    subnet_ids=_read_string_list(
+                        aws_payload,
+                        "subnet_ids",
+                        default=(),
+                    ),
+                ),
+                azure_container_apps=AzureContainerAppsConfig(
+                    subscription_id=_read_optional_string(azure_payload, "subscription_id"),
+                    resource_group=_read_optional_string(azure_payload, "resource_group"),
+                    region=_read_optional_string(azure_payload, "region"),
+                    environment_name=_read_optional_string(azure_payload, "environment_name"),
+                    app_name=_read_optional_string(azure_payload, "app_name"),
                 ),
                 published_runtime=PublishedRuntimeConfig(
                     release_tag=_read_optional_string(
@@ -700,3 +772,43 @@ def _resolve_remembered_artifact_repository(
         if stripped:
             return stripped
     return artifact_repository
+
+
+def _normalize_cloud_selection(
+    *,
+    project_mode: str,
+    cloud_provider: str | None,
+    preferred_target: str | None,
+) -> tuple[str | None, str | None]:
+    if project_mode == PROJECT_MODE_LOCAL:
+        return None, None
+
+    if preferred_target is None and cloud_provider is None:
+        return CLOUD_PROVIDER_GCP, TARGET_GCP_CLOUD_RUN
+    if preferred_target is None and cloud_provider is not None:
+        candidate_targets = MANAGED_TARGETS_BY_PROVIDER.get(cloud_provider, ())
+        if len(candidate_targets) != 1:
+            raise ProjectConfigTypeError(
+                "Managed cloud provider must map to one supported managed target."
+            )
+        return cloud_provider, candidate_targets[0]
+    if preferred_target is not None and cloud_provider is None:
+        return _provider_for_target(preferred_target), preferred_target
+
+    assert preferred_target is not None and cloud_provider is not None
+    expected_provider = _provider_for_target(preferred_target)
+    if expected_provider != cloud_provider:
+        raise ProjectConfigTypeError(
+            "cloud_provider and deploy.preferred_target must refer to the same provider."
+        )
+    return cloud_provider, preferred_target
+
+
+def _provider_for_target(target: str) -> str:
+    if target == TARGET_AWS_ECS_FARGATE:
+        return CLOUD_PROVIDER_AWS
+    if target == TARGET_AZURE_CONTAINER_APPS:
+        return CLOUD_PROVIDER_AZURE
+    if target == TARGET_GCP_CLOUD_RUN:
+        return CLOUD_PROVIDER_GCP
+    raise ProjectConfigTypeError(f"Unsupported managed target: {target}.")

@@ -14,7 +14,8 @@ class GCSObjectStore(ObjectStore):
     def __init__(
         self,
         *,
-        bucket_name: str,
+        store_name: str,
+        endpoint: str | None,
         key_prefix: str,
     ) -> None:
         if storage is None or NotFound is None:
@@ -24,11 +25,12 @@ class GCSObjectStore(ObjectStore):
             )
         super().__init__(
             provider_name="gcs",
-            bucket_name=bucket_name,
+            store_name=store_name,
             key_prefix=key_prefix,
+            endpoint=endpoint,
         )
-        self._client = storage.Client()
-        self._bucket = self._client.bucket(bucket_name)
+        self._client = storage.Client(client_options=None if endpoint is None else {"api_endpoint": endpoint})
+        self._bucket = self._client.bucket(store_name)
 
     def put_bytes(
         self,
@@ -57,4 +59,3 @@ class GCSObjectStore(ObjectStore):
     def exists(self, *, relative_path: str) -> bool:
         blob = self._bucket.blob(self.resolve_location(relative_path=relative_path))
         return bool(blob.exists(client=self._client))
-

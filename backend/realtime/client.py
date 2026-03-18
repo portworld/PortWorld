@@ -2,20 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-import base64
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Optional
 from urllib.parse import urlencode
 
 import websockets
 from websockets import exceptions as ws_exceptions
-
-from backend.realtime.contracts import (
-    NormalizedRealtimeEvent,
-    NormalizedRealtimeEventTypes,
-)
-from backend.tools.contracts import ToolDefinition
 
 logger = logging.getLogger(__name__)
 INPUT_AUDIO_SAMPLE_RATE = 24_000
@@ -139,26 +131,6 @@ class OpenAIRealtimeClient:
                 self._model,
             )
 
-    async def append_client_audio(self, pcm16_audio: bytes) -> None:
-        await self.send_json(
-            {
-                "type": "input_audio_buffer.append",
-                "audio": base64.b64encode(pcm16_audio).decode("ascii"),
-            }
-        )
-
-    async def commit_client_turn(self) -> None:
-        await self.send_json({"type": "input_audio_buffer.commit"})
-
-    async def create_response(self) -> None:
-        await self.send_json({"type": "response.create"})
-
-    async def cancel_response(self, *, response_id: str | None = None) -> None:
-        payload: dict[str, Any] = {"type": "response.cancel"}
-        if response_id:
-            payload["response_id"] = response_id
-        await self.send_json(payload)
-
     async def send_json(self, event: dict[str, Any]) -> None:
         """Serialize and send a JSON event over websocket."""
         ws = self._ws
@@ -256,10 +228,6 @@ class OpenAIRealtimeClient:
             except RealtimeClosedError:
                 return
 
-    async def iter_normalized_events(self) -> AsyncIterator[NormalizedRealtimeEvent]:
-        async for event in self.iter_events():
-            yield self._to_normalized_runtime_event(event)
-
     def normalize_event(self, event: dict[str, Any]) -> dict[str, Any]:
         """Normalize alternate audio event names to canonical names."""
         event_type = event.get("type")
@@ -282,68 +250,12 @@ class OpenAIRealtimeClient:
             return self.audio_event_names.done
         return event_type
 
-    def _to_normalized_runtime_event(
-        self,
-        event: dict[str, Any],
-    ) -> NormalizedRealtimeEvent:
-        event_type = event.get("type")
-        if not isinstance(event_type, str):
-            return {
-                "type": NormalizedRealtimeEventTypes.UNHANDLED,
-                "payload": event,
-                "source": "",
-                "raw": event,
-            }
-
-        if event_type in {"session.created", "session.updated"}:
-            normalized_type = NormalizedRealtimeEventTypes.SESSION_READY
-        elif event_type == self.audio_event_names.delta:
-            normalized_type = NormalizedRealtimeEventTypes.RESPONSE_AUDIO_DELTA
-        elif event_type == self.audio_event_names.done:
-            normalized_type = NormalizedRealtimeEventTypes.RESPONSE_AUDIO_DONE
-        elif event_type == "response.done":
-            normalized_type = NormalizedRealtimeEventTypes.RESPONSE_DONE
-        elif event_type == "response.created":
-            normalized_type = NormalizedRealtimeEventTypes.RESPONSE_CREATED
-        elif event_type == "input_audio_buffer.speech_started":
-            normalized_type = NormalizedRealtimeEventTypes.INPUT_SPEECH_STARTED
-        elif event_type == "input_audio_buffer.speech_stopped":
-            normalized_type = NormalizedRealtimeEventTypes.INPUT_SPEECH_STOPPED
-        elif event_type == "input_audio_buffer.committed":
-            normalized_type = NormalizedRealtimeEventTypes.INPUT_AUDIO_COMMITTED
-        elif event_type in {
-            "response.function_call_arguments.done",
-            "response.output_item.done",
-        } and self._is_function_call_completion_event(event):
-            normalized_type = NormalizedRealtimeEventTypes.TOOL_CALL_COMPLETED
-        elif event_type == "error":
-            normalized_type = NormalizedRealtimeEventTypes.ERROR
-        else:
-            normalized_type = NormalizedRealtimeEventTypes.UNHANDLED
-
-        return {
-            "type": normalized_type,
-            "payload": event,
-            "source": event_type,
-            "raw": event,
-        }
-
-    @staticmethod
-    def _is_function_call_completion_event(event: dict[str, Any]) -> bool:
-        event_type = event.get("type")
-        if event_type == "response.function_call_arguments.done":
-            return True
-        if event_type != "response.output_item.done":
-            return False
-        item = event.get("item")
-        return isinstance(item, dict) and item.get("type") == "function_call"
-
     async def initialize_session(
         self,
         *,
         instructions: Optional[str] = None,
         voice: Optional[str] = None,
-        tools: Optional[Sequence[ToolDefinition]] = None,
+        tools: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         """Initialize realtime session, preferring current schema."""
         event = self._build_session_update_event(
@@ -354,20 +266,12 @@ class OpenAIRealtimeClient:
         )
         await self.send_json(event)
 
-    async def update_session(self, payload: dict[str, Any]) -> None:
-        await self.send_json(
-            {
-                "type": "session.update",
-                "session": payload,
-            }
-        )
-
     async def retry_initialize_session_with_legacy_schema(
         self,
         *,
         instructions: Optional[str] = None,
         voice: Optional[str] = None,
-        tools: Optional[Sequence[ToolDefinition]] = None,
+        tools: Optional[list[dict[str, Any]]] = None,
     ) -> bool:
         """Retry session initialization once with legacy session schema."""
         if self._legacy_schema_retry_attempted:
@@ -382,49 +286,12 @@ class OpenAIRealtimeClient:
         )
         return True
 
-    async def register_tools(self, tools: Sequence[ToolDefinition]) -> None:
-        await self.initialize_session(
-            tools=tools,
-        )
-
-    async def submit_tool_result(
-        self,
-        *,
-        call_id: str,
-        output: str,
-    ) -> None:
-        await self.send_json(
-            {
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "function_call_output",
-                    "call_id": call_id,
-                    "output": output,
-                },
-            }
-        )
-
-    async def maybe_recover_session_init_error(
-        self,
-        *,
-        code: str,
-        message: str,
-        tools: Sequence[ToolDefinition] | None = None,
-        instructions: str | None = None,
-    ) -> bool:
-        if not self._is_session_init_schema_error(code=code, message=message):
-            return False
-        return await self.retry_initialize_session_with_legacy_schema(
-            tools=tools,
-            instructions=instructions,
-        )
-
     def _build_session_update_event(
         self,
         *,
         instructions: Optional[str],
         voice: Optional[str],
-        tools: Optional[Sequence[ToolDefinition]],
+        tools: Optional[list[dict[str, Any]]],
         schema_mode: str,
     ) -> dict[str, Any]:
         resolved_instructions = (
@@ -475,47 +342,13 @@ class OpenAIRealtimeClient:
                 "interrupt_response": True,
             }
         if tools:
-            session["tools"] = [self._to_openai_tool_wire(tool) for tool in tools]
+            session["tools"] = tools
             session["tool_choice"] = "auto"
 
         return {
             "type": "session.update",
             "session": session,
         }
-
-    @staticmethod
-    def _to_openai_tool_wire(tool: ToolDefinition) -> dict[str, Any]:
-        return {
-            "type": "function",
-            "name": tool.name,
-            "description": tool.description,
-            "parameters": dict(tool.input_schema),
-        }
-
-    @staticmethod
-    def _is_session_init_schema_error(*, code: str, message: str) -> bool:
-        lower_code = code.strip().lower()
-        lower_message = message.strip().lower()
-
-        is_parameter_error = (
-            "unknown_parameter" in lower_code
-            or "invalid_parameter" in lower_code
-            or "unknown parameter" in lower_message
-            or "invalid parameter" in lower_message
-        )
-        if not is_parameter_error:
-            return False
-
-        schema_markers = (
-            "session.",
-            "input_audio_format",
-            "output_audio_format",
-            "turn_detection",
-            "audio.input",
-            "audio.output",
-            "output_modalities",
-        )
-        return any(marker in lower_message for marker in schema_markers)
 
     async def close(self) -> None:
         """Close websocket connection if open."""
