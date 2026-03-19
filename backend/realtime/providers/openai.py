@@ -3,6 +3,7 @@ from __future__ import annotations
 from backend.core.settings import Settings
 from backend.realtime.bridge import IOSRealtimeBridge
 from backend.realtime.client import OpenAIRealtimeClient
+from backend.realtime.contracts import RealtimeProviderCapabilities
 from backend.realtime.factory import (
     BinarySender,
     BridgeBinding,
@@ -10,6 +11,19 @@ from backend.realtime.factory import (
     ControlSender,
 )
 from backend.tools.runtime import RealtimeToolingRuntime
+
+
+OPENAI_REALTIME_CAPABILITIES = RealtimeProviderCapabilities(
+    streaming_audio_input=True,
+    streaming_audio_output=True,
+    server_vad=True,
+    manual_turn_commit_required=False,
+    tool_calling=True,
+    tool_result_submission_mode="conversation_item",
+    voice_selection=True,
+    interruption_cancel=True,
+    startup_validation=True,
+)
 
 
 def validate_openai_realtime_settings(settings: Settings) -> None:

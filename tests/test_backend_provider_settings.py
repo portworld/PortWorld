@@ -5,6 +5,12 @@ import unittest
 from unittest import mock
 
 from backend.core.settings import Settings
+from backend.realtime.contracts import RealtimeProviderCapabilities
+from backend.realtime.factory import (
+    RealtimeProviderFactory,
+    build_default_realtime_provider_registry,
+)
+from backend.realtime.providers.openai import OPENAI_REALTIME_CAPABILITIES
 from backend.vision.providers.mistral.analyzer import build_mistral_vision_analyzer
 
 
@@ -83,6 +89,27 @@ class BackendProviderSettingsTests(unittest.TestCase):
         self.assertEqual(analyzer.api_key, "mistral-key")
         self.assertEqual(analyzer.model_name, "pixtral-large-latest")
         self.assertEqual(analyzer.base_url, "https://mistral.example.test")
+
+    def test_openai_realtime_registry_exports_capabilities(self) -> None:
+        registry = build_default_realtime_provider_registry()
+        definition = registry.resolve("openai")
+
+        self.assertIs(definition.capabilities, OPENAI_REALTIME_CAPABILITIES)
+        self.assertIsInstance(definition.capabilities, RealtimeProviderCapabilities)
+        self.assertTrue(definition.capabilities.streaming_audio_input)
+        self.assertEqual(definition.capabilities.tool_result_submission_mode, "conversation_item")
+
+    def test_openai_realtime_factory_initializes_with_registry(self) -> None:
+        settings = self._settings(
+            {
+                "OPENAI_API_KEY": "test-key",
+            }
+        )
+
+        factory = RealtimeProviderFactory(settings=settings)
+
+        self.assertEqual(factory.provider_name, "openai")
+        self.assertIs(factory.capabilities, OPENAI_REALTIME_CAPABILITIES)
 
 
 if __name__ == "__main__":
