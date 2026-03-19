@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import shutil
 import subprocess
+from typing import Any, Mapping
 
 import httpx
 
@@ -14,7 +15,7 @@ from portworld_cli.workspace.session import (
     resolve_gcp_inspection_target,
 )
 from portworld_cli.output import format_key_value_lines
-from portworld_cli.workspace.project_config import GCP_CLOUD_RUN_TARGET
+from portworld_cli.targets import TARGET_GCP_CLOUD_RUN
 
 
 LIVE_PROBE_TIMEOUT_SECONDS = 3.0
@@ -127,7 +128,7 @@ def collect_live_service_status(
     *,
     active_target: str | None,
 ) -> LiveServiceStatus:
-    if active_target != GCP_CLOUD_RUN_TARGET:
+    if active_target != TARGET_GCP_CLOUD_RUN:
         return LiveServiceStatus(
             attempted=False,
             status="skipped",
@@ -230,6 +231,7 @@ def build_status_message(
     session: InspectionSession,
     active_target: str | None,
     last_known_payload: dict[str, object] | None,
+    deploy_by_target: Mapping[str, Mapping[str, Any]],
     live_status: LiveServiceStatus,
     local_runtime: LocalRuntimeStatus | None,
     health: HealthSummary,
@@ -312,6 +314,19 @@ def build_status_message(
         )
     sections.append("\n".join(["Last deploy", format_key_value_lines(*deploy_pairs)]))
 
+    by_target_pairs: list[tuple[str, object | None]] = []
+    for target, target_summary in deploy_by_target.items():
+        source = target_summary.get("source")
+        last_known = target_summary.get("last_known")
+        service_url = None
+        if isinstance(last_known, dict):
+            service_url = last_known.get("service_url")
+        if service_url:
+            by_target_pairs.append((target, f"{source} ({service_url})"))
+        else:
+            by_target_pairs.append((target, source))
+    sections.append("\n".join(["Deploy by target", format_key_value_lines(*by_target_pairs)]))
+
     live_pairs = [
         ("attempted", live_status.attempted),
         ("live_status", live_status.status),
@@ -351,21 +366,22 @@ def build_status_message(
             [
                 "Secrets",
                 format_key_value_lines(
-                    ("openai_api_key", presence_label(secret_readiness.openai_api_key_present)),
+                    ("required_provider_secrets", required_secret_status(secret_readiness)),
                     (
-                        "vision_provider_api_key",
-                        required_presence_label(
-                            secret_readiness.vision_provider_secret_required,
-                            secret_readiness.vision_provider_api_key_present,
-                        ),
+                        "missing_provider_secrets",
+                        ",".join(secret_readiness.missing_required_secret_keys) or "none",
+                    ),
+                    ("required_provider_config", required_config_status(secret_readiness)),
+                    (
+                        "missing_provider_config",
+                        ",".join(secret_readiness.missing_required_config_keys) or "none",
                     ),
                     (
-                        "tavily_api_key",
-                        required_presence_label(
-                            secret_readiness.tavily_secret_required,
-                            secret_readiness.tavily_api_key_present,
-                        ),
+                        "selected_realtime_provider",
+                        secret_readiness.selected_realtime_provider,
                     ),
+                    ("selected_vision_provider", secret_readiness.selected_vision_provider or "disabled"),
+                    ("selected_search_provider", secret_readiness.selected_search_provider or "disabled"),
                     ("bearer_token", presence_label(secret_readiness.bearer_token_present)),
                 ),
             ]
@@ -391,3 +407,21 @@ def required_presence_label(required: bool, present: bool | None) -> str:
     if not required:
         return "not_required"
     return "present" if present else "missing"
+
+
+def required_secret_status(secret_readiness: SecretReadiness) -> str:
+    if not secret_readiness.required_secret_keys:
+        return "none_required"
+    parts: list[str] = []
+    for key in secret_readiness.required_secret_keys:
+        parts.append(f"{key}:{presence_label(secret_readiness.key_presence.get(key))}")
+    return ",".join(parts)
+
+
+def required_config_status(secret_readiness: SecretReadiness) -> str:
+    if not secret_readiness.required_config_keys:
+        return "none_required"
+    parts: list[str] = []
+    for key in secret_readiness.required_config_keys:
+        parts.append(f"{key}:{presence_label(secret_readiness.config_key_presence.get(key))}")
+    return ",".join(parts)

@@ -175,7 +175,7 @@ class PostgresMetadataStore:
         if psycopg is None or dict_row is None:
             raise RuntimeError(
                 "Managed storage requires psycopg[binary]. Install the backend dependencies "
-                "with the new Postgres driver before using BACKEND_STORAGE_BACKEND=postgres_gcs."
+                "with the Postgres driver before using BACKEND_STORAGE_BACKEND=managed."
             )
         connection = psycopg.connect(self.database_url, row_factory=dict_row)
         try:

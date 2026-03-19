@@ -5,22 +5,49 @@ from collections import OrderedDict
 from contextlib import contextmanager
 from typing import Any, Iterator
 
+from backend.core.provider_requirements import list_provider_requirements
 from portworld_cli.deploy.config import DeployStageError, ResolvedDeployConfig
 from portworld_cli.gcp import GCPAdapters, build_postgres_url
 
 
-SENSITIVE_ENV_KEYS: tuple[str, ...] = (
-    "OPENAI_API_KEY",
+_PROVIDER_SECRET_ENV_KEYS: tuple[str, ...] = tuple(
+    key.strip()
+    for entry in list_provider_requirements()
+    for key in (
+        *entry.secret_binding.required_env_keys,
+        *entry.secret_binding.optional_env_keys,
+    )
+    if key.strip()
+)
+_DEPRECATED_SENSITIVE_ENV_KEYS: tuple[str, ...] = (
     "VISION_PROVIDER_API_KEY",
-    "TAVILY_API_KEY",
-    "BACKEND_BEARER_TOKEN",
-    "BACKEND_DATABASE_URL",
+    "VISION_PROVIDER_BASE_URL",
+    "MISTRAL_API_KEY",
+    "MISTRAL_BASE_URL",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+)
+_CORE_SENSITIVE_ENV_KEYS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        (
+            *_PROVIDER_SECRET_ENV_KEYS,
+            *_DEPRECATED_SENSITIVE_ENV_KEYS,
+            "BACKEND_BEARER_TOKEN",
+            "BACKEND_DATABASE_URL",
+        )
+    ).keys()
 )
 LOCAL_ONLY_ENV_KEYS: tuple[str, ...] = (
     "BACKEND_DATA_DIR",
     "BACKEND_SQLITE_PATH",
     "PORT",
 )
+
+
+def _effective_sensitive_env_keys(env_values: OrderedDict[str, str]) -> tuple[str, ...]:
+    del env_values
+    return _CORE_SENSITIVE_ENV_KEYS
 
 
 def ensure_cloud_sql(
@@ -126,15 +153,17 @@ def build_runtime_env_vars(
     config: ResolvedDeployConfig,
     bucket_name: str,
 ) -> dict[str, str]:
+    sensitive_env_keys = _effective_sensitive_env_keys(env_values)
     final_env: OrderedDict[str, str] = OrderedDict()
     for key, value in env_values.items():
-        if key in SENSITIVE_ENV_KEYS or key in LOCAL_ONLY_ENV_KEYS:
+        if key in sensitive_env_keys or key in LOCAL_ONLY_ENV_KEYS:
             continue
         final_env[key] = value
 
     final_env["BACKEND_PROFILE"] = "production"
-    final_env["BACKEND_STORAGE_BACKEND"] = "postgres_gcs"
+    final_env["BACKEND_STORAGE_BACKEND"] = "managed"
     final_env["BACKEND_OBJECT_STORE_PROVIDER"] = "gcs"
+    final_env["BACKEND_OBJECT_STORE_NAME"] = bucket_name
     final_env["BACKEND_OBJECT_STORE_BUCKET"] = bucket_name
     final_env["BACKEND_OBJECT_STORE_PREFIX"] = config.service_name
     final_env["CORS_ORIGINS"] = config.cors_origins
@@ -145,21 +174,16 @@ def build_runtime_env_vars(
 
 def build_cloud_run_secret_bindings(
     *,
-    openai_secret_name: str,
-    vision_secret_name: str | None,
-    tavily_secret_name: str | None,
+    provider_secret_names: dict[str, str],
     bearer_secret_name: str,
     database_url_secret_name: str,
 ) -> dict[str, str]:
-    bindings = {
-        "OPENAI_API_KEY": f"{openai_secret_name}:latest",
+    bindings: dict[str, str] = {
         "BACKEND_BEARER_TOKEN": f"{bearer_secret_name}:latest",
         "BACKEND_DATABASE_URL": f"{database_url_secret_name}:latest",
     }
-    if vision_secret_name is not None:
-        bindings["VISION_PROVIDER_API_KEY"] = f"{vision_secret_name}:latest"
-    if tavily_secret_name is not None:
-        bindings["TAVILY_API_KEY"] = f"{tavily_secret_name}:latest"
+    for env_key, secret_name in provider_secret_names.items():
+        bindings[env_key] = f"{secret_name}:latest"
     return bindings
 
 
@@ -171,8 +195,9 @@ def validate_final_settings(
 ) -> None:
     from backend.core.settings import Settings
 
+    sensitive_env_keys = _effective_sensitive_env_keys(env_values)
     combined_env = dict(env_vars)
-    for key in SENSITIVE_ENV_KEYS:
+    for key in sensitive_env_keys:
         local_value = (env_values.get(key, "") or "").strip()
         if local_value:
             combined_env[key] = local_value

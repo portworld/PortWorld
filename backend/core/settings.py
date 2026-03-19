@@ -13,12 +13,30 @@ _BACKEND_ENV_PATH = _BACKEND_ROOT / ".env"
 
 
 DEFAULT_INSTRUCTIONS = "You are a concise assistant. Keep answers short, clear, and practical."
-SUPPORTED_STORAGE_BACKENDS = {"local", "postgres_gcs"}
-SUPPORTED_OBJECT_STORE_PROVIDERS = {"filesystem", "gcs"}
+STORAGE_BACKEND_MANAGED = "managed"
+LEGACY_STORAGE_BACKEND_POSTGRES_GCS = "postgres_gcs"
+SUPPORTED_STORAGE_BACKENDS = {"local", STORAGE_BACKEND_MANAGED, LEGACY_STORAGE_BACKEND_POSTGRES_GCS}
+SUPPORTED_OBJECT_STORE_PROVIDERS = {"filesystem", "gcs", "s3", "azure_blob"}
 
 
-class MissingOpenAIAPIKeyError(RuntimeError):
-    pass
+class MissingRealtimeProviderAPIKeyError(RuntimeError):
+    def __init__(self, *, provider: str, env_var: str) -> None:
+        provider_name = provider.strip().lower()
+        self.provider = provider_name
+        self.env_var = env_var
+        self.code = f"MISSING_{provider_name.upper()}_API_KEY"
+        self.user_message = f"Server missing {env_var}"
+        super().__init__(
+            f"{env_var} is required when REALTIME_PROVIDER={provider_name}"
+        )
+
+
+class MissingOpenAIAPIKeyError(MissingRealtimeProviderAPIKeyError):
+    def __init__(self, message: str = "OPENAI_API_KEY is required at runtime") -> None:
+        super().__init__(provider="openai", env_var="OPENAI_API_KEY")
+        self.user_message = "Server missing OPENAI_API_KEY"
+        self.code = "MISSING_OPENAI_API_KEY"
+        RuntimeError.__init__(self, message)
 
 
 def load_environment_files(backend_env_path: Path | None = None) -> None:
@@ -79,10 +97,24 @@ def _parse_csv_env(*names: str, default: str) -> list[str]:
 @dataclass(frozen=True)
 class Settings:
     openai_api_key: str | None
-    mistral_api_key: str | None
-    mistral_base_url: str | None
-    vision_provider_api_key: str | None
-    vision_provider_base_url: str | None
+    vision_mistral_api_key: str | None
+    vision_mistral_base_url: str | None
+    vision_openai_api_key: str | None
+    vision_openai_base_url: str | None
+    vision_azure_openai_api_key: str | None
+    vision_azure_openai_endpoint: str | None
+    vision_azure_openai_api_version: str | None
+    vision_azure_openai_deployment: str | None
+    vision_gemini_api_key: str | None
+    vision_gemini_base_url: str | None
+    vision_claude_api_key: str | None
+    vision_claude_base_url: str | None
+    vision_bedrock_region: str | None
+    vision_bedrock_aws_access_key_id: str | None
+    vision_bedrock_aws_secret_access_key: str | None
+    vision_bedrock_aws_session_token: str | None
+    vision_groq_api_key: str | None
+    vision_groq_base_url: str | None
     tavily_api_key: str | None
     tavily_base_url: str | None
     backend_bearer_token: str | None
@@ -93,12 +125,18 @@ class Settings:
     openai_realtime_include_turn_detection: bool
     openai_realtime_enable_manual_turn_fallback: bool
     openai_realtime_manual_turn_fallback_delay_ms: int
+    gemini_live_api_key: str | None
+    gemini_live_model: str
+    gemini_live_base_url: str | None
+    gemini_live_endpoint: str | None
     backend_uplink_ack_every_n_frames: int
     backend_data_dir: Path
     backend_sqlite_path: Path
     backend_storage_backend: str
     backend_database_url: str | None
     backend_object_store_provider: str
+    backend_object_store_name: str | None
+    backend_object_store_endpoint: str | None
     backend_object_store_bucket: str | None
     backend_object_store_prefix: str | None
     backend_debug_trace_ws_messages: bool
@@ -205,54 +243,236 @@ class Settings:
         if self.backend_database_url is None:
             raise RuntimeError(
                 "BACKEND_DATABASE_URL must be set when "
-                "BACKEND_STORAGE_BACKEND=postgres_gcs."
+                "BACKEND_STORAGE_BACKEND=managed."
             )
-        if self.backend_object_store_provider != "gcs":
+        if self.backend_object_store_provider == "filesystem":
             raise RuntimeError(
-                "BACKEND_OBJECT_STORE_PROVIDER must be 'gcs' when "
-                "BACKEND_STORAGE_BACKEND=postgres_gcs."
+                "BACKEND_OBJECT_STORE_PROVIDER cannot be 'filesystem' when "
+                "BACKEND_STORAGE_BACKEND=managed."
             )
-        if self.backend_object_store_bucket is None:
+        if self.backend_object_store_provider == "azure_blob" and self.backend_object_store_endpoint is None:
             raise RuntimeError(
-                "BACKEND_OBJECT_STORE_BUCKET must be set when "
-                "BACKEND_STORAGE_BACKEND=postgres_gcs."
+                "BACKEND_OBJECT_STORE_ENDPOINT must be set when "
+                "BACKEND_OBJECT_STORE_PROVIDER=azure_blob."
+            )
+        if self.backend_object_store_name is None:
+            raise RuntimeError(
+                "BACKEND_OBJECT_STORE_NAME must be set when "
+                "BACKEND_STORAGE_BACKEND=managed."
             )
         if self.backend_object_store_prefix is None:
             raise RuntimeError(
                 "BACKEND_OBJECT_STORE_PREFIX must be set when "
-                "BACKEND_STORAGE_BACKEND=postgres_gcs."
+                "BACKEND_STORAGE_BACKEND=managed."
             )
 
     def require_openai_api_key(self) -> str:
-        key = (self.openai_api_key or "").strip()
+        key = self.resolve_realtime_api_key(provider="openai")
         if not key:
             raise MissingOpenAIAPIKeyError("OPENAI_API_KEY is required at runtime")
         return key
 
-    def require_vision_provider_api_key(self) -> str:
-        key = (self.vision_provider_api_key or "").strip()
+    def resolve_realtime_api_key(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.realtime_provider).strip().lower()
+        if provider_name == "openai":
+            key = (self.openai_api_key or "").strip()
+            return key or None
+        if provider_name == "gemini_live":
+            key = (self.gemini_live_api_key or "").strip()
+            return key or None
+        return None
+
+    def require_realtime_api_key(self, *, provider: str | None = None) -> str:
+        provider_name = (provider or self.realtime_provider).strip().lower()
+        key = self.resolve_realtime_api_key(provider=provider_name)
         if key:
             return key
-        key = (self.mistral_api_key or "").strip()
-        if key:
-            return key
+        if provider_name == "openai":
+            raise MissingOpenAIAPIKeyError("OPENAI_API_KEY is required at runtime")
+        if provider_name == "gemini_live":
+            raise MissingRealtimeProviderAPIKeyError(
+                provider=provider_name,
+                env_var="GEMINI_LIVE_API_KEY",
+            )
         raise RuntimeError(
-            "VISION_PROVIDER_API_KEY or MISTRAL_API_KEY is required when "
-            "VISION_MEMORY_ENABLED=true"
+            f"Unsupported realtime provider {provider_name!r}: no api-key resolution path is defined."
         )
 
-    def validate_vision_provider_credentials(self) -> None:
-        key = self.require_vision_provider_api_key()
-        model_name = (self.vision_memory_model or "").strip()
-        if model_name and key == model_name:
+    def resolve_realtime_model(self, *, provider: str | None = None) -> str:
+        provider_name = (provider or self.realtime_provider).strip().lower()
+        if provider_name == "openai":
+            return self.openai_realtime_model
+        if provider_name == "gemini_live":
+            return self.gemini_live_model
+        raise RuntimeError(f"Unsupported realtime provider {provider_name!r}")
+
+    def resolve_realtime_base_url(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.realtime_provider).strip().lower()
+        if provider_name == "gemini_live":
+            base_url = (self.gemini_live_base_url or "").strip()
+            return base_url or None
+        return None
+
+    def resolve_realtime_endpoint(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.realtime_provider).strip().lower()
+        if provider_name == "gemini_live":
+            endpoint = (self.gemini_live_endpoint or "").strip()
+            return endpoint or None
+        return None
+
+    def _resolve_vision_provider_scoped_api_key(self, *, provider: str) -> str | None:
+        provider_name = provider.strip().lower()
+        if provider_name == "mistral":
+            key = (self.vision_mistral_api_key or "").strip()
+            return key or None
+        if provider_name == "openai":
+            key = (self.vision_openai_api_key or "").strip()
+            return key or None
+        if provider_name == "azure_openai":
+            key = (self.vision_azure_openai_api_key or "").strip()
+            return key or None
+        if provider_name == "gemini":
+            key = (self.vision_gemini_api_key or "").strip()
+            return key or None
+        if provider_name == "claude":
+            key = (self.vision_claude_api_key or "").strip()
+            return key or None
+        if provider_name == "groq":
+            key = (self.vision_groq_api_key or "").strip()
+            return key or None
+        return None
+
+    def _resolve_vision_provider_scoped_base_url(self, *, provider: str) -> str | None:
+        provider_name = provider.strip().lower()
+        if provider_name == "mistral":
+            base_url = (self.vision_mistral_base_url or "").strip()
+            return base_url or None
+        if provider_name == "openai":
+            base_url = (self.vision_openai_base_url or "").strip()
+            return base_url or None
+        if provider_name == "gemini":
+            base_url = (self.vision_gemini_base_url or "").strip()
+            return base_url or None
+        if provider_name == "claude":
+            base_url = (self.vision_claude_base_url or "").strip()
+            return base_url or None
+        if provider_name == "groq":
+            base_url = (self.vision_groq_base_url or "").strip()
+            return base_url or None
+        return None
+
+    def resolve_vision_provider_endpoint(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        if provider_name == "azure_openai":
+            endpoint = (self.vision_azure_openai_endpoint or "").strip()
+            return endpoint or None
+        return None
+
+    def resolve_vision_provider_api_version(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        if provider_name == "azure_openai":
+            api_version = (self.vision_azure_openai_api_version or "").strip()
+            return api_version or None
+        return None
+
+    def resolve_vision_provider_deployment(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        if provider_name == "azure_openai":
+            deployment = (self.vision_azure_openai_deployment or "").strip()
+            if deployment:
+                return deployment
+            model_name = (self.vision_memory_model or "").strip()
+            return model_name or None
+        return None
+
+    def resolve_vision_provider_region(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        if provider_name == "bedrock":
+            region = (self.vision_bedrock_region or "").strip()
+            return region or None
+        return None
+
+    def resolve_vision_provider_aws_access_key_id(
+        self,
+        *,
+        provider: str | None = None,
+    ) -> str | None:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        if provider_name == "bedrock":
+            access_key_id = (self.vision_bedrock_aws_access_key_id or "").strip()
+            return access_key_id or None
+        return None
+
+    def resolve_vision_provider_aws_secret_access_key(
+        self,
+        *,
+        provider: str | None = None,
+    ) -> str | None:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        if provider_name == "bedrock":
+            secret_access_key = (self.vision_bedrock_aws_secret_access_key or "").strip()
+            return secret_access_key or None
+        return None
+
+    def resolve_vision_provider_aws_session_token(
+        self,
+        *,
+        provider: str | None = None,
+    ) -> str | None:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        if provider_name == "bedrock":
+            session_token = (self.vision_bedrock_aws_session_token or "").strip()
+            return session_token or None
+        return None
+
+    def resolve_vision_provider_api_key(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        key = self._resolve_vision_provider_scoped_api_key(provider=provider_name)
+        if key:
+            return key
+        return None
+
+    def resolve_vision_provider_base_url(self, *, provider: str | None = None) -> str | None:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        base_url = self._resolve_vision_provider_scoped_base_url(provider=provider_name)
+        if base_url:
+            return base_url
+        return None
+
+    def require_vision_provider_api_key(self, *, provider: str | None = None) -> str:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        if provider_name == "bedrock":
             raise RuntimeError(
-                "VISION_PROVIDER_API_KEY is invalid: it matches VISION_MEMORY_MODEL. "
-                "Set VISION_PROVIDER_API_KEY to your provider API key (not the model id)."
+                "BEDROCK does not use API keys. Configure AWS credentials and region settings."
             )
-        if key.lower().startswith("mistralai/"):
+        key = self.resolve_vision_provider_api_key(provider=provider_name)
+        if key:
+            return key
+        if provider_name == "mistral":
             raise RuntimeError(
-                "VISION_PROVIDER_API_KEY looks like a model id, not an API key. "
-                "Set VISION_PROVIDER_API_KEY to your provider API key."
+                "VISION_MISTRAL_API_KEY "
+                "is required when VISION_MEMORY_ENABLED=true and VISION_MEMORY_PROVIDER=mistral"
+            )
+        raise RuntimeError(
+            f"Missing vision provider API key for provider={provider_name!r}. "
+            f"Set VISION_{provider_name.upper()}_API_KEY."
+        )
+
+    def validate_vision_provider_credentials(self, *, provider: str | None = None) -> None:
+        provider_name = (provider or self.vision_memory_provider).strip().lower()
+        if provider_name == "bedrock":
+            return
+        key = self.require_vision_provider_api_key(provider=provider_name)
+        model_name = (self.vision_memory_model or "").strip()
+        if provider_name == "mistral" and model_name and key == model_name:
+            raise RuntimeError(
+                "VISION_MISTRAL_API_KEY is invalid: "
+                "it matches VISION_MEMORY_MODEL. Set an API key, not a model id."
+            )
+        if provider_name == "mistral" and key.lower().startswith("mistralai/"):
+            raise RuntimeError(
+                "VISION_MISTRAL_API_KEY looks like a model id, "
+                "not an API key."
             )
 
     def has_tavily_api_key(self) -> bool:
@@ -262,10 +482,26 @@ class Settings:
 def _load_credentials_settings() -> dict[str, str | None]:
     return {
         "openai_api_key": os.getenv("OPENAI_API_KEY"),
-        "mistral_api_key": os.getenv("MISTRAL_API_KEY"),
-        "mistral_base_url": _get_env("MISTRAL_BASE_URL"),
-        "vision_provider_api_key": os.getenv("VISION_PROVIDER_API_KEY"),
-        "vision_provider_base_url": _get_env("VISION_PROVIDER_BASE_URL"),
+        "vision_mistral_api_key": os.getenv("VISION_MISTRAL_API_KEY"),
+        "vision_mistral_base_url": _get_env("VISION_MISTRAL_BASE_URL"),
+        "vision_openai_api_key": os.getenv("VISION_OPENAI_API_KEY"),
+        "vision_openai_base_url": _get_env("VISION_OPENAI_BASE_URL"),
+        "vision_azure_openai_api_key": os.getenv("VISION_AZURE_OPENAI_API_KEY"),
+        "vision_azure_openai_endpoint": _get_env("VISION_AZURE_OPENAI_ENDPOINT"),
+        "vision_azure_openai_api_version": _get_env("VISION_AZURE_OPENAI_API_VERSION"),
+        "vision_azure_openai_deployment": _get_env("VISION_AZURE_OPENAI_DEPLOYMENT"),
+        "vision_gemini_api_key": os.getenv("VISION_GEMINI_API_KEY"),
+        "vision_gemini_base_url": _get_env("VISION_GEMINI_BASE_URL"),
+        "vision_claude_api_key": os.getenv("VISION_CLAUDE_API_KEY"),
+        "vision_claude_base_url": _get_env("VISION_CLAUDE_BASE_URL"),
+        "vision_bedrock_region": _get_env("VISION_BEDROCK_REGION"),
+        "vision_bedrock_aws_access_key_id": os.getenv("VISION_BEDROCK_AWS_ACCESS_KEY_ID"),
+        "vision_bedrock_aws_secret_access_key": os.getenv(
+            "VISION_BEDROCK_AWS_SECRET_ACCESS_KEY"
+        ),
+        "vision_bedrock_aws_session_token": os.getenv("VISION_BEDROCK_AWS_SESSION_TOKEN"),
+        "vision_groq_api_key": os.getenv("VISION_GROQ_API_KEY"),
+        "vision_groq_base_url": _get_env("VISION_GROQ_BASE_URL"),
         "tavily_api_key": os.getenv("TAVILY_API_KEY"),
         "tavily_base_url": _get_env("TAVILY_BASE_URL"),
     }
@@ -294,6 +530,12 @@ def _load_realtime_settings() -> dict[str, str | int | bool | None]:
             default=900,
             minimum=100,
         ),
+        "gemini_live_api_key": os.getenv("GEMINI_LIVE_API_KEY"),
+        "gemini_live_model": (
+            _get_env("GEMINI_LIVE_MODEL") or "gemini-2.0-flash-live-001"
+        ).strip(),
+        "gemini_live_base_url": _get_env("GEMINI_LIVE_BASE_URL"),
+        "gemini_live_endpoint": _get_env("GEMINI_LIVE_ENDPOINT"),
         "backend_uplink_ack_every_n_frames": _parse_int_env(
             "BACKEND_UPLINK_ACK_EVERY_N_FRAMES",
             default=20,
@@ -308,11 +550,17 @@ def _load_storage_settings() -> dict[str, str | int | bool | Path]:
         _get_env("BACKEND_SQLITE_PATH") or str(backend_data_dir / "portworld.db")
     )
     backend_storage_backend = (_get_env("BACKEND_STORAGE_BACKEND") or "local").strip().lower()
+    if backend_storage_backend == LEGACY_STORAGE_BACKEND_POSTGRES_GCS:
+        backend_storage_backend = STORAGE_BACKEND_MANAGED
     backend_database_url = (_get_env("BACKEND_DATABASE_URL") or "").strip() or None
     backend_object_store_provider = (
         _get_env("BACKEND_OBJECT_STORE_PROVIDER") or "filesystem"
     ).strip().lower()
+    backend_object_store_name = (_get_env("BACKEND_OBJECT_STORE_NAME") or "").strip() or None
+    backend_object_store_endpoint = (_get_env("BACKEND_OBJECT_STORE_ENDPOINT") or "").strip() or None
     backend_object_store_bucket = (_get_env("BACKEND_OBJECT_STORE_BUCKET") or "").strip() or None
+    if backend_object_store_name is None:
+        backend_object_store_name = backend_object_store_bucket
     backend_object_store_prefix = (_get_env("BACKEND_OBJECT_STORE_PREFIX") or "").strip() or None
     return {
         "backend_data_dir": backend_data_dir,
@@ -320,6 +568,8 @@ def _load_storage_settings() -> dict[str, str | int | bool | Path]:
         "backend_storage_backend": backend_storage_backend,
         "backend_database_url": backend_database_url,
         "backend_object_store_provider": backend_object_store_provider,
+        "backend_object_store_name": backend_object_store_name,
+        "backend_object_store_endpoint": backend_object_store_endpoint,
         "backend_object_store_bucket": backend_object_store_bucket,
         "backend_object_store_prefix": backend_object_store_prefix,
         "backend_debug_trace_ws_messages": _parse_bool_env(

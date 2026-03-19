@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from backend.core.provider_requirements import (
+    build_provider_requirement_diagnostics,
+    compute_selected_provider_key_set,
+    resolve_selected_providers,
+)
 from portworld_cli.envfile import EnvWriteResult, parse_env_file, write_canonical_env
 from portworld_cli.workspace.project_config import (
     ProjectConfig,
@@ -40,6 +45,7 @@ def write_config_artifacts(
         effective_runtime_source=project_config.runtime_source or session.effective_runtime_source,
         runtime_source_derived_from_legacy=False,
         remembered_deploy_state=session.remembered_deploy_state,
+        remembered_deploy_state_target=session.remembered_deploy_state_target,
         workspace_resolution_source=session.workspace_resolution_source,
         active_workspace_root=session.active_workspace_root,
     )
@@ -63,39 +69,70 @@ def _secret_readiness_with_updates(
     project_config: ProjectConfig,
     env_updates: dict[str, str],
 ) -> SecretReadiness:
+    config_selection = build_env_overrides_from_project_config(project_config)
+    selected = resolve_selected_providers(config_selection)
+    key_set = compute_selected_provider_key_set(selected)
+
     if session.existing_env is None:
+        key_presence = {key: None for key in key_set.required_secret_env_keys}
+        config_key_presence = {key: None for key in key_set.required_non_secret_env_keys}
         return SecretReadiness(
-            openai_api_key_present=None,
-            vision_provider_secret_required=project_config.providers.vision.enabled,
-            vision_provider_api_key_present=None,
-            tavily_secret_required=project_config.providers.tooling.enabled,
-            tavily_api_key_present=None,
+            selected_realtime_provider=selected.realtime_provider,
+            selected_vision_provider=selected.vision_provider,
+            selected_search_provider=selected.search_provider,
+            required_secret_keys=key_set.required_secret_env_keys,
+            optional_secret_keys=key_set.optional_secret_env_keys,
+            missing_required_secret_keys=(),
+            required_config_keys=key_set.required_non_secret_env_keys,
+            optional_config_keys=key_set.optional_non_secret_env_keys,
+            missing_required_config_keys=(),
+            key_presence=key_presence,
+            config_key_presence=config_key_presence,
             bearer_token_present=None,
         )
-    known_values = dict(session.existing_env.known_values)
-    known_values.update(env_updates)
-
-    def _known(key: str) -> str:
-        return str(known_values.get(key, "")).strip()
-
-    vision_required = project_config.providers.vision.enabled
-    vision_present: bool | None = None
-    if vision_required:
-        vision_present = bool(
-            _known("VISION_PROVIDER_API_KEY")
-            or session.existing_env.legacy_alias_values.get("MISTRAL_API_KEY", "").strip()
-        )
-
-    tavily_required = project_config.providers.tooling.enabled
-    tavily_present: bool | None = None
-    if tavily_required:
-        tavily_present = bool(_known("TAVILY_API_KEY"))
+    env_values = _build_effective_env_values(
+        session,
+        config_selection=config_selection,
+        env_updates=env_updates,
+    )
+    diagnostics = build_provider_requirement_diagnostics(
+        env_values,
+        selected=selected,
+    )
+    key_presence = {
+        key: diagnostics.secret_key_presence.get(key, False)
+        for key in diagnostics.required_secret_env_keys
+    }
+    config_key_presence = {
+        key: diagnostics.non_secret_key_presence.get(key, False)
+        for key in diagnostics.required_non_secret_env_keys
+    }
 
     return SecretReadiness(
-        openai_api_key_present=bool(_known("OPENAI_API_KEY")),
-        vision_provider_secret_required=vision_required,
-        vision_provider_api_key_present=vision_present,
-        tavily_secret_required=tavily_required,
-        tavily_api_key_present=tavily_present,
-        bearer_token_present=bool(_known("BACKEND_BEARER_TOKEN")),
+        selected_realtime_provider=diagnostics.selected.realtime_provider,
+        selected_vision_provider=diagnostics.selected.vision_provider,
+        selected_search_provider=diagnostics.selected.search_provider,
+        required_secret_keys=diagnostics.required_secret_env_keys,
+        optional_secret_keys=diagnostics.optional_secret_env_keys,
+        missing_required_secret_keys=diagnostics.missing_required_secret_env_keys,
+        required_config_keys=diagnostics.required_non_secret_env_keys,
+        optional_config_keys=diagnostics.optional_non_secret_env_keys,
+        missing_required_config_keys=diagnostics.missing_required_non_secret_env_keys,
+        key_presence=key_presence,
+        config_key_presence=config_key_presence,
+        bearer_token_present=bool((env_values.get("BACKEND_BEARER_TOKEN", "") or "").strip()),
     )
+
+
+def _build_effective_env_values(
+    session: ConfigSession,
+    *,
+    config_selection: dict[str, str],
+    env_updates: dict[str, str],
+) -> dict[str, str]:
+    values = dict(session.existing_env.known_values)
+    values.update(session.existing_env.legacy_alias_values)
+    values.update(session.existing_env.preserved_overrides)
+    values.update(config_selection)
+    values.update(env_updates)
+    return {key: str(value) for key, value in values.items()}

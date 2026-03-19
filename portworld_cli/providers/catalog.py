@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from backend.core.provider_requirements import list_provider_requirements
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderCatalogEntry:
@@ -49,6 +51,77 @@ class ProviderCatalogEntry:
         return payload
 
 
+_DEFAULT_PROVIDER_IDS: dict[str, str] = {
+    "realtime": "openai",
+    "vision": "mistral",
+    "search": "tavily",
+}
+
+
+def _merge_key_sets(*key_sets: tuple[str, ...]) -> tuple[str, ...]:
+    ordered: list[str] = []
+    for key_set in key_sets:
+        for key in key_set:
+            if key not in ordered:
+                ordered.append(key)
+    return tuple(ordered)
+
+
+def _runtime_catalog_entries() -> tuple[ProviderCatalogEntry, ...]:
+    entries: list[ProviderCatalogEntry] = []
+    for requirement in list_provider_requirements():
+        setup_notes: list[str] = []
+        required_secrets = _merge_key_sets(
+            requirement.required_secret_env_keys,
+            requirement.secret_binding.required_env_keys,
+        )
+        optional_secrets = _merge_key_sets(
+            requirement.optional_secret_env_keys,
+            requirement.secret_binding.optional_env_keys,
+        )
+        required_config = requirement.required_non_secret_env_keys
+        optional_config = requirement.optional_non_secret_env_keys
+        if required_secrets:
+            setup_notes.append("Required secrets: " + ", ".join(required_secrets))
+        if required_config:
+            setup_notes.append("Required config: " + ", ".join(required_config))
+        if optional_secrets:
+            setup_notes.append("Optional secrets: " + ", ".join(optional_secrets))
+        if optional_config:
+            setup_notes.append("Optional config: " + ", ".join(optional_config))
+        setup_notes.append(
+            "Configure with `portworld init` or `portworld config edit providers`."
+        )
+        entries.append(
+            ProviderCatalogEntry(
+                id=requirement.provider_id,
+                display_name=requirement.display_name,
+                kind=requirement.kind,
+                summary=requirement.summary,
+                default=_DEFAULT_PROVIDER_IDS.get(requirement.kind) == requirement.provider_id,
+                capability_tags=requirement.capability_tags,
+                required_env_keys=_merge_key_sets(
+                    requirement.required_env_keys,
+                    requirement.required_non_secret_env_keys,
+                ),
+                optional_env_keys=_merge_key_sets(
+                    requirement.optional_env_keys,
+                    requirement.optional_secret_env_keys,
+                    requirement.optional_non_secret_env_keys,
+                ),
+                setup_notes=tuple(setup_notes),
+                command_paths=(
+                    "portworld init",
+                    "portworld config edit providers",
+                    "portworld config show",
+                    "portworld doctor --target local",
+                    "portworld doctor --target gcp-cloud-run",
+                ),
+            )
+        )
+    return tuple(entries)
+
+
 PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
     ProviderCatalogEntry(
         id="gcp",
@@ -74,62 +147,48 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         ),
     ),
     ProviderCatalogEntry(
-        id="openai",
-        display_name="OpenAI Realtime",
-        kind="realtime",
-        summary="Realtime session provider used by the current backend runtime.",
-        default=True,
-        capability_tags=("realtime_sessions",),
-        required_env_keys=("OPENAI_API_KEY",),
+        id="aws",
+        display_name="AWS ECS/Fargate",
+        kind="cloud",
+        summary="Managed deployment path for PortWorld on AWS ECS/Fargate behind ALB HTTPS.",
+        default=False,
+        aliases=("aws-ecs-fargate",),
+        capability_tags=("deploy", "status"),
+        supported_targets=("aws-ecs-fargate",),
+        required_clis=("aws",),
         setup_notes=(
-            "Required for all current realtime websocket sessions.",
-            "Configured through `portworld init` or `portworld config edit providers`.",
+            "Configure AWS credentials with `aws configure` before managed commands.",
+            "Provide VPC/subnets, ECS cluster/service names, and an ISSUED ACM certificate ARN.",
+            "Use `portworld doctor --target aws-ecs-fargate` before first deploy.",
         ),
         command_paths=(
-            "portworld init",
-            "portworld config edit providers",
-            "portworld config show",
+            "portworld doctor --target aws-ecs-fargate",
+            "portworld deploy aws-ecs-fargate",
+            "portworld status",
         ),
     ),
     ProviderCatalogEntry(
-        id="mistral",
-        display_name="Mistral-Compatible Vision",
-        kind="vision",
-        summary="Vision-memory provider used when visual memory is enabled.",
-        default=True,
-        capability_tags=("vision_memory",),
-        required_env_keys=("VISION_PROVIDER_API_KEY", "MISTRAL_API_KEY"),
-        optional_env_keys=("VISION_PROVIDER_BASE_URL", "MISTRAL_BASE_URL"),
+        id="azure",
+        display_name="Azure Container Apps",
+        kind="cloud",
+        summary="Managed deployment path for PortWorld on Azure Container Apps with provider FQDN HTTPS.",
+        default=False,
+        aliases=("azure-container-apps",),
+        capability_tags=("deploy", "status"),
+        supported_targets=("azure-container-apps",),
+        required_clis=("az",),
         setup_notes=(
-            "Only required when `VISION_MEMORY_ENABLED=true`.",
-            "Legacy `MISTRAL_API_KEY` and `MISTRAL_BASE_URL` aliases remain supported.",
-            "The API key must be a provider credential, not a model id.",
+            "Authenticate with `az login` before managed commands.",
+            "Provide subscription/resource group/environment/app and managed storage/database inputs.",
+            "Use `portworld doctor --target azure-container-apps` before first deploy.",
         ),
         command_paths=(
-            "portworld init",
-            "portworld config edit providers",
-            "portworld config show",
+            "portworld doctor --target azure-container-apps",
+            "portworld deploy azure-container-apps",
+            "portworld status",
         ),
     ),
-    ProviderCatalogEntry(
-        id="tavily",
-        display_name="Tavily Web Search",
-        kind="search",
-        summary="Web-search provider used by the optional realtime tooling path.",
-        default=True,
-        capability_tags=("web_search",),
-        required_env_keys=("TAVILY_API_KEY",),
-        optional_env_keys=("TAVILY_BASE_URL",),
-        setup_notes=(
-            "Only used when realtime tooling is enabled and web search should be available.",
-            "If tooling is enabled without `TAVILY_API_KEY`, the backend still runs but omits `web_search`.",
-        ),
-        command_paths=(
-            "portworld init",
-            "portworld config edit providers",
-            "portworld config show",
-        ),
-    ),
+    *_runtime_catalog_entries(),
 )
 
 

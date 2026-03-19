@@ -46,9 +46,9 @@ def validate_mistral_vision_settings(settings: Settings) -> None:
 
 def build_mistral_vision_analyzer(*, settings: Settings) -> "MistralVisionAnalyzer":
     return MistralVisionAnalyzer(
-        api_key=settings.require_vision_provider_api_key(),
+        api_key=settings.require_vision_provider_api_key(provider="mistral"),
         model_name=settings.vision_memory_model,
-        base_url=settings.vision_provider_base_url or settings.mistral_base_url,
+        base_url=settings.resolve_vision_provider_base_url(provider="mistral"),
     )
 
 

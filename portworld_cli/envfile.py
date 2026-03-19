@@ -14,10 +14,7 @@ from dotenv import dotenv_values
 
 ENV_ASSIGNMENT_RE = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 CUSTOM_OVERRIDES_HEADER = "# Custom overrides"
-LEGACY_ALIAS_TO_CANONICAL_KEY: dict[str, str] = {
-    "MISTRAL_API_KEY": "VISION_PROVIDER_API_KEY",
-    "MISTRAL_BASE_URL": "VISION_PROVIDER_BASE_URL",
-}
+LEGACY_ALIAS_TO_CANONICAL_KEY: dict[str, str] = {}
 
 
 class EnvTemplateError(RuntimeError):

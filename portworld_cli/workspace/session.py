@@ -4,6 +4,11 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from backend.core.provider_requirements import (
+    build_provider_requirement_diagnostics,
+    compute_selected_provider_key_set,
+    resolve_selected_providers,
+)
 from portworld_cli.context import CLIContext
 from portworld_cli.deploy_state import DeployState
 from portworld_cli.envfile import EnvTemplate, ParsedEnvFile
@@ -17,22 +22,43 @@ from portworld_cli.workspace.project_config import (
     RUNTIME_SOURCE_PUBLISHED,
     RUNTIME_SOURCE_SOURCE,
     ProjectConfig,
+    build_env_overrides_from_project_config,
 )
+from portworld_cli.targets import MANAGED_TARGETS
 from portworld_cli.workspace.discovery.locator import ResolvedWorkspace, resolve_workspace
 from portworld_cli.workspace.store import WorkspaceStoreSnapshot, load_workspace_store
+from portworld_cli.workspace.state.state_store import read_json_state
+from portworld_cli.workspace.state.state_store import CLIStateError
 
 
 @dataclass(frozen=True, slots=True)
 class SecretReadiness:
-    openai_api_key_present: bool | None
-    vision_provider_secret_required: bool
-    vision_provider_api_key_present: bool | None
-    tavily_secret_required: bool
-    tavily_api_key_present: bool | None
+    selected_realtime_provider: str
+    selected_vision_provider: str | None
+    selected_search_provider: str | None
+    required_secret_keys: tuple[str, ...]
+    optional_secret_keys: tuple[str, ...]
+    missing_required_secret_keys: tuple[str, ...]
+    required_config_keys: tuple[str, ...]
+    optional_config_keys: tuple[str, ...]
+    missing_required_config_keys: tuple[str, ...]
+    key_presence: dict[str, bool | None]
+    config_key_presence: dict[str, bool | None]
     bearer_token_present: bool | None
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "selected_realtime_provider": self.selected_realtime_provider,
+            "selected_vision_provider": self.selected_vision_provider,
+            "selected_search_provider": self.selected_search_provider,
+            "required_secret_keys": list(self.required_secret_keys),
+            "optional_secret_keys": list(self.optional_secret_keys),
+            "missing_required_secret_keys": list(self.missing_required_secret_keys),
+            "required_config_keys": list(self.required_config_keys),
+            "optional_config_keys": list(self.optional_config_keys),
+            "missing_required_config_keys": list(self.missing_required_config_keys),
+            "key_presence": dict(self.key_presence),
+            "config_key_presence": dict(self.config_key_presence),
             "openai_api_key_present": self.openai_api_key_present,
             "vision_provider_secret_required": self.vision_provider_secret_required,
             "vision_provider_api_key_present": self.vision_provider_api_key_present,
@@ -40,6 +66,36 @@ class SecretReadiness:
             "tavily_api_key_present": self.tavily_api_key_present,
             "bearer_token_present": self.bearer_token_present,
         }
+
+    @property
+    def openai_api_key_present(self) -> bool | None:
+        return self.key_presence.get("OPENAI_API_KEY")
+
+    @property
+    def vision_provider_secret_required(self) -> bool:
+        return any(
+            key.startswith("VISION_") and key.endswith("_API_KEY")
+            for key in self.required_secret_keys
+        )
+
+    @property
+    def vision_provider_api_key_present(self) -> bool | None:
+        if not self.vision_provider_secret_required:
+            return None
+        for key in self.required_secret_keys:
+            if key.startswith("VISION_") and key.endswith("_API_KEY"):
+                return self.key_presence.get(key)
+        return False
+
+    @property
+    def tavily_secret_required(self) -> bool:
+        return "TAVILY_API_KEY" in self.required_secret_keys
+
+    @property
+    def tavily_api_key_present(self) -> bool | None:
+        if not self.tavily_secret_required:
+            return None
+        return self.key_presence.get("TAVILY_API_KEY")
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +111,7 @@ class WorkspaceSession:
     effective_runtime_source: str
     runtime_source_derived_from_legacy: bool
     remembered_deploy_state: dict[str, Any]
+    remembered_deploy_state_target: str | None
     workspace_resolution_source: str
     active_workspace_root: Path | None
 
@@ -62,41 +119,69 @@ class WorkspaceSession:
         if self.template is None or self.existing_env is None:
             return {}
         env_values = self.template.defaults()
-        env_values.update(self.existing_env.known_values)
+        env_values.update(
+            _build_effective_env_values(
+                template=self.template,
+                existing_env=self.existing_env,
+                config_overrides=build_env_overrides_from_project_config(self.project_config),
+            )
+        )
         return dict(env_values)
 
     def secret_readiness(self) -> SecretReadiness:
+        config_selection = build_env_overrides_from_project_config(self.project_config)
+        selected = resolve_selected_providers(config_selection)
+        key_set = compute_selected_provider_key_set(selected)
+
         if self.existing_env is None:
+            key_presence = {key: None for key in key_set.required_secret_env_keys}
+            config_key_presence = {key: None for key in key_set.required_non_secret_env_keys}
             return SecretReadiness(
-                openai_api_key_present=None,
-                vision_provider_secret_required=self.project_config.providers.vision.enabled,
-                vision_provider_api_key_present=None,
-                tavily_secret_required=self.project_config.providers.tooling.enabled,
-                tavily_api_key_present=None,
+                selected_realtime_provider=selected.realtime_provider,
+                selected_vision_provider=selected.vision_provider,
+                selected_search_provider=selected.search_provider,
+                required_secret_keys=key_set.required_secret_env_keys,
+                optional_secret_keys=key_set.optional_secret_env_keys,
+                missing_required_secret_keys=(),
+                required_config_keys=key_set.required_non_secret_env_keys,
+                optional_config_keys=key_set.optional_non_secret_env_keys,
+                missing_required_config_keys=(),
+                key_presence=key_presence,
+                config_key_presence=config_key_presence,
                 bearer_token_present=None,
             )
-        openai_present = bool((self.existing_env.known_values.get("OPENAI_API_KEY", "")).strip())
-        vision_required = self.project_config.providers.vision.enabled
-        vision_present: bool | None = None
-        if vision_required:
-            vision_present = bool(
-                (
-                    self.existing_env.known_values.get("VISION_PROVIDER_API_KEY", "")
-                    or self.existing_env.legacy_alias_values.get("MISTRAL_API_KEY", "")
-                ).strip()
-            )
-        tavily_required = self.project_config.providers.tooling.enabled
-        tavily_present: bool | None = None
-        if tavily_required:
-            tavily_present = bool((self.existing_env.known_values.get("TAVILY_API_KEY", "")).strip())
+
+        env_values = _build_effective_env_values(
+            template=self.template,
+            existing_env=self.existing_env,
+            config_overrides=config_selection,
+        )
+        diagnostics = build_provider_requirement_diagnostics(
+            env_values,
+            selected=selected,
+        )
+        key_presence = {
+            key: diagnostics.secret_key_presence.get(key, False)
+            for key in diagnostics.required_secret_env_keys
+        }
+        config_key_presence = {
+            key: diagnostics.non_secret_key_presence.get(key, False)
+            for key in diagnostics.required_non_secret_env_keys
+        }
 
         return SecretReadiness(
-            openai_api_key_present=openai_present,
-            vision_provider_secret_required=vision_required,
-            vision_provider_api_key_present=vision_present,
-            tavily_secret_required=tavily_required,
-            tavily_api_key_present=tavily_present,
-            bearer_token_present=bool((self.existing_env.known_values.get("BACKEND_BEARER_TOKEN", "")).strip()),
+            selected_realtime_provider=diagnostics.selected.realtime_provider,
+            selected_vision_provider=diagnostics.selected.vision_provider,
+            selected_search_provider=diagnostics.selected.search_provider,
+            required_secret_keys=diagnostics.required_secret_env_keys,
+            optional_secret_keys=diagnostics.optional_secret_env_keys,
+            missing_required_secret_keys=diagnostics.missing_required_secret_env_keys,
+            required_config_keys=diagnostics.required_non_secret_env_keys,
+            optional_config_keys=diagnostics.optional_non_secret_env_keys,
+            missing_required_config_keys=diagnostics.missing_required_non_secret_env_keys,
+            key_presence=key_presence,
+            config_key_presence=config_key_presence,
+            bearer_token_present=bool((env_values.get("BACKEND_BEARER_TOKEN", "")).strip()),
         )
 
     @property
@@ -126,6 +211,8 @@ class PublishedWorkspaceSession(WorkspaceSession):
 class InspectionSession:
     config_session: WorkspaceSession
     deploy_state: DeployState
+    deploy_states_by_target: dict[str, DeployState]
+    deploy_state_errors_by_target: dict[str, str]
 
     @property
     def project_config(self) -> ProjectConfig:
@@ -137,9 +224,15 @@ class InspectionSession:
 
     def active_target(self) -> str | None:
         if self.deploy_state.has_data():
+            if self.config_session.remembered_deploy_state_target in MANAGED_TARGETS:
+                return self.config_session.remembered_deploy_state_target
+            preferred_target = self.project_config.deploy.preferred_target
+            if preferred_target in MANAGED_TARGETS:
+                return preferred_target
             return GCP_CLOUD_RUN_TARGET
-        if self.project_config.deploy.preferred_target == GCP_CLOUD_RUN_TARGET:
-            return GCP_CLOUD_RUN_TARGET
+        preferred_target = self.project_config.deploy.preferred_target
+        if preferred_target in MANAGED_TARGETS:
+            return preferred_target
         return None
 
 
@@ -226,9 +319,12 @@ def require_source_workspace_session(
 
 def load_inspection_session(cli_context: CLIContext) -> InspectionSession:
     config_session = load_workspace_session(cli_context)
+    deploy_states_by_target, deploy_state_errors_by_target = _load_deploy_states_by_target(config_session.workspace_paths)
     return InspectionSession(
         config_session=config_session,
         deploy_state=DeployState.from_payload(config_session.remembered_deploy_state),
+        deploy_states_by_target=deploy_states_by_target,
+        deploy_state_errors_by_target=deploy_state_errors_by_target,
     )
 
 
@@ -247,6 +343,21 @@ def resolve_gcp_inspection_target(
         or session.deploy_state.service_name
         or _strip(gcp_config.service_name),
     )
+
+
+def _load_deploy_states_by_target(
+    workspace_paths: WorkspacePaths,
+) -> tuple[dict[str, DeployState], dict[str, str]]:
+    deploy_states: dict[str, DeployState] = {}
+    errors: dict[str, str] = {}
+    for target in MANAGED_TARGETS:
+        try:
+            payload = read_json_state(workspace_paths.state_file_for_target(target))
+            deploy_states[target] = DeployState.from_payload(payload)
+        except CLIStateError as exc:
+            deploy_states[target] = DeployState.from_payload({})
+            errors[target] = str(exc)
+    return deploy_states, errors
 
 
 def _load_workspace_session(
@@ -293,6 +404,7 @@ def _build_workspace_session(
         effective_runtime_source=store_snapshot.effective_runtime_source,
         runtime_source_derived_from_legacy=store_snapshot.runtime_source_derived_from_legacy,
         remembered_deploy_state=store_snapshot.remembered_deploy_state,
+        remembered_deploy_state_target=store_snapshot.remembered_deploy_state_target,
         workspace_resolution_source=workspace_resolution_source,
         active_workspace_root=active_workspace_root,
     )
@@ -311,9 +423,24 @@ def _session_kwargs(session: WorkspaceSession) -> dict[str, Any]:
         "effective_runtime_source": session.effective_runtime_source,
         "runtime_source_derived_from_legacy": session.runtime_source_derived_from_legacy,
         "remembered_deploy_state": session.remembered_deploy_state,
+        "remembered_deploy_state_target": session.remembered_deploy_state_target,
         "workspace_resolution_source": session.workspace_resolution_source,
         "active_workspace_root": session.active_workspace_root,
     }
+
+
+def _build_effective_env_values(
+    *,
+    template: EnvTemplate,
+    existing_env: ParsedEnvFile,
+    config_overrides: dict[str, str],
+) -> dict[str, str]:
+    values = dict(template.defaults())
+    values.update(existing_env.known_values)
+    values.update(existing_env.legacy_alias_values)
+    values.update(existing_env.preserved_overrides)
+    values.update(config_overrides)
+    return {key: str(value) for key, value in values.items()}
 
 
 def _strip(value: str | None) -> str | None:

@@ -7,13 +7,15 @@ from portworld_cli.envfile import EnvTemplate, ParsedEnvFile, load_env_template,
 from portworld_cli.workspace.discovery.paths import ProjectPaths, WorkspacePaths
 from portworld_cli.workspace.project_config import (
     ProjectConfig,
+    GCP_CLOUD_RUN_TARGET,
     RUNTIME_SOURCE_PUBLISHED,
     RUNTIME_SOURCE_SOURCE,
     derive_project_config,
     load_project_config_record,
 )
+from portworld_cli.targets import MANAGED_TARGETS
 from portworld_cli.workspace.published import load_published_env_template
-from portworld_cli.workspace.state.state_store import read_json_state
+from portworld_cli.workspace.state.state_store import CLIStateError, read_json_state
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +29,7 @@ class WorkspaceStoreSnapshot:
     effective_runtime_source: str
     runtime_source_derived_from_legacy: bool
     remembered_deploy_state: dict[str, Any]
+    remembered_deploy_state_target: str | None
 
 
 def load_workspace_store(workspace_paths: WorkspacePaths) -> WorkspaceStoreSnapshot:
@@ -42,7 +45,12 @@ def load_workspace_store(workspace_paths: WorkspacePaths) -> WorkspaceStoreSnaps
         else workspace_paths.workspace_env_file
     )
     existing_env = None if template is None else parse_env_file(env_path, template=template)
-    remembered_deploy_state = read_json_state(workspace_paths.gcp_cloud_run_state_file)
+    remembered_deploy_state = _safe_read_json_state(
+        workspace_paths.state_file_for_target(GCP_CLOUD_RUN_TARGET)
+    )
+    remembered_deploy_state_target: str | None = (
+        GCP_CLOUD_RUN_TARGET if remembered_deploy_state else None
+    )
     loaded_project_config = load_project_config_record(workspace_paths.project_config_file)
     project_config = None if loaded_project_config is None else loaded_project_config.config
     derived_from_legacy = project_config is None
@@ -63,6 +71,27 @@ def load_workspace_store(workspace_paths: WorkspacePaths) -> WorkspaceStoreSnaps
         configured_runtime_source = project_config.runtime_source
         runtime_source_derived_from_legacy = not loaded_project_config.runtime_source_explicit
 
+    preferred_target = (
+        None if project_config is None else project_config.deploy.preferred_target
+    )
+    state_target = (
+        preferred_target if preferred_target in MANAGED_TARGETS else GCP_CLOUD_RUN_TARGET
+    )
+    if state_target != GCP_CLOUD_RUN_TARGET:
+        preferred_state = _safe_read_json_state(
+            workspace_paths.state_file_for_target(state_target)
+        )
+        if preferred_state:
+            remembered_deploy_state = preferred_state
+            remembered_deploy_state_target = state_target
+    if not remembered_deploy_state:
+        fallback_state = _safe_read_json_state(
+            workspace_paths.state_file_for_target(GCP_CLOUD_RUN_TARGET)
+        )
+        if fallback_state:
+            remembered_deploy_state = fallback_state
+            remembered_deploy_state_target = GCP_CLOUD_RUN_TARGET
+
     effective_runtime_source = configured_runtime_source or (
         RUNTIME_SOURCE_SOURCE if project_paths is not None else RUNTIME_SOURCE_PUBLISHED
     )
@@ -76,4 +105,12 @@ def load_workspace_store(workspace_paths: WorkspacePaths) -> WorkspaceStoreSnaps
         effective_runtime_source=effective_runtime_source,
         runtime_source_derived_from_legacy=runtime_source_derived_from_legacy,
         remembered_deploy_state=remembered_deploy_state,
+        remembered_deploy_state_target=remembered_deploy_state_target,
     )
+
+
+def _safe_read_json_state(path) -> dict[str, Any]:
+    try:
+        return read_json_state(path)
+    except CLIStateError:
+        return {}

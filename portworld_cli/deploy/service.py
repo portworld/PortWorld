@@ -49,6 +49,7 @@ from portworld_cli.envfile import EnvFileParseError
 from portworld_cli.gcp import GCPAdapters, REQUIRED_GCP_SERVICES
 from portworld_cli.output import CommandResult, DiagnosticCheck
 from portworld_cli.workspace.project_config import (
+    GCP_CLOUD_RUN_TARGET,
     ProjectConfigError,
 )
 from portworld_cli.services.config.errors import ConfigRuntimeError
@@ -92,7 +93,7 @@ def run_deploy_gcp_cloud_run(
                 ),
                 "env_file": None if session.env_path is None else str(session.env_path),
                 "project_config_file": str(session.workspace_paths.project_config_file),
-                "state_file": str(session.workspace_paths.gcp_cloud_run_state_file),
+                "state_file": str(session.workspace_paths.state_file_for_target(GCP_CLOUD_RUN_TARGET)),
                 "runtime_source": session.effective_runtime_source,
             },
         )
@@ -237,9 +238,8 @@ def run_deploy_gcp_cloud_run(
 
         (
             non_db_secret_names,
-            openai_secret_name,
-            vision_secret_name,
-            tavily_secret_name,
+            provider_secret_names,
+            provider_secret_values,
             bearer_secret_name,
             bearer_token_for_validation,
         ) = stage_ensure_core_secrets(
@@ -294,9 +294,7 @@ def run_deploy_gcp_cloud_run(
             bucket_name=bucket_name,
         )
         secret_bindings = stage_build_cloud_run_secret_bindings(
-            openai_secret_name=openai_secret_name,
-            vision_secret_name=vision_secret_name,
-            tavily_secret_name=tavily_secret_name,
+            provider_secret_names=provider_secret_names,
             bearer_secret_name=bearer_secret_name,
             database_url_secret_name=database_url_secret_name,
         )
@@ -304,6 +302,7 @@ def run_deploy_gcp_cloud_run(
             env_vars=env_vars,
             env_values=env_values,
             secret_placeholders={
+                **provider_secret_values,
                 "BACKEND_BEARER_TOKEN": bearer_token_for_validation,
                 "BACKEND_DATABASE_URL": database_url_for_validation,
             },
@@ -367,7 +366,7 @@ def run_deploy_gcp_cloud_run(
         )
 
         write_deploy_state(
-            session.workspace_paths.gcp_cloud_run_state_file,
+            session.workspace_paths.state_file_for_target(GCP_CLOUD_RUN_TARGET),
             DeployState(
                 project_id=config.project_id,
                 region=config.region,

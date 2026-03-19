@@ -1,10 +1,10 @@
 # PortWorld Backend
 
-FastAPI + Uvicorn backend that relays realtime voice sessions to OpenAI, with opt-in visual memory and realtime tooling.
+FastAPI + Uvicorn backend that relays realtime voice sessions through selectable realtime providers, with opt-in visual memory and realtime tooling.
 
 ## Features
 
-- **Realtime voice relay** — bridges a WebSocket audio session to the OpenAI Realtime API; streams assistant audio back to the client
+- **Realtime voice relay** — bridges a WebSocket audio session to the selected realtime provider; streams assistant audio back to the client
 - **Persistent memory** — SQLite + filesystem storage for session memory and a user profile, with configurable retention
 - **Visual memory** *(opt-in)* — ingests JPEG frames via `POST /vision/frame`, routes them through adaptive scene-change gating, and builds semantic session memory using any OpenAI-compatible vision endpoint (default: Mistral)
 - **Realtime tooling** *(opt-in)* — registers memory-recall tools with the active OpenAI session; optionally adds web search via Tavily
@@ -17,7 +17,9 @@ FastAPI + Uvicorn backend that relays realtime voice sessions to OpenAI, with op
 
 - Python 3.11+
 - Docker and Docker Compose (for the Docker path)
-- An [OpenAI API key](https://platform.openai.com/api-keys) with Realtime API access
+- Provider credentials for your selected providers:
+  - `OPENAI_API_KEY` when `REALTIME_PROVIDER=openai`
+  - `GEMINI_LIVE_API_KEY` when `REALTIME_PROVIDER=gemini_live`
 
 ## CLI-first quick start
 
@@ -110,7 +112,7 @@ Public installer flags:
 
 ```bash
 cp backend/.env.example backend/.env
-# Open backend/.env and set OPENAI_API_KEY at minimum
+# Open backend/.env and set the credentials required by your selected providers
 docker compose up --build
 ```
 
@@ -122,7 +124,7 @@ Data is persisted in a named Docker volume (`portworld_backend_var`).
 cd backend
 pip install -r requirements.txt
 cp .env.example .env
-# Open .env and set OPENAI_API_KEY at minimum
+# Open .env and set the credentials required by your selected providers
 python -m backend.cli serve
 ```
 
@@ -138,24 +140,43 @@ Use `/livez` for public and Cloud Run liveness checks. `/healthz` remains availa
 ## Configuration
 
 Copy `.env.example` to `.env` and edit. The full reference with all options and defaults is in `.env.example`.
+Use `portworld providers list` and `portworld providers show <provider_id>` to inspect current provider requirements.
+Legacy provider alias keys are not supported. Use canonical provider-scoped keys only.
 
-**Required**
-
-| Variable | Description |
-|---|---|
-| `OPENAI_API_KEY` | OpenAI API key with Realtime API access |
-
-**Opt-in features**
+**Provider selection toggles**
 
 | Variable | Description |
 |---|---|
-| `VISION_MEMORY_ENABLED` | Set `true` to enable the visual memory pipeline |
-| `VISION_PROVIDER_API_KEY` | API key for the vision endpoint (required when vision is enabled) |
-| `VISION_PROVIDER_BASE_URL` | Base URL for any OpenAI-compatible vision endpoint (defaults to Mistral) |
-| `REALTIME_TOOLING_ENABLED` | Set `true` to register memory and search tools with the realtime session |
-| `TAVILY_API_KEY` | Enables the `web_search` tool (only used when tooling is enabled) |
+| `REALTIME_PROVIDER` | Realtime provider id (`openai` or `gemini_live`) |
+| `VISION_MEMORY_ENABLED` | Set `true` to enable the vision provider pipeline |
+| `VISION_MEMORY_PROVIDER` | Vision provider id when vision is enabled |
+| `REALTIME_TOOLING_ENABLED` | Set `true` to enable realtime tooling |
+| `REALTIME_WEB_SEARCH_PROVIDER` | Search provider id when tooling is enabled (currently `tavily`) |
 
-Some OpenAI-compatible Mistral endpoints reject `response_format` / structured-output mode for their tokenizer backend. When that happens, the backend automatically retries once without `response_format` and falls back to prompt-only JSON extraction.
+**Realtime provider required keys**
+
+| Variable | Description |
+|---|---|
+| `OPENAI_API_KEY` | Required when `REALTIME_PROVIDER=openai` |
+| `GEMINI_LIVE_API_KEY` | Required when `REALTIME_PROVIDER=gemini_live` |
+
+**Vision provider required keys (when `VISION_MEMORY_ENABLED=true`)**
+
+| Provider id | Required key(s) |
+|---|---|
+| `mistral` | `VISION_MISTRAL_API_KEY` |
+| `openai` | `VISION_OPENAI_API_KEY` |
+| `azure_openai` | `VISION_AZURE_OPENAI_API_KEY` plus `VISION_AZURE_OPENAI_ENDPOINT` |
+| `gemini` | `VISION_GEMINI_API_KEY` |
+| `claude` | `VISION_CLAUDE_API_KEY` |
+| `bedrock` | required config: `VISION_BEDROCK_REGION` (optional AWS credentials: `VISION_BEDROCK_AWS_ACCESS_KEY_ID`, `VISION_BEDROCK_AWS_SECRET_ACCESS_KEY`, `VISION_BEDROCK_AWS_SESSION_TOKEN`) |
+| `groq` | `VISION_GROQ_API_KEY` |
+
+**Search provider required keys (when `REALTIME_TOOLING_ENABLED=true`)**
+
+| Provider id | Required key(s) |
+|---|---|
+| `tavily` | `TAVILY_API_KEY` |
 
 **Production hardening**
 
@@ -166,6 +187,27 @@ Set `BACKEND_PROFILE=production` to enforce the following at startup:
 | `BACKEND_BEARER_TOKEN` | Required in production; all protected endpoints require `Authorization: Bearer <token>` |
 | `CORS_ORIGINS` | Explicit allowed origins (not `*`) |
 | `BACKEND_ALLOWED_HOSTS` | Explicit allowed hosts (not `*`) |
+
+**Storage backends**
+
+`BACKEND_STORAGE_BACKEND` supports:
+
+- `local` for SQLite + filesystem (default)
+- `managed` for Postgres + object store
+- `postgres_gcs` as a compatibility alias that is normalized to `managed`
+
+Managed storage uses these canonical object-store variables:
+
+| Variable | Description |
+|---|---|
+| `BACKEND_OBJECT_STORE_PROVIDER` | Object-store provider: `gcs`, `s3`, or `azure_blob` for managed backends (`filesystem` is local-only) |
+| `BACKEND_OBJECT_STORE_NAME` | Bucket/container name for the managed object store |
+| `BACKEND_OBJECT_STORE_ENDPOINT` | Optional custom endpoint (required for `azure_blob`) |
+| `BACKEND_OBJECT_STORE_PREFIX` | Prefix used for artifact paths |
+
+Compatibility alias:
+
+- `BACKEND_OBJECT_STORE_BUCKET` is still accepted when `BACKEND_OBJECT_STORE_NAME` is unset.
 
 **Rate limiting**
 

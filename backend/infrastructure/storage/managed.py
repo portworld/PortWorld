@@ -90,12 +90,13 @@ class ManagedBackendStorage(BackendStorage):
         self.metadata_store = PostgresMetadataStore(database_url=database_url)
         super().__init__(
             storage_info=StorageInfo(
-                backend="postgres_gcs",
+                backend="managed",
                 details={
                     "database_url_configured": bool(database_url),
                     "object_store_provider": object_store.provider_name,
-                    "object_store_bucket": object_store.bucket_name,
+                    "object_store_name": object_store.store_name,
                     "object_store_prefix": object_store.key_prefix,
+                    "object_store_endpoint": object_store.endpoint or "",
                 },
             )
         )

@@ -43,6 +43,31 @@ The main limitation is that the realtime core is still OpenAI-shaped in several 
 
 The vision side is cleaner, but the env/config surface is still biased toward the existing Mistral path.
 
+## Repository Audit Snapshot (2026-03-17)
+
+This section records the codebase status at planning time so implementation starts from verified facts.
+
+### Confirmed in place
+
+- provider registry/factory seams exist for realtime and vision
+- bootstrap/runtime checks call selected-provider validation paths
+- OpenAI realtime path is complete and production-wired
+- Mistral vision path is complete and returns normalized `VisionObservation`
+
+### Confirmed missing or incomplete
+
+- no official realtime provider beyond `openai` (`gemini_live` is not implemented)
+- no official vision providers beyond `mistral` (`openai`, `azure_openai`, `gemini`, `claude`, `bedrock`, `groq` are not implemented)
+- realtime core still has OpenAI-protocol assumptions in bridge, turn management, and tool output submission
+- tool definition rendering is OpenAI-specific (`to_openai_tool()` path)
+- CLI/provider setup, doctor checks, and deploy secret binding are still keyed to OpenAI/Mistral/Tavily env assumptions
+
+### Important implementation implications
+
+- contract extraction and OpenAI refactor must land before Gemini Live to avoid duplicating protocol assumptions
+- provider requirement metadata must become a shared source of truth used by runtime, CLI, doctor, and deploy
+- migration aliases for current OpenAI + Mistral users must be preserved while adding provider-scoped settings
+
 ## Implementation Principles
 
 1. Keep the current registry/factory pattern and strengthen it.
@@ -102,6 +127,12 @@ Define explicit adapter contracts before adding more providers.
 - capability metadata types for realtime and vision
 - a written mapping of normalized realtime events and commands
 
+#### Slice 1 status (2026-03-17)
+
+- Landed contract-layer scaffolding with provider-neutral normalized realtime event typing and adapter protocols in `backend/realtime/contracts.py`.
+- Landed capability metadata fields + read-only accessors in realtime and vision factories, including OpenAI and Mistral metadata wiring.
+- Kept runtime behavior unchanged; this is parity scaffolding only.
+
 ### Step 2: Refactor the existing OpenAI realtime path onto the new contract
 
 Use OpenAI as the reference implementation of the new realtime adapter contract before adding Gemini Live.
@@ -126,6 +157,13 @@ Use OpenAI as the reference implementation of the new realtime adapter contract 
 - the OpenAI provider still behaves exactly as today from the backend client’s point of view
 - core orchestration consumes normalized events rather than raw OpenAI protocol details
 
+#### Slice 2 status (2026-03-17)
+
+- Landed active use of `RealtimeAdapterContract` in core orchestration (`bridge`, `turn_state`, `audio_uplink`, `tool_dispatcher`) so core code no longer depends on `OpenAIRealtimeClient`.
+- Landed normalized realtime event dispatch in the OpenAI adapter/client and bridge dispatch now keys on contract constants instead of raw OpenAI event names.
+- Landed adapter-owned command methods for audio append, turn commit, response create/cancel, and tool-result submission; OpenAI session-init legacy schema retry remains OpenAI-owned via adapter recovery hook.
+- Preserved runtime parity for the OpenAI provider path; no new realtime providers were added.
+
 ### Step 3: Introduce provider-neutral tool rendering and tool-result submission
 
 The current tooling contract is explicitly OpenAI-shaped. Fix that before Gemini Live lands.
@@ -141,6 +179,12 @@ The current tooling contract is explicitly OpenAI-shaped. Fix that before Gemini
 
 - realtime tooling stays in one runtime/catalog
 - provider adapters translate tool definitions and outputs into provider-specific wire formats
+
+#### Slice 3 status (2026-03-17)
+
+- Landed provider-neutral realtime tool registration contract (`ToolDefinition`) in core bridge/runtime flow.
+- Moved OpenAI tool-definition wire rendering into the OpenAI realtime adapter/client while preserving session-init and legacy schema retry behavior.
+- Removed core runtime OpenAI-specific tool-render helpers (`to_openai_tool`/`to_openai_tools`) from active tooling path.
 
 ### Step 4: Implement the Gemini Live realtime adapter
 
@@ -167,6 +211,12 @@ Add Gemini Live as the second official realtime provider using a native adapter.
 - `/ws/session` works with `REALTIME_PROVIDER=gemini_live`
 - the same websocket/session orchestration path is used for OpenAI and Gemini
 
+#### Slice 5 status (2026-03-17)
+
+- Landed `gemini_live` as a second official realtime provider in `backend/realtime/providers/gemini_live.py`, including native websocket adapter methods for session init/update, audio append/commit, tool registration/submission, and normalized-event mapping to the shared bridge contract.
+- Registered Gemini Live in realtime provider registry/factory with provider-scoped settings validation and capability metadata.
+- Generalized missing realtime credential handling in websocket session activation to support provider-specific error codes while preserving existing OpenAI `MISSING_OPENAI_API_KEY` error shape/behavior.
+
 ### Step 5: Generalize realtime settings and credential validation
 
 The current settings surface is too tied to OpenAI.
@@ -184,6 +234,12 @@ The current settings surface is too tied to OpenAI.
 - keep existing OpenAI env vars
 - add Gemini-specific env vars for API key, model, optional endpoint/base URL, and provider defaults
 - make startup validation depend on the selected provider instead of requiring unrelated secrets
+
+#### Slice 4 status (2026-03-17)
+
+- Landed provider-scoped settings resolvers for realtime and vision in `backend/core/settings.py` with selected-provider APIs.
+- Preserved OpenAI realtime env/default behavior and legacy Mistral vision migration aliases (`VISION_PROVIDER_*`, `MISTRAL_*`) while adding `VISION_MISTRAL_*` precedence.
+- Added Gemini Live settings-level env support (`GEMINI_LIVE_API_KEY`, model, optional base URL/endpoint) without adding runtime provider implementation.
 
 ### Step 6: Add shared vision provider helpers without creating a fake universal provider
 
@@ -206,6 +262,12 @@ Vision expansion should share helper code where useful, but not collapse all pro
 - model/deployment naming
 - SDK usage
 - provider-specific response parsing
+
+#### Slice 6 status (2026-03-17)
+
+- Landed shared vision helper utilities in `backend/vision/providers/shared.py` for reusable low-level concerns only: prompt/image helpers, HTTP transport error mapping, rate-limit parsing, structured-output fallback detection, and normalized observation mapping.
+- Refactored the existing Mistral vision adapter to consume shared helpers without changing the runtime contract or migration behavior.
+- Kept provider-specific request schema, auth, endpoints, and payload parsing inside each provider adapter.
 
 ### Step 7: Implement the first native vision adapter tranche
 
@@ -259,6 +321,12 @@ Add official vision providers as separate adapters under the existing vision fac
 - `VISION_MEMORY_PROVIDER` becomes truly multi-provider
 - each provider returns the same normalized `VisionObservation`
 
+#### Slice 7 status (2026-03-17)
+
+- Added native vision adapters for `openai`, `azure_openai`, `gemini`, `claude`, `bedrock`, and `groq` under `backend/vision/providers/**`.
+- Registered all new vision providers in the vision factory with explicit capability metadata and provider-specific startup validation hooks.
+- Added minimal provider-scoped vision settings/env surface needed for this tranche, while preserving existing Mistral migration aliases and resolution precedence.
+
 ### Step 8: Redesign the settings and env surface for provider growth
 
 The env surface must stop accreting one-off fields.
@@ -282,7 +350,7 @@ CLI support must land in the same milestone as runtime support.
 
 #### Work
 
-- expand `portworld_cli/provider_catalog.py` with the new realtime and vision providers
+- expand `portworld_cli/providers/catalog.py` with the new realtime and vision providers
 - update `.portworld/project.json` provider selections to support the new ids cleanly
 - update `portworld init` to prompt for:
   - realtime provider
@@ -297,6 +365,12 @@ CLI support must land in the same milestone as runtime support.
 
 - the CLI becomes the canonical way to configure providers
 - provider sprawl does not push users back to manual env reverse-engineering
+
+#### Slice 9 status (2026-03-17)
+
+- Added a backend-owned provider requirements registry in `backend/core/provider_requirements.py` covering realtime (`openai`, `gemini_live`), vision (`mistral`, `openai`, `azure_openai`, `gemini`, `claude`, `bedrock`, `groq`), and search (`tavily`) providers.
+- Wired CLI provider selection and secret collection (`portworld init`, `portworld config edit providers`) to use selected-provider metadata and canonical provider env keys.
+- Preserved migration compatibility for legacy Mistral aliases by resolving effective values with alias precedence while writing canonical selected-provider keys.
 
 ### Step 10: Expand doctor and readiness diagnostics
 
@@ -315,6 +389,11 @@ Provider expansion is only acceptable if failure modes stay actionable.
 - missing AWS region/model should fail only when `VISION_MEMORY_PROVIDER=bedrock`
 - unsupported tool-calling or voice-selection combinations should produce explicit warnings or failures
 
+#### Slice 10 status (2026-03-17)
+
+- Updated provider secret readiness diagnostics to derive required keys from the selected providers instead of hardcoded OpenAI/Mistral/Tavily assumptions.
+- Updated local/GCP doctor-facing messages to report selected-provider required secrets and missing keys.
+
 ### Step 11: Update deploy and secret-binding logic
 
 Deployment workflows must understand provider-specific secret requirements.
@@ -325,6 +404,12 @@ Deployment workflows must understand provider-specific secret requirements.
 - update secret-manager bindings for Cloud Run deploys
 - avoid hardcoding only `OPENAI_API_KEY` and `VISION_PROVIDER_API_KEY`
 - make the deployment summary reflect the actual provider configuration in use
+
+#### Slice 11 status (2026-03-17)
+
+- Updated deploy secret discovery/upload to use backend provider requirements metadata for selected providers.
+- Cloud Run secret bindings now bind canonical selected-provider env keys (for example `VISION_MISTRAL_API_KEY`, `GEMINI_LIVE_API_KEY`) instead of generic-only aliases.
+- Deploy-time secret resolution preserves legacy alias fallback during value resolution where applicable (for example `MISTRAL_API_KEY` fallback for selected `mistral`).
 
 ### Step 12: Document provider support and migration
 
@@ -352,14 +437,24 @@ Implement in the following order:
 1. provider contracts and capability metadata
 2. OpenAI realtime refactor onto the new contract
 3. provider-neutral tool rendering and submission
-4. Gemini Live realtime adapter
-5. realtime settings generalization
+4. realtime settings generalization (minimum provider-scoped config + validation)
+5. Gemini Live realtime adapter
 6. shared vision helper extraction
 7. native vision adapters
 8. settings/env migration layer
-9. CLI provider expansion
-10. doctor and deploy diagnostics
-11. docs and migration cleanup
+9. provider requirement source-of-truth integration across runtime + CLI + deploy
+10. CLI provider expansion (`init`, `config edit providers`)
+11. doctor and deploy diagnostics
+12. docs and migration cleanup
+
+### Delivery Gates
+
+Use these gates to prevent drift while shipping in slices.
+
+- Gate A (after Step 3): OpenAI behavior parity confirmed through `/ws/session` and tooling path
+- Gate B (after Step 5): `REALTIME_PROVIDER=gemini_live` works through existing websocket orchestration
+- Gate C (after Step 8): legacy OpenAI + Mistral envs still work unchanged
+- Gate D (after Step 11): doctor/deploy require only selected-provider secrets and report capability limits clearly
 
 ## Verification Plan
 

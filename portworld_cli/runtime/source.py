@@ -230,7 +230,10 @@ def run_local_doctor_source(
                                 "Realtime tooling is enabled but web_search is unavailable because "
                                 "the configured search provider does not have active credentials."
                             ),
-                            action="Add the search provider credential, for example TAVILY_API_KEY, then rerun `portworld doctor`.",
+                            action=(
+                                "Add the required credential for the selected search provider "
+                                "and rerun `portworld doctor`."
+                            ),
                         )
                     )
                 tooling_valid = True

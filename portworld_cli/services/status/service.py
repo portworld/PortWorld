@@ -25,6 +25,7 @@ def run_status(cli_context: CLIContext) -> CommandResult:
     active_target = session.active_target()
     secret_readiness = session.config_session.secret_readiness()
     last_known_payload = session.deploy_state.to_payload() if session.deploy_state.has_data() else None
+    deploy_by_target = _build_deploy_by_target_summary(session)
     live_status = collect_live_service_status(session, active_target=active_target)
     local_runtime = collect_local_runtime_status(session)
     health = build_health_summary(session, live_status, local_runtime)
@@ -41,6 +42,7 @@ def run_status(cli_context: CLIContext) -> CommandResult:
             session=session,
             active_target=active_target,
             last_known_payload=last_known_payload,
+            deploy_by_target=deploy_by_target,
             live_status=live_status,
             local_runtime=local_runtime,
             health=health,
@@ -60,9 +62,9 @@ def run_status(cli_context: CLIContext) -> CommandResult:
                 else str(session.config_session.active_workspace_root)
             ),
             "project_config_path": str(session.config_session.workspace_paths.project_config_file),
-            "state_paths": {
-                "gcp_cloud_run": str(session.config_session.workspace_paths.gcp_cloud_run_state_file),
-            },
+            "state_paths": session.config_session.workspace_paths.managed_target_state_paths().status_payload(
+                exposed_only=False
+            ),
             "project_mode": session.project_config.project_mode,
             "runtime_source": session.project_config.runtime_source,
             "configured_runtime_source": session.config_session.configured_runtime_source,
@@ -78,10 +80,30 @@ def run_status(cli_context: CLIContext) -> CommandResult:
             "local_runtime": None if local_runtime is None else local_runtime.to_payload(),
             "deploy": {
                 "source": "state" if last_known_payload else "none",
+                "source_target": session.config_session.remembered_deploy_state_target,
                 "last_known": last_known_payload,
+                "by_target": deploy_by_target,
                 "live": live_status.to_payload(),
                 "health": health.to_payload(),
             },
         },
         exit_code=0,
     )
+
+
+def _build_deploy_by_target_summary(session) -> dict[str, dict[str, object | None]]:
+    summary: dict[str, dict[str, object | None]] = {}
+    for target, state in session.deploy_states_by_target.items():
+        state_error = session.deploy_state_errors_by_target.get(target)
+        state_payload = state.to_payload() if state.has_data() else None
+        summary[target] = {
+            "source": (
+                "invalid_state"
+                if state_error
+                else ("state" if state_payload is not None else "none")
+            ),
+            "state_path": str(session.config_session.workspace_paths.state_file_for_target(target)),
+            "last_known": state_payload,
+            "state_error": state_error,
+        }
+    return summary
