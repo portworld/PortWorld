@@ -19,12 +19,20 @@ SUPPORTED_STORAGE_BACKENDS = {"local", STORAGE_BACKEND_MANAGED, LEGACY_STORAGE_B
 SUPPORTED_OBJECT_STORE_PROVIDERS = {"filesystem", "gcs", "s3", "azure_blob"}
 DEFAULT_VISION_MODELS_BY_PROVIDER: dict[str, str] = {
     "mistral": "ministral-3b-2512",
+    "nvidia_integrate": "mistralai/ministral-14b-instruct-2512",
     "openai": "gpt-4.1-mini",
     "gemini": "gemini-2.0-flash",
     "claude": "claude-3-5-sonnet-latest",
     "bedrock": "anthropic.claude-3-5-sonnet-20240620-v1:0",
     "groq": "llama-3.2-90b-vision-preview",
 }
+
+_NVIDIA_VISION_HOST_MARKERS = (
+    "integrate.api.nvidia.com",
+    "api.nvcf.nvidia.com",
+    "build.nvidia.com",
+    "docs.api.nvidia.com",
+)
 
 
 class MissingRealtimeProviderAPIKeyError(RuntimeError):
@@ -108,6 +116,9 @@ class Settings:
     vision_mistral_api_key: str | None
     vision_mistral_model: str | None
     vision_mistral_base_url: str | None
+    vision_nvidia_api_key: str | None
+    vision_nvidia_model: str | None
+    vision_nvidia_base_url: str | None
     vision_openai_api_key: str | None
     vision_openai_model: str | None
     vision_openai_base_url: str | None
@@ -340,6 +351,9 @@ class Settings:
         if provider_name == "mistral":
             key = (self.vision_mistral_api_key or "").strip()
             return key or None
+        if provider_name == "nvidia_integrate":
+            key = (self.vision_nvidia_api_key or "").strip()
+            return key or None
         if provider_name == "openai":
             key = (self.vision_openai_api_key or "").strip()
             return key or None
@@ -362,6 +376,9 @@ class Settings:
         if provider_name == "mistral":
             base_url = (self.vision_mistral_base_url or "").strip()
             return base_url or None
+        if provider_name == "nvidia_integrate":
+            base_url = (self.vision_nvidia_base_url or "").strip()
+            return base_url or None
         if provider_name == "openai":
             base_url = (self.vision_openai_base_url or "").strip()
             return base_url or None
@@ -380,6 +397,9 @@ class Settings:
         provider_name = provider.strip().lower()
         if provider_name == "mistral":
             model_name = (self.vision_mistral_model or "").strip()
+            return model_name or None
+        if provider_name == "nvidia_integrate":
+            model_name = (self.vision_nvidia_model or "").strip()
             return model_name or None
         if provider_name == "openai":
             model_name = (self.vision_openai_model or "").strip()
@@ -507,6 +527,12 @@ class Settings:
                 "VISION_MISTRAL_API_KEY "
                 "is required when VISION_MEMORY_ENABLED=true and VISION_MEMORY_PROVIDER=mistral"
             )
+        if provider_name == "nvidia_integrate":
+            raise RuntimeError(
+                "VISION_NVIDIA_API_KEY "
+                "is required when VISION_MEMORY_ENABLED=true and "
+                "VISION_MEMORY_PROVIDER=nvidia_integrate"
+            )
         raise RuntimeError(
             f"Missing vision provider API key for provider={provider_name!r}. "
             f"Set VISION_{provider_name.upper()}_API_KEY."
@@ -528,6 +554,17 @@ class Settings:
                 "VISION_MISTRAL_API_KEY looks like a model id, "
                 "not an API key."
             )
+        base_url = (self.resolve_vision_provider_base_url(provider=provider_name) or "").strip()
+        if provider_name == "mistral" and _looks_like_nvidia_vision_host(base_url):
+            raise RuntimeError(
+                "VISION_MISTRAL_BASE_URL points at an NVIDIA Integrate/NIM endpoint. "
+                "Set VISION_MEMORY_PROVIDER=nvidia_integrate instead."
+            )
+        if provider_name == "mistral" and _looks_like_nvidia_integrate_model(model_name):
+            raise RuntimeError(
+                "VISION_MISTRAL_MODEL looks like an NVIDIA Integrate model id. "
+                "Set VISION_MEMORY_PROVIDER=nvidia_integrate instead."
+            )
 
     def has_tavily_api_key(self) -> bool:
         return bool((self.tavily_api_key or "").strip())
@@ -539,6 +576,9 @@ def _load_credentials_settings() -> dict[str, str | None]:
         "vision_mistral_api_key": os.getenv("VISION_MISTRAL_API_KEY"),
         "vision_mistral_model": _get_env("VISION_MISTRAL_MODEL"),
         "vision_mistral_base_url": _get_env("VISION_MISTRAL_BASE_URL"),
+        "vision_nvidia_api_key": os.getenv("VISION_NVIDIA_API_KEY"),
+        "vision_nvidia_model": _get_env("VISION_NVIDIA_MODEL"),
+        "vision_nvidia_base_url": _get_env("VISION_NVIDIA_BASE_URL"),
         "vision_openai_api_key": os.getenv("VISION_OPENAI_API_KEY"),
         "vision_openai_model": _get_env("VISION_OPENAI_MODEL"),
         "vision_openai_base_url": _get_env("VISION_OPENAI_BASE_URL"),
@@ -718,6 +758,20 @@ def _load_vision_settings() -> dict[str, str | int | bool]:
             default=False,
         ),
     }
+
+
+def _looks_like_nvidia_vision_host(base_url: str) -> bool:
+    candidate = base_url.strip().lower()
+    if not candidate:
+        return False
+    return any(marker in candidate for marker in _NVIDIA_VISION_HOST_MARKERS)
+
+
+def _looks_like_nvidia_integrate_model(model_name: str) -> bool:
+    candidate = model_name.strip().lower()
+    if not candidate:
+        return False
+    return "/" in candidate
 
 
 def _load_tooling_settings() -> dict[str, str | int | bool]:

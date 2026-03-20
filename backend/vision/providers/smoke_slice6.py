@@ -12,6 +12,7 @@ from backend.vision.providers.claude.analyzer import ClaudeVisionAnalyzer
 from backend.vision.providers.gemini.analyzer import GeminiVisionAnalyzer
 from backend.vision.providers.groq.analyzer import GroqVisionAnalyzer
 from backend.vision.providers.mistral.analyzer import MistralVisionAnalyzer
+from backend.vision.providers.nvidia_integrate.analyzer import NvidiaIntegrateVisionAnalyzer
 from backend.vision.providers.openai.analyzer import OpenAIVisionAnalyzer
 from backend.vision.providers.shared import normalize_observation
 
@@ -161,10 +162,47 @@ def _assert_payload_parsing() -> None:
     normalize_observation(payload=groq_payload, frame_context=frame_context)
 
 
+def _assert_request_shapes() -> None:
+    frame_context = VisionFrameContext(
+        frame_id="frame-1",
+        session_id="session-1",
+        capture_ts_ms=1000,
+        width=1280,
+        height=720,
+    )
+    image_bytes = b"jpeg-bytes"
+
+    mistral_request = MistralVisionAnalyzer(api_key="k", model_name="ministral-3b-2512")._build_request_body(
+        image_bytes=image_bytes,
+        frame_context=frame_context,
+        image_media_type="image/jpeg",
+        include_response_format=True,
+    )
+    mistral_content = mistral_request["messages"][1]["content"]
+    assert mistral_content[1]["type"] == "image_url"
+    assert isinstance(mistral_content[1]["image_url"], str)
+    assert mistral_content[1]["image_url"].startswith("data:image/jpeg;base64,")
+
+    nvidia_request = NvidiaIntegrateVisionAnalyzer(
+        api_key="k",
+        model_name="mistralai/ministral-14b-instruct-2512",
+    )._build_request_body(
+        image_bytes=image_bytes,
+        frame_context=frame_context,
+        image_media_type="image/jpeg",
+        include_response_format=True,
+        use_legacy_max_tokens=False,
+    )
+    nvidia_content = nvidia_request["messages"][1]["content"]
+    assert nvidia_content[1]["type"] == "image_url"
+    assert nvidia_content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+
 def main() -> None:
     registry = build_default_vision_provider_registry()
     for provider in [
         "mistral",
+        "nvidia_integrate",
         "openai",
         "azure_openai",
         "gemini",
@@ -187,6 +225,34 @@ def main() -> None:
             "VISION_MISTRAL_API_KEY": None,
             "VISION_PROVIDER_API_KEY": None,
             "MISTRAL_API_KEY": None,
+        },
+    )
+    _assert_validation_fails(
+        "mistral",
+        {
+            "VISION_MISTRAL_API_KEY": "mistral-key",
+            "VISION_MISTRAL_MODEL": "mistralai/ministral-14b-instruct-2512",
+        },
+    )
+    _assert_validation_fails(
+        "mistral",
+        {
+            "VISION_MISTRAL_API_KEY": "mistral-key",
+            "VISION_MISTRAL_BASE_URL": "https://integrate.api.nvidia.com",
+        },
+    )
+    _assert_validation_passes(
+        "nvidia_integrate",
+        {
+            "VISION_NVIDIA_API_KEY": "nvidia-key",
+            "VISION_NVIDIA_MODEL": "mistralai/ministral-14b-instruct-2512",
+        },
+    )
+    _assert_validation_fails(
+        "nvidia_integrate",
+        {
+            "VISION_NVIDIA_API_KEY": None,
+            "VISION_NVIDIA_MODEL": "mistralai/ministral-14b-instruct-2512",
         },
     )
 
@@ -289,6 +355,7 @@ def main() -> None:
     )
 
     _assert_payload_parsing()
+    _assert_request_shapes()
     print("slice6 smoke checks passed")
 
 

@@ -82,6 +82,10 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
         build_mistral_vision_analyzer,
         validate_mistral_vision_settings,
     )
+    from backend.vision.providers.nvidia_integrate import (
+        build_nvidia_integrate_vision_analyzer,
+        validate_nvidia_integrate_vision_settings,
+    )
     from backend.vision.providers.openai import (
         build_openai_vision_analyzer,
         validate_openai_vision_settings,
@@ -95,6 +99,19 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
             validate_settings=validate_mistral_vision_settings,
             capabilities=VisionProviderCapabilities(
                 structured_output=False,
+                image_transport="data_url",
+                retry_hint="provider_managed",
+                rate_limit_hint="provider_managed",
+            ),
+        )
+    )
+    registry.register(
+        VisionProviderDefinition(
+            name="nvidia_integrate",
+            build_analyzer=build_nvidia_integrate_vision_analyzer,
+            validate_settings=validate_nvidia_integrate_vision_settings,
+            capabilities=VisionProviderCapabilities(
+                structured_output=True,
                 image_transport="data_url",
                 retry_hint="provider_managed",
                 rate_limit_hint="provider_managed",

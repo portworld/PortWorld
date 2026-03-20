@@ -6,7 +6,7 @@ FastAPI + Uvicorn backend that relays realtime voice sessions through selectable
 
 - **Realtime voice relay** — bridges a WebSocket audio session to the selected realtime provider; streams assistant audio back to the client
 - **Persistent memory** — SQLite + filesystem storage for session memory and a user profile, with configurable retention
-- **Visual memory** *(opt-in)* — ingests JPEG frames via `POST /vision/frame`, routes them through adaptive scene-change gating, and builds semantic session memory using any OpenAI-compatible vision endpoint (default: Mistral)
+- **Visual memory** *(opt-in)* — ingests JPEG frames via `POST /vision/frame`, routes them through adaptive scene-change gating, and builds semantic session memory using pluggable vision providers, including native Mistral and NVIDIA Integrate
 - **Realtime tooling** *(opt-in)* — registers memory-recall tools with the active OpenAI session; optionally adds web search via Tavily
 - **Bearer token auth** — all non-health endpoints can require `Authorization: Bearer <token>`; production mode enforces this at startup
 - **Rate limiting** — sliding-window limits on WebSocket setup, session activation, vision ingest, and protected profile/memory-admin HTTP routes
@@ -149,7 +149,7 @@ Legacy provider alias keys are not supported. Use canonical provider-scoped keys
 |---|---|
 | `REALTIME_PROVIDER` | Realtime provider id (`openai` or `gemini_live`) |
 | `VISION_MEMORY_ENABLED` | Set `true` to enable the vision provider pipeline |
-| `VISION_MEMORY_PROVIDER` | Vision provider id when vision is enabled |
+| `VISION_MEMORY_PROVIDER` | Vision provider id when vision is enabled (`mistral`, `nvidia_integrate`, `openai`, `azure_openai`, `gemini`, `claude`, `bedrock`, or `groq`) |
 | `REALTIME_TOOLING_ENABLED` | Set `true` to enable realtime tooling |
 | `REALTIME_WEB_SEARCH_PROVIDER` | Search provider id when tooling is enabled (currently `tavily`) |
 
@@ -165,6 +165,7 @@ Legacy provider alias keys are not supported. Use canonical provider-scoped keys
 | Provider id | Required key(s) |
 |---|---|
 | `mistral` | `VISION_MISTRAL_API_KEY` |
+| `nvidia_integrate` | `VISION_NVIDIA_API_KEY` |
 | `openai` | `VISION_OPENAI_API_KEY` |
 | `azure_openai` | `VISION_AZURE_OPENAI_API_KEY` plus `VISION_AZURE_OPENAI_ENDPOINT` |
 | `gemini` | `VISION_GEMINI_API_KEY` |
@@ -240,6 +241,12 @@ openssl rand -hex 32
 | `POST` | `/memory/session/{id}/reset` | Bearer | Delete memory for a specific ended session |
 
 Protected profile and memory-admin HTTP routes are IP-rate-limited when `BACKEND_ENABLE_IP_RATE_LIMITS=true`.
+
+Provider notes:
+
+- `mistral` is the native Mistral adapter and should use native model ids such as `ministral-14b-2512`.
+- `nvidia_integrate` is the NVIDIA Integrate/NIM OpenAI-compatible adapter and should use NVIDIA-style model ids such as `mistralai/ministral-14b-instruct-2512`.
+- `POST /vision/frame` acknowledges ingest, not completed analysis. Use `GET /memory/session/{id}/status` to inspect recent frame analysis state.
 
 ## Operator CLI
 
