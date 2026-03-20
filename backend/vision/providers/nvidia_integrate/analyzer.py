@@ -34,6 +34,12 @@ from backend.vision.providers.shared import (
 )
 
 DEFAULT_NVIDIA_INTEGRATE_BASE_URL = "https://integrate.api.nvidia.com"
+NVIDIA_FALLBACK_SYSTEM_PROMPT = (
+    f"{VISION_SYSTEM_PROMPT} "
+    "Return only a raw JSON object with no markdown and no code fences. "
+    "user_activity_guess must be a single short string, not an array. "
+    "Use arrays only for entities, actions, visible_text, and documents_seen."
+)
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +209,14 @@ class NvidiaIntegrateVisionAnalyzer:
             "temperature": DEFAULT_VISION_TEMPERATURE,
             "top_p": DEFAULT_VISION_TOP_P,
             "messages": [
-                {"role": "system", "content": VISION_SYSTEM_PROMPT},
+                {
+                    "role": "system",
+                    "content": (
+                        VISION_SYSTEM_PROMPT
+                        if include_response_format
+                        else NVIDIA_FALLBACK_SYSTEM_PROMPT
+                    ),
+                },
                 {
                     "role": "user",
                     "content": [
@@ -228,4 +241,66 @@ class NvidiaIntegrateVisionAnalyzer:
         if not isinstance(message, dict):
             raise ValueError("NVIDIA Integrate response did not include a message payload")
 
-        return parse_provider_observation_payload(coalesce_text_content(message.get("content")))
+        payload_text = coalesce_text_content(message.get("content"))
+        try:
+            normalized_payload = _normalize_nvidia_fallback_payload(payload_text)
+            return parse_provider_observation_payload(normalized_payload)
+        except (json.JSONDecodeError, TypeError, ValueError, ValidationError):
+            return parse_provider_observation_payload(payload_text)
+
+
+def _normalize_nvidia_fallback_payload(payload_text: str) -> dict[str, object]:
+    payload = json.loads(_extract_json_candidate(payload_text))
+    if not isinstance(payload, dict):
+        raise ValueError("NVIDIA fallback payload was not a JSON object")
+
+    normalized = dict(payload)
+    user_activity_guess = normalized.get("user_activity_guess")
+    if isinstance(user_activity_guess, list):
+        normalized["user_activity_guess"] = _collapse_string_list(user_activity_guess)
+
+    for field_name in ("entities", "actions", "visible_text", "documents_seen"):
+        value = normalized.get(field_name)
+        if value is None:
+            normalized[field_name] = []
+            continue
+        if isinstance(value, list):
+            normalized[field_name] = [str(item).strip() for item in value if str(item).strip()]
+            continue
+        text = str(value).strip()
+        normalized[field_name] = [text] if text else []
+
+    return normalized
+
+
+def _extract_json_candidate(payload_text: str) -> str:
+    stripped = payload_text.strip()
+    if not stripped:
+        raise json.JSONDecodeError("Empty provider payload", payload_text, 0)
+
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if len(lines) >= 3 and lines[0].startswith("```") and lines[-1].startswith("```"):
+            stripped = "\n".join(lines[1:-1]).strip()
+            if stripped.lower().startswith("json\n"):
+                stripped = stripped[5:].strip()
+
+    try:
+        json.loads(stripped)
+        return stripped
+    except json.JSONDecodeError:
+        pass
+
+    object_start = stripped.find("{")
+    object_end = stripped.rfind("}")
+    if object_start == -1 or object_end == -1 or object_end <= object_start:
+        raise json.JSONDecodeError("No JSON object found in provider payload", stripped, 0)
+
+    candidate = stripped[object_start : object_end + 1]
+    json.loads(candidate)
+    return candidate
+
+
+def _collapse_string_list(values: list[object]) -> str:
+    text_values = [str(value).strip() for value in values if str(value).strip()]
+    return ", ".join(text_values)

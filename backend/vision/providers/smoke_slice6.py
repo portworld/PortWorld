@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from contextlib import contextmanager
 
+from pydantic import ValidationError
+
 from backend.core.settings import Settings
 from backend.vision.contracts import VisionFrameContext
 from backend.vision.factory import VisionAnalyzerFactory, build_default_vision_provider_registry
@@ -12,7 +14,11 @@ from backend.vision.providers.claude.analyzer import ClaudeVisionAnalyzer
 from backend.vision.providers.gemini.analyzer import GeminiVisionAnalyzer
 from backend.vision.providers.groq.analyzer import GroqVisionAnalyzer
 from backend.vision.providers.mistral.analyzer import MistralVisionAnalyzer
-from backend.vision.providers.nvidia_integrate.analyzer import NvidiaIntegrateVisionAnalyzer
+from backend.vision.providers.nvidia_integrate.analyzer import (
+    NVIDIA_FALLBACK_SYSTEM_PROMPT,
+    NvidiaIntegrateVisionAnalyzer,
+    _normalize_nvidia_fallback_payload,
+)
 from backend.vision.providers.openai.analyzer import OpenAIVisionAnalyzer
 from backend.vision.providers.shared import normalize_observation
 
@@ -197,6 +203,96 @@ def _assert_request_shapes() -> None:
     assert nvidia_content[1]["type"] == "image_url"
     assert nvidia_content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
 
+    nvidia_fallback_request = NvidiaIntegrateVisionAnalyzer(
+        api_key="k",
+        model_name="mistralai/ministral-14b-instruct-2512",
+    )._build_request_body(
+        image_bytes=image_bytes,
+        frame_context=frame_context,
+        image_media_type="image/jpeg",
+        include_response_format=False,
+        use_legacy_max_tokens=False,
+    )
+    assert nvidia_fallback_request["messages"][0]["content"] == NVIDIA_FALLBACK_SYSTEM_PROMPT
+
+
+def _assert_nvidia_fallback_normalization() -> None:
+    normalized = _normalize_nvidia_fallback_payload(
+        """```json
+{
+  "scene_summary": "MacBook open on a desk.",
+  "user_activity_guess": ["coding", "network_troubleshooting"],
+  "entities": "MacBook",
+  "actions": ["typing"],
+  "visible_text": "ifconfig",
+  "documents_seen": null,
+  "salient_change": "false",
+  "confidence": "82%"
+}
+```"""
+    )
+    assert normalized["user_activity_guess"] == "coding, network_troubleshooting"
+    assert normalized["entities"] == ["MacBook"]
+    assert normalized["visible_text"] == ["ifconfig"]
+    assert "documents_seen" not in normalized or normalized["documents_seen"] == []
+
+    payload = NvidiaIntegrateVisionAnalyzer(
+        api_key="k",
+        model_name="mistralai/ministral-14b-instruct-2512",
+    )._extract_provider_payload(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": """```json
+{
+  "scene_summary": "MacBook open on a desk.",
+  "user_activity_guess": ["coding", "network_troubleshooting"],
+  "entities": "MacBook",
+  "actions": ["typing"],
+  "visible_text": "ifconfig",
+  "documents_seen": null,
+  "salient_change": "false",
+  "confidence": "82%"
+}
+```"""
+                    }
+                }
+            ]
+        }
+    )
+    assert payload.user_activity_guess == "coding, network_troubleshooting"
+    assert payload.entities == ["MacBook"]
+    assert payload.visible_text == ["ifconfig"]
+    assert payload.salient_change is False
+    assert payload.confidence == 0.82
+
+    try:
+        NvidiaIntegrateVisionAnalyzer(
+            api_key="k",
+            model_name="mistralai/ministral-14b-instruct-2512",
+        )._extract_provider_payload(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": """```json
+{
+  "user_activity_guess": ["coding"]
+}
+```"""
+                        }
+                    }
+                ]
+            }
+        )
+    except ValidationError:
+        pass
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected missing required NVIDIA fallback fields to fail")
+
 
 def main() -> None:
     registry = build_default_vision_provider_registry()
@@ -356,6 +452,7 @@ def main() -> None:
 
     _assert_payload_parsing()
     _assert_request_shapes()
+    _assert_nvidia_fallback_normalization()
     print("slice6 smoke checks passed")
 
 
