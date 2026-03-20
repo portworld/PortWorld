@@ -111,7 +111,7 @@ struct SessionMemoryStatusClient {
 
     let cleanPath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     let pathSegments = cleanPath.split(separator: "/")
-    let baseSegments = Array(pathSegments.dropLast())
+    let baseSegments = pathSegments.count >= 2 ? Array(pathSegments.dropLast(2)) : []
     let encodedSessionID = sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
     guard let encodedSessionID else {
       return nil
