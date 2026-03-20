@@ -11,6 +11,7 @@ final class AssistantRuntimeViewModel: ObservableObject {
   private let appSettingsStore: AppSettingsStore
   private let controller: AssistantRuntimeController
   private let wearablesRuntimeManager: WearablesRuntimeManager
+  private let phoneVisionStatusClient = SessionMemoryStatusClient()
   private var controllerStatus: AssistantRuntimeStatus
   private var selectedRoute: AssistantRoute = .phone
   private var hasResolvedInitialRouteSelection = false
@@ -20,10 +21,14 @@ final class AssistantRuntimeViewModel: ObservableObject {
   private var isPhoneVisionEnabled = false
   private var phonePhotoCaptureController: PhonePhotoCaptureController?
   private var phoneVisionFrameUploader: VisionFrameUploaderProtocol?
+  private var phoneVisionStatusPollTask: Task<Void, Never>?
+  private var phoneVisionStatusPollSessionID: String?
   private var phoneVisionCaptureStateText = "inactive"
   private var phoneVisionUploadCount = 0
   private var phoneVisionUploadFailureCount = 0
-  private var phoneVisionLastErrorText = ""
+  private var phoneVisionCaptureErrorText = ""
+  private var phoneVisionUploadErrorText = ""
+  private var phoneVisionAnalysisWarningText = ""
   private var cancellables = Set<AnyCancellable>()
 
   init(
@@ -297,7 +302,9 @@ final class AssistantRuntimeViewModel: ObservableObject {
 
     if shouldCapturePhoneVision {
       await startPhoneVisionCaptureIfNeeded()
+      startPhoneVisionStatusPollingIfNeeded(sessionID: controllerStatus.sessionID)
     } else {
+      stopPhoneVisionStatusPolling(resetState: selectedRoute != .phone || !isPhoneVisionEnabled)
       await stopPhoneVisionCapture(resetState: selectedRoute != .phone || !isPhoneVisionEnabled)
     }
 
@@ -435,7 +442,8 @@ final class AssistantRuntimeViewModel: ObservableObject {
     mergedStatus.phoneVisionCaptureStateText = phoneVisionCaptureStateText
     mergedStatus.phoneVisionUploadCount = phoneVisionUploadCount
     mergedStatus.phoneVisionUploadFailureCount = phoneVisionUploadFailureCount
-    mergedStatus.phoneVisionLastErrorText = phoneVisionLastErrorText
+    mergedStatus.phoneVisionLastErrorText = resolvedPhoneVisionIssueText()
+    mergedStatus.phoneVisionHasAnalysisWarning = phoneVisionHasAnalysisWarning
     mergedStatus.phoneVisionModeText = phoneVisionModeText()
     mergedStatus.phoneVisionDetailText = phoneVisionDetailText()
     mergedStatus.phoneVisionToggleTitle = isPhoneVisionEnabled
@@ -658,12 +666,12 @@ final class AssistantRuntimeViewModel: ObservableObject {
         phoneVisionCaptureStateText != "inactive" ||
         phoneVisionUploadCount > 0 ||
         phoneVisionUploadFailureCount > 0 ||
-        !phoneVisionLastErrorText.isEmpty) {
+        !resolvedPhoneVisionIssueText().isEmpty) {
       return (
         phoneVisionCaptureStateText,
         phoneVisionUploadCount,
         phoneVisionUploadFailureCount,
-        phoneVisionLastErrorText
+        resolvedPhoneVisionIssueText()
       )
     }
 
@@ -681,9 +689,15 @@ final class AssistantRuntimeViewModel: ObservableObject {
 
   private func phoneVisionDetailText() -> String {
     if isPhoneVisionEnabled {
-      return "During active phone conversations, PortWorld captures phone-camera JPEG frames and uploads them to the backend vision endpoint."
+      return "During active phone conversations, PortWorld captures phone-camera JPEG frames, uploads them to the backend vision endpoint, and monitors async analysis health."
     }
     return "Opt in to share phone-camera frames with the backend during active phone conversations."
+  }
+
+  private var phoneVisionHasAnalysisWarning: Bool {
+    !phoneVisionAnalysisWarningText.isEmpty &&
+      phoneVisionCaptureErrorText.isEmpty &&
+      phoneVisionUploadErrorText.isEmpty
   }
 
   private func canTogglePhoneVision() -> Bool {
@@ -740,16 +754,18 @@ final class AssistantRuntimeViewModel: ObservableObject {
       phoneVisionCaptureStateText = "inactive"
       phoneVisionUploadCount = 0
       phoneVisionUploadFailureCount = 0
-      phoneVisionLastErrorText = ""
+      phoneVisionCaptureErrorText = ""
+      phoneVisionUploadErrorText = ""
+      phoneVisionAnalysisWarningText = ""
     }
   }
 
   private func applyPhoneVisionSnapshot(_ snapshot: PhonePhotoCaptureController.Snapshot) {
     phoneVisionCaptureStateText = snapshot.phase.rawValue
     if let errorMessage = snapshot.errorMessage, !errorMessage.isEmpty {
-      phoneVisionLastErrorText = errorMessage
+      phoneVisionCaptureErrorText = errorMessage
     } else if snapshot.phase != .failed {
-      phoneVisionLastErrorText = ""
+      phoneVisionCaptureErrorText = ""
     }
     publishMergedStatus()
   }
@@ -757,15 +773,108 @@ final class AssistantRuntimeViewModel: ObservableObject {
   private func handlePhoneVisionUploadResult(_ result: VisionFrameUploadResult) {
     if result.success {
       phoneVisionUploadCount += 1
-      phoneVisionLastErrorText = ""
+      phoneVisionUploadErrorText = ""
       if phoneVisionCaptureStateText == PhonePhotoCaptureController.Phase.failed.rawValue {
         phoneVisionCaptureStateText = PhonePhotoCaptureController.Phase.capturing.rawValue
       }
     } else {
       phoneVisionUploadFailureCount += 1
-      phoneVisionLastErrorText = result.errorDescription ?? "Phone vision upload failed."
+      phoneVisionUploadErrorText = result.errorDescription ?? "Phone vision upload failed."
     }
 
     publishMergedStatus()
+  }
+
+  private func startPhoneVisionStatusPollingIfNeeded(sessionID: String) {
+    guard !sessionID.isEmpty, sessionID != "-" else { return }
+    guard phoneVisionStatusPollSessionID != sessionID || phoneVisionStatusPollTask == nil else { return }
+
+    stopPhoneVisionStatusPolling(resetState: false)
+    phoneVisionStatusPollSessionID = sessionID
+    phoneVisionStatusPollTask = Task { [weak self] in
+      await self?.runPhoneVisionStatusPolling(sessionID: sessionID)
+    }
+  }
+
+  private func stopPhoneVisionStatusPolling(resetState: Bool) {
+    phoneVisionStatusPollTask?.cancel()
+    phoneVisionStatusPollTask = nil
+    phoneVisionStatusPollSessionID = nil
+
+    if resetState {
+      phoneVisionAnalysisWarningText = ""
+    }
+  }
+
+  private func runPhoneVisionStatusPolling(sessionID: String) async {
+    while !Task.isCancelled {
+      do {
+        let status = try await phoneVisionStatusClient.fetchStatus(
+          sessionID: sessionID,
+          endpointURL: controller.config.visionFrameURL,
+          headers: controller.config.requestHeaders
+        )
+        guard phoneVisionStatusPollSessionID == sessionID else { return }
+        applyPhoneVisionSessionMemoryStatus(status)
+      } catch {
+        guard Task.isCancelled == false else { return }
+        phoneVisionAnalysisWarningText = "Async phone vision status is unavailable."
+        publishMergedStatus()
+      }
+
+      do {
+        try await Task.sleep(nanoseconds: 3_000_000_000)
+      } catch {
+        return
+      }
+    }
+  }
+
+  private func applyPhoneVisionSessionMemoryStatus(_ status: SessionMemoryStatusClient.SessionMemoryStatus) {
+    phoneVisionAnalysisWarningText = phoneVisionAnalysisWarning(from: status)
+    publishMergedStatus()
+  }
+
+  private func phoneVisionAnalysisWarning(
+    from status: SessionMemoryStatusClient.SessionMemoryStatus
+  ) -> String {
+    if let failedFrame = status.recentFrames.first(where: {
+      let processingStatus = $0.processingStatus.lowercased()
+      return processingStatus == "analysis_failed" ||
+        processingStatus == "bootstrap_degraded" ||
+        processingStatus == "analysis_rate_limited" ||
+        processingStatus == "retry_pending"
+    }) {
+      if let providerMessage = failedFrame.errorDetails?.providerMessage,
+         providerMessage.isEmpty == false
+      {
+        return "Phone vision analysis degraded: \(providerMessage)"
+      }
+      if let providerErrorCode = failedFrame.errorDetails?.providerErrorCode,
+         providerErrorCode.isEmpty == false
+      {
+        return "Phone vision analysis degraded: \(providerErrorCode)."
+      }
+      if let errorCode = failedFrame.errorCode, errorCode.isEmpty == false {
+        return "Phone vision analysis degraded: \(errorCode)."
+      }
+      return "Phone vision analysis is degraded (\(failedFrame.processingStatus))."
+    }
+
+    if status.status == "bootstrap_degraded" {
+      return "Phone vision analysis is degraded while session memory is bootstrapping."
+    }
+
+    return ""
+  }
+
+  private func resolvedPhoneVisionIssueText() -> String {
+    if !phoneVisionCaptureErrorText.isEmpty {
+      return phoneVisionCaptureErrorText
+    }
+    if !phoneVisionUploadErrorText.isEmpty {
+      return phoneVisionUploadErrorText
+    }
+    return phoneVisionAnalysisWarningText
   }
 }

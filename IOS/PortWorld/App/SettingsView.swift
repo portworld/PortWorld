@@ -194,9 +194,9 @@ private extension SettingsView {
 
         if viewModel.status.phoneVisionLastErrorText.isEmpty == false {
           PWStatusRow(
-            title: "Last error",
+            title: viewModel.status.phoneVisionHasAnalysisWarning ? "Analysis warning" : "Last error",
             value: viewModel.status.phoneVisionLastErrorText,
-            tone: .error,
+            tone: viewModel.status.phoneVisionHasAnalysisWarning ? .warning : .error,
             systemImage: "exclamationmark.triangle"
           )
         }
@@ -294,6 +294,9 @@ private extension SettingsView {
   }
 
   var phoneVisionTone: PWStatusTone {
+    if viewModel.status.phoneVisionHasAnalysisWarning {
+      return .warning
+    }
     if viewModel.status.phoneVisionLastErrorText.isEmpty == false {
       return .error
     }

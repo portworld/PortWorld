@@ -49,6 +49,7 @@ struct AssistantRuntimeStatus {
   var phoneVisionUploadCount: Int = 0
   var phoneVisionUploadFailureCount: Int = 0
   var phoneVisionLastErrorText: String = ""
+  var phoneVisionHasAnalysisWarning: Bool = false
   var phoneVisionModeText: String = "disabled"
   var phoneVisionDetailText: String = ""
   var phoneVisionToggleTitle: String = "Enable Phone Vision"
