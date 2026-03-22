@@ -28,7 +28,6 @@ from portworld_cli.services.doctor import DoctorOptions, run_doctor
 @click.option("--aws-service", default=None, help="Target ECS service name.")
 @click.option("--aws-vpc-id", default=None, help="Override VPC id for one-click RDS provisioning.", hidden=True)
 @click.option("--aws-subnet-ids", default=None, help="Override subnet ids for one-click RDS provisioning.", hidden=True)
-@click.option("--aws-certificate-arn", default=None, help="Legacy unused AWS certificate option.", hidden=True)
 @click.option("--aws-database-url", default=None, help="Existing managed Postgres URL.")
 @click.option("--aws-s3-bucket", default=None, help="S3 bucket name for managed memory objects.")
 @click.option("--azure-subscription", default=None, help="Target Azure subscription id.")
@@ -52,7 +51,6 @@ def doctor_command(
     aws_service: str | None,
     aws_vpc_id: str | None,
     aws_subnet_ids: str | None,
-    aws_certificate_arn: str | None,
     aws_database_url: str | None,
     aws_s3_bucket: str | None,
     azure_subscription: str | None,
@@ -80,7 +78,6 @@ def doctor_command(
                 aws_service=aws_service,
                 aws_vpc_id=aws_vpc_id,
                 aws_subnet_ids=aws_subnet_ids,
-                aws_certificate_arn=aws_certificate_arn,
                 aws_database_url=aws_database_url,
                 aws_s3_bucket=aws_s3_bucket,
                 azure_subscription=azure_subscription,

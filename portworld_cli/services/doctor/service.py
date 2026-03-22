@@ -32,7 +32,6 @@ class DoctorOptions:
     aws_service: str | None
     aws_vpc_id: str | None
     aws_subnet_ids: str | None
-    aws_certificate_arn: str | None
     aws_database_url: str | None
     aws_s3_bucket: str | None
     azure_subscription: str | None
@@ -55,7 +54,6 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
             or options.aws_service is not None
             or options.aws_vpc_id is not None
             or options.aws_subnet_ids is not None
-            or options.aws_certificate_arn is not None
             or options.aws_database_url is not None
             or options.aws_s3_bucket is not None
             or options.azure_subscription is not None
@@ -99,7 +97,6 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
             or options.aws_service is not None
             or options.aws_vpc_id is not None
             or options.aws_subnet_ids is not None
-            or options.aws_certificate_arn is not None
             or options.aws_database_url is not None
             or options.aws_s3_bucket is not None
         ):
@@ -115,7 +112,6 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
         or options.aws_service is not None
         or options.aws_vpc_id is not None
         or options.aws_subnet_ids is not None
-        or options.aws_certificate_arn is not None
         or options.aws_database_url is not None
         or options.aws_s3_bucket is not None
         or options.azure_subscription is not None
@@ -381,7 +377,6 @@ def _run_aws_ecs_fargate_doctor(
         explicit_service=options.aws_service,
         explicit_vpc_id=options.aws_vpc_id,
         explicit_subnet_ids=options.aws_subnet_ids,
-        explicit_certificate_arn=options.aws_certificate_arn,
         explicit_database_url=options.aws_database_url,
         explicit_s3_bucket=options.aws_s3_bucket,
         env_values=session.merged_env_values(),

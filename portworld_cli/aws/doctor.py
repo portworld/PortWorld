@@ -67,7 +67,6 @@ def evaluate_aws_ecs_fargate_readiness(
     explicit_service: str | None,
     explicit_vpc_id: str | None,
     explicit_subnet_ids: str | None,
-    explicit_certificate_arn: str | None,
     explicit_database_url: str | None,
     explicit_s3_bucket: str | None,
     env_values: dict[str, str],
