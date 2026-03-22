@@ -4,7 +4,6 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter
-from fastapi import HTTPException
 from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -16,8 +15,8 @@ from backend.memory.lifecycle import PROFILE_METADATA_KEY, allowed_profile_field
 router = APIRouter()
 
 
-class ProfileResponse(BaseModel):
-    profile: dict[str, Any]
+class UserMemoryResponse(BaseModel):
+    user_memory: dict[str, Any]
     is_onboarded: bool
     missing_fields: list[str]
     metadata: dict[str, Any]
@@ -64,9 +63,9 @@ class ProfileUpdatePayload(BaseModel):
         return normalized
 
 
-def _build_profile_response(profile_payload: dict[str, Any]) -> ProfileResponse:
+def _build_user_memory_response(profile_payload: dict[str, Any]) -> UserMemoryResponse:
     fields = allowed_profile_fields()
-    profile = {
+    user_memory = {
         field_name: profile_payload[field_name]
         for field_name in fields
         if field_name in profile_payload
@@ -74,10 +73,10 @@ def _build_profile_response(profile_payload: dict[str, Any]) -> ProfileResponse:
     metadata = profile_payload.get(PROFILE_METADATA_KEY)
     if not isinstance(metadata, dict):
         metadata = {}
-    present_fields = set(profile.keys())
-    return ProfileResponse(
-        profile=profile,
-        is_onboarded=bool(profile),
+    present_fields = set(user_memory.keys())
+    return UserMemoryResponse(
+        user_memory=user_memory,
+        is_onboarded=bool(user_memory),
         missing_fields=[
             field_name for field_name in fields if field_name not in present_fields
         ],
@@ -85,35 +84,35 @@ def _build_profile_response(profile_payload: dict[str, Any]) -> ProfileResponse:
     )
 
 
-@router.get("/profile", response_model=ProfileResponse)
-async def get_profile(request: Request) -> ProfileResponse:
+@router.get("/memory/user", response_model=UserMemoryResponse)
+async def get_user_memory(request: Request) -> UserMemoryResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
-    await enforce_http_rate_limit(request, "profile")
+    await enforce_http_rate_limit(request, "memory_user_get")
     profile = await asyncio.to_thread(runtime.storage.read_user_profile)
-    return _build_profile_response(profile)
+    return _build_user_memory_response(profile)
 
 
-@router.put("/profile", response_model=ProfileResponse)
-async def put_profile(
+@router.put("/memory/user", response_model=UserMemoryResponse)
+async def put_user_memory(
     request: Request,
     payload: ProfileUpdatePayload,
-) -> ProfileResponse:
+) -> UserMemoryResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
-    await enforce_http_rate_limit(request, "profile")
+    await enforce_http_rate_limit(request, "memory_user_put")
     updated_profile = await asyncio.to_thread(
         runtime.storage.write_user_profile,
         payload=payload.model_dump(),
-        source="api_profile_put",
+        source="api_user_memory_put",
     )
-    return _build_profile_response(updated_profile)
+    return _build_user_memory_response(updated_profile)
 
 
-@router.post("/profile/reset", response_model=ProfileResponse)
-async def reset_profile(request: Request) -> ProfileResponse:
+@router.post("/memory/user/reset", response_model=UserMemoryResponse)
+async def reset_user_memory(request: Request) -> UserMemoryResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
-    await enforce_http_rate_limit(request, "profile_reset")
+    await enforce_http_rate_limit(request, "memory_user_reset")
     profile = await asyncio.to_thread(runtime.storage.reset_user_profile)
-    return _build_profile_response(profile)
+    return _build_user_memory_response(profile)

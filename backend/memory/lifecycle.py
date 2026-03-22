@@ -19,32 +19,80 @@ PROFILE_ALLOWLISTED_FIELDS: Final[tuple[str, ...]] = (
     "preferences",
     "projects",
 )
+USER_MEMORY_FILE_NAME: Final[str] = "USER.md"
+CROSS_SESSION_MEMORY_FILE_NAME: Final[str] = "CROSS_SESSION.md"
+SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME: Final[str] = "SHORT_TERM.md"
+SESSION_MEMORY_MARKDOWN_FILE_NAME: Final[str] = "LONG_TERM.md"
+VISION_EVENTS_LOG_FILE_NAME: Final[str] = "EVENTS.ndjson"
+VISION_ROUTING_EVENTS_LOG_FILE_NAME: Final[str] = "ROUTING_EVENTS.ndjson"
+
+# Backwards-compatible aliases while callers migrate away from json-named constants.
+SHORT_TERM_MEMORY_JSON_FILE_NAME: Final[str] = "SHORT_TERM.json"
+SESSION_MEMORY_JSON_FILE_NAME: Final[str] = "LONG_TERM.json"
 PROFILE_ARTIFACT_FILE_NAMES: Final[tuple[str, ...]] = (
     "user_profile.md",
     "user_profile.json",
 )
-SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME: Final[str] = "short_term_memory.md"
-SHORT_TERM_MEMORY_JSON_FILE_NAME: Final[str] = "short_term_memory.json"
-SESSION_MEMORY_MARKDOWN_FILE_NAME: Final[str] = "session_memory.md"
-SESSION_MEMORY_JSON_FILE_NAME: Final[str] = "session_memory.json"
-VISION_EVENTS_LOG_FILE_NAME: Final[str] = "vision_events.jsonl"
-VISION_ROUTING_EVENTS_LOG_FILE_NAME: Final[str] = "vision_routing_events.jsonl"
 SESSION_MEMORY_ARTIFACT_FILE_NAMES: Final[tuple[str, ...]] = (
     SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME,
-    SHORT_TERM_MEMORY_JSON_FILE_NAME,
     SESSION_MEMORY_MARKDOWN_FILE_NAME,
-    SESSION_MEMORY_JSON_FILE_NAME,
     VISION_EVENTS_LOG_FILE_NAME,
-    VISION_ROUTING_EVENTS_LOG_FILE_NAME,
 )
 EXPORTABLE_SESSION_ARTIFACT_KINDS: Final[tuple[str, ...]] = (
     "short_term_memory_markdown",
-    "short_term_memory_json",
     "session_memory_markdown",
-    "session_memory_json",
     "vision_event_log",
-    "vision_routing_event_log",
 )
+
+USER_MEMORY_TEMPLATE: Final[str] = """# User
+
+## Identity
+
+## Preferences
+
+## Stable Facts
+
+## Open Questions
+
+"""
+
+CROSS_SESSION_MEMORY_TEMPLATE: Final[str] = """# Cross-Session Memory
+
+## Active Themes
+
+## Ongoing Projects
+
+## Important Recent Facts
+
+## Follow-Up Items
+
+"""
+
+SHORT_TERM_MEMORY_TEMPLATE: Final[str] = """# Short-Term Memory
+
+## Current View
+
+## Recent Changes
+
+## Current Task Guess
+
+## Timestamp
+
+"""
+
+SESSION_MEMORY_TEMPLATE: Final[str] = """# Session Memory
+
+## Session Goal
+
+## What Happened
+
+## Important Facts Learned
+
+## Pending Follow-Ups
+
+## Last Updated
+
+"""
 
 @dataclass(frozen=True, slots=True)
 class ProfileLifecycleMetadata:
@@ -99,6 +147,8 @@ def allowed_profile_fields() -> tuple[str, ...]:
 
 
 __all__ = [
+    "CROSS_SESSION_MEMORY_FILE_NAME",
+    "CROSS_SESSION_MEMORY_TEMPLATE",
     "DEFAULT_SESSION_MEMORY_RETENTION_DAYS",
     "EXPORTABLE_SESSION_ARTIFACT_KINDS",
     "MEMORY_EXPORT_SCHEMA_VERSION",
@@ -106,11 +156,15 @@ __all__ = [
     "PROFILE_ARTIFACT_FILE_NAMES",
     "PROFILE_METADATA_KEY",
     "PROFILE_SCHEMA_VERSION",
+    "SESSION_MEMORY_TEMPLATE",
     "SESSION_MEMORY_ARTIFACT_FILE_NAMES",
     "SESSION_MEMORY_JSON_FILE_NAME",
     "SESSION_MEMORY_MARKDOWN_FILE_NAME",
+    "SHORT_TERM_MEMORY_TEMPLATE",
     "SHORT_TERM_MEMORY_JSON_FILE_NAME",
     "SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME",
+    "USER_MEMORY_FILE_NAME",
+    "USER_MEMORY_TEMPLATE",
     "VISION_EVENTS_LOG_FILE_NAME",
     "VISION_ROUTING_EVENTS_LOG_FILE_NAME",
     "MemoryExportManifest",

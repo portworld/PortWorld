@@ -1,18 +1,20 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from typing import Any
 
 from backend.memory.lifecycle import (
     PROFILE_ALLOWLISTED_FIELDS,
     PROFILE_METADATA_KEY,
     PROFILE_SCHEMA_VERSION,
+    USER_MEMORY_TEMPLATE,
     ProfileLifecycleMetadata,
     ProfileRecord,
 )
 from backend.memory.normalize import normalize_optional_string, normalize_string
 
-PROFILE_MARKDOWN_HEADER = "# User Profile\n\n"
+PROFILE_MARKDOWN_HEADER = "# User\n\n"
 
 
 def parse_profile_record(payload: Mapping[str, object]) -> ProfileRecord:
@@ -77,41 +79,35 @@ def build_profile_payload(
 
 def render_profile_markdown(record: ProfileRecord) -> str:
     lines = [
-        "# User Profile",
+        "# User",
         "",
+        "## Identity",
     ]
-
     if record.name:
-        lines.append(f"Name: {record.name}")
-    if record.job:
-        lines.append(f"Job: {record.job}")
-    if record.company:
-        lines.append(f"Company: {record.company}")
+        lines.append(f"- Name: {record.name}")
     if record.preferred_language:
-        lines.append(f"Preferred Language: {record.preferred_language}")
+        lines.append(f"- Preferred Language: {record.preferred_language}")
     if record.location:
-        lines.append(f"Location: {record.location}")
-    if record.intended_use:
-        lines.append(f"Intended Use: {record.intended_use}")
+        lines.append(f"- Location: {record.location}")
+    lines.extend(["", "## Preferences"])
     if record.preferences:
-        lines.append(f"Preferences: {', '.join(record.preferences)}")
+        lines.extend(f"- {item}" for item in record.preferences)
+    else:
+        lines.append("- None")
+
+    lines.extend(["", "## Stable Facts"])
+    if record.job:
+        lines.append(f"- Job: {record.job}")
+    if record.company:
+        lines.append(f"- Company: {record.company}")
+    if record.intended_use:
+        lines.append(f"- Intended Use: {record.intended_use}")
     if record.projects:
-        lines.append(f"Projects: {', '.join(record.projects)}")
+        lines.extend(f"- Project: {item}" for item in record.projects)
+    elif not any([record.job, record.company, record.intended_use]):
+        lines.append("- None")
 
-    if len(lines) == 2:
-        lines.append("No profile facts captured yet.")
-
-    if record.metadata.updated_at_ms is not None or record.metadata.source:
-        lines.extend(
-            [
-                "",
-                "Metadata:",
-                f"- Updated At Ms: {record.metadata.updated_at_ms if record.metadata.updated_at_ms is not None else 'unknown'}",
-                f"- Source: {record.metadata.source or 'unknown'}",
-            ]
-        )
-
-    lines.append("")
+    lines.extend(["", "## Open Questions", "- None", ""])
     return "\n".join(lines)
 
 
@@ -145,7 +141,29 @@ def empty_profile_payload() -> dict[str, Any]:
 
 
 def empty_profile_markdown() -> str:
-    return PROFILE_MARKDOWN_HEADER
+    return USER_MEMORY_TEMPLATE
+
+
+def parse_profile_markdown(markdown_text: str) -> ProfileRecord:
+    sections = _split_sections(markdown_text)
+    identity = _extract_key_values(sections.get("Identity", ()))
+    stable = _extract_key_values(sections.get("Stable Facts", ()))
+    preferences = _extract_bullets(sections.get("Preferences", ()))
+    projects = [
+        value
+        for key, value in _extract_key_value_items(sections.get("Stable Facts", ()))
+        if key == "project"
+    ]
+    return ProfileRecord(
+        name=normalize_optional_string(identity.get("name")),
+        preferred_language=normalize_optional_string(identity.get("preferred language")),
+        location=normalize_optional_string(identity.get("location")),
+        job=normalize_optional_string(stable.get("job")),
+        company=normalize_optional_string(stable.get("company")),
+        intended_use=normalize_optional_string(stable.get("intended use")),
+        preferences=preferences,
+        projects=projects,
+    )
 
 
 def _normalize_string_list(value: object) -> list[str]:
@@ -167,6 +185,58 @@ def _normalize_string_list(value: object) -> list[str]:
     return normalized
 
 
+def _split_sections(markdown_text: str) -> dict[str, list[str]]:
+    sections: dict[str, list[str]] = {}
+    current_section: str | None = None
+    for line in markdown_text.splitlines():
+        match = re.match(r"^##\s+(.+?)\s*$", line)
+        if match:
+            current_section = match.group(1).strip()
+            sections.setdefault(current_section, [])
+            continue
+        if current_section is None:
+            continue
+        sections[current_section].append(line)
+    return sections
+
+
+def _extract_bullets(lines: list[str]) -> list[str]:
+    values: list[str] = []
+    for line in lines:
+        match = re.match(r"^\s*-\s*(.+?)\s*$", line)
+        if not match:
+            continue
+        value = normalize_string(match.group(1))
+        if not value or value.lower() == "none":
+            continue
+        if ":" in value:
+            # Key-value bullets are handled separately.
+            continue
+        values.append(value)
+    return values
+
+
+def _extract_key_values(lines: list[str]) -> dict[str, str]:
+    return {
+        key: value
+        for key, value in _extract_key_value_items(lines)
+    }
+
+
+def _extract_key_value_items(lines: list[str]) -> list[tuple[str, str]]:
+    values: list[tuple[str, str]] = []
+    for line in lines:
+        match = re.match(r"^\s*-\s*([^:]+):\s*(.+?)\s*$", line)
+        if not match:
+            continue
+        key = normalize_string(match.group(1)).lower()
+        value = normalize_string(match.group(2))
+        if not key or not value or value.lower() == "none":
+            continue
+        values.append((key, value))
+    return values
+
+
 def _coerce_optional_int(value: object) -> int | None:
     if isinstance(value, bool):
         return None
@@ -183,6 +253,7 @@ __all__ = [
     "build_profile_record",
     "empty_profile_markdown",
     "empty_profile_payload",
+    "parse_profile_markdown",
     "parse_profile_record",
     "render_profile_markdown",
 ]

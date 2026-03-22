@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import inspect
+
 from backend.core.storage import now_ms
-from backend.memory.materializer import build_session_memory_rollup, build_short_term_memory
+from backend.memory.materializer import (
+    build_session_memory_rollup,
+    build_short_term_memory,
+    coerce_short_term_memory_payload,
+)
 from backend.vision.runtime.models import coerce_optional_int, latest_capture_ts_from_events
 
 
@@ -41,7 +47,7 @@ class VisionMemoryProjectionMixin:
             window_seconds=self.settings.vision_short_term_window_seconds,
         )
         await self._run_storage(
-            self.storage.write_short_term_memory,
+            self._write_short_term_memory,
             session_id=worker.session_id,
             payload=payload,
             markdown_text=markdown_text,
@@ -69,7 +75,7 @@ class VisionMemoryProjectionMixin:
             recent_events=list(worker.pending_session_events),
         )
         await self._run_storage(
-            self.storage.write_session_memory,
+            self._write_session_memory,
             session_id=worker.session_id,
             payload=payload,
             markdown_text=markdown_text,
@@ -137,17 +143,27 @@ class VisionMemoryProjectionMixin:
         }
         short_term_markdown = "\n".join(
             [
-                "# Short-Term Visual Memory",
+                "# Short-Term Memory",
                 "",
-                f"Status: {status}",
-                f"Reason: {reason}",
-                f"Provider: {self.provider_name}",
-                f"Model: {self.model_name}",
-                f"Bootstrap frame: {frame_id or 'none'}",
-                f"Next retry: {next_retry_at_ms if next_retry_at_ms is not None else 'none'}",
-                f"Last attempt: {last_attempt_at_ms if last_attempt_at_ms is not None else 'none'}",
-                f"Attempt count: {attempt_count or 0}",
-                f"Error code: {error_code or 'none'}",
+                "## Current View",
+                "Visual memory bootstrap has not completed yet.",
+                "",
+                "## Recent Changes",
+                f"- Status: {status}",
+                f"- Reason: {reason}",
+                f"- Provider: {self.provider_name}",
+                f"- Model: {self.model_name}",
+                f"- Bootstrap frame: {frame_id or 'none'}",
+                f"- Next retry: {next_retry_at_ms if next_retry_at_ms is not None else 'none'}",
+                f"- Last attempt: {last_attempt_at_ms if last_attempt_at_ms is not None else 'none'}",
+                f"- Attempt count: {attempt_count or 0}",
+                f"- Error code: {error_code or 'none'}",
+                "",
+                "## Current Task Guess",
+                "Unknown",
+                "",
+                "## Timestamp",
+                str(updated_at_ms),
                 "",
             ]
         )
@@ -172,33 +188,75 @@ class VisionMemoryProjectionMixin:
             [
                 "# Session Memory",
                 "",
-                f"Status: {status}",
-                f"Reason: {reason}",
-                f"Provider: {self.provider_name}",
-                f"Model: {self.model_name}",
-                f"Bootstrap frame: {frame_id or 'none'}",
-                f"Next retry: {next_retry_at_ms if next_retry_at_ms is not None else 'none'}",
-                f"Last attempt: {last_attempt_at_ms if last_attempt_at_ms is not None else 'none'}",
-                f"Attempt count: {attempt_count or 0}",
-                f"Error code: {error_code or 'none'}",
+                "## Session Goal",
+                "Unknown",
                 "",
+                "## What Happened",
                 "Visual memory bootstrap has not completed yet.",
+                "",
+                "## Important Facts Learned",
+                f"- Status: {status}",
+                f"- Reason: {reason}",
+                f"- Provider: {self.provider_name}",
+                f"- Model: {self.model_name}",
+                f"- Bootstrap frame: {frame_id or 'none'}",
+                f"- Next retry: {next_retry_at_ms if next_retry_at_ms is not None else 'none'}",
+                f"- Last attempt: {last_attempt_at_ms if last_attempt_at_ms is not None else 'none'}",
+                f"- Attempt count: {attempt_count or 0}",
+                f"- Error code: {error_code or 'none'}",
+                "",
+                "## Pending Follow-Ups",
+                "Visual memory bootstrap has not completed yet.",
+                "",
+                "## Last Updated",
+                str(updated_at_ms),
                 "",
             ]
         )
         await self._run_storage(
-            self.storage.write_short_term_memory,
+            self._write_short_term_memory,
             session_id=worker.session_id,
             payload=short_term_payload,
             markdown_text=short_term_markdown,
         )
         await self._run_storage(
-            self.storage.write_session_memory,
+            self._write_session_memory,
             session_id=worker.session_id,
             payload=session_payload,
             markdown_text=session_markdown,
         )
-        worker.short_term_memory_last_updated_at_ms = None
+        short_term_state = coerce_short_term_memory_payload(short_term_payload)
+        worker.short_term_memory_last_updated_at_ms = coerce_optional_int(
+            short_term_state.get("window_end_ts_ms")
+        )
         worker.session_memory_last_updated_at_ms = None
         worker.session_memory_exists = False
         worker.bootstrap_state = status
+
+    def _write_short_term_memory(
+        self,
+        *,
+        session_id: str,
+        payload: dict[str, object],
+        markdown_text: str,
+    ) -> None:
+        writer = self.storage.write_short_term_memory
+        parameters = inspect.signature(writer).parameters
+        if "payload" in parameters:
+            writer(session_id=session_id, payload=payload, markdown_text=markdown_text)
+            return
+        writer(session_id=session_id, markdown=markdown_text)
+
+    def _write_session_memory(
+        self,
+        *,
+        session_id: str,
+        payload: dict[str, object],
+        markdown_text: str,
+    ) -> None:
+        writer = self.storage.write_session_memory
+        parameters = inspect.signature(writer).parameters
+        if "payload" in parameters:
+            writer(session_id=session_id, payload=payload, markdown_text=markdown_text)
+            return
+        writer(session_id=session_id, markdown=markdown_text)

@@ -19,8 +19,13 @@ class MemoryToolExecutor:
         try:
             if self.memory_scope == "short_term":
                 context = self.storage.read_short_term_memory(session_id=call.session_id)
-            elif self.memory_scope == "session":
+            elif self.memory_scope == "long_term":
                 context = self.storage.read_session_memory(session_id=call.session_id)
+            elif self.memory_scope == "cross_session":
+                read_cross_session_memory = getattr(self.storage, "read_cross_session_memory", None)
+                context = (
+                    read_cross_session_memory() if callable(read_cross_session_memory) else {}
+                )
             else:
                 raise ValueError(f"Unsupported memory scope: {self.memory_scope}")
         except (JSONDecodeError, OSError, ValueError) as exc:

@@ -33,12 +33,12 @@ Preferred onboarding topics, in order:
 8. projects
 
 Tool rules:
-- Start by calling get_user_profile.
-- Use update_user_profile only after the user clearly confirms a fact.
+- Start by calling get_user_memory.
+- Use update_user_memory only after the user clearly confirms a fact.
 - Never guess, infer, or fabricate missing profile details.
 - If a field is already saved, do not ask for it again unless clarification is needed.
 - If the user declines to answer a question, says they are unsure, or wants to skip it, accept that gracefully and move on.
-- Call complete_profile_onboarding once the user has either answered enough for a useful starter profile or clearly wants to wrap up onboarding.
+- Call complete_user_memory_onboarding once the user has either answered enough for a useful starter profile or clearly wants to wrap up onboarding.
 
 Conversation rules:
 - Keep each question short and specific.
@@ -51,7 +51,7 @@ Conversation rules:
 - The user never has to answer every onboarding question.
 
 Completion rule:
-- Only after complete_profile_onboarding succeeds, tell the user they are all set and ready to continue in the app.
+- Only after complete_user_memory_onboarding succeeds, tell the user they are all set and ready to continue in the app.
 """.strip()
 
 
@@ -91,10 +91,11 @@ def build_default_realtime_session_mode_registry(
             instructions=settings.openai_realtime_instructions,
             allowed_tool_names=frozenset(
                 {
-                    "get_short_term_visual_context",
-                    "get_session_visual_context",
-                    "get_user_profile",
-                    "update_user_profile",
+                    "get_short_term_memory",
+                    "get_long_term_memory",
+                    "get_cross_session_memory",
+                    "get_user_memory",
+                    "update_user_memory",
                     "web_search",
                 }
             ),
@@ -106,9 +107,9 @@ def build_default_realtime_session_mode_registry(
             instructions=PROFILE_ONBOARDING_INSTRUCTIONS,
             allowed_tool_names=frozenset(
                 {
-                    "get_user_profile",
-                    "update_user_profile",
-                    "complete_profile_onboarding",
+                    "get_user_memory",
+                    "update_user_memory",
+                    "complete_user_memory_onboarding",
                 }
             ),
         )

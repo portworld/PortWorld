@@ -77,7 +77,7 @@ async def export_memory(request: Request) -> StreamingResponse:
 
 
 @router.post(
-    "/memory/session/{session_id}/reset",
+    "/memory/sessions/{session_id}/reset",
     response_model=SessionMemoryResetResponse,
 )
 async def reset_session_memory(
@@ -129,7 +129,7 @@ async def reset_session_memory(
     )
 
 
-@router.get("/memory/session/{session_id}/status")
+@router.get("/memory/sessions/{session_id}/status")
 async def session_memory_status(request: Request, session_id: SessionIdPath) -> dict[str, object]:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)

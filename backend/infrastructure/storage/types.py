@@ -17,20 +17,26 @@ def now_ms() -> int:
 @dataclass(frozen=True, slots=True)
 class StoragePaths:
     data_root: Path
+    memory_root: Path
     user_root: Path
     session_root: Path
     vision_frames_root: Path
     sqlite_path: Path
+    user_memory_path: Path
+    cross_session_memory_path: Path
     user_profile_markdown_path: Path
     user_profile_json_path: Path
 
     def to_dict(self) -> dict[str, str]:
         return {
             "data_root": str(self.data_root),
+            "memory_root": str(self.memory_root),
             "user_root": str(self.user_root),
             "session_root": str(self.session_root),
             "vision_frames_root": str(self.vision_frames_root),
             "sqlite_path": str(self.sqlite_path),
+            "user_memory_path": str(self.user_memory_path),
+            "cross_session_memory_path": str(self.cross_session_memory_path),
             "user_profile_markdown_path": str(self.user_profile_markdown_path),
             "user_profile_json_path": str(self.user_profile_json_path),
         }
@@ -160,3 +166,6 @@ class RealtimeReadOnlyStorageView:
 
     def read_user_profile(self) -> dict[str, Any]:
         return self._storage.read_user_profile()
+
+    def read_cross_session_memory(self) -> Any:
+        return self._storage.read_cross_session_memory()

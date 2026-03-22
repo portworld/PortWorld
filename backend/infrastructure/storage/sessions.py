@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 from json import JSONDecodeError
 from pathlib import Path
@@ -10,7 +11,12 @@ from typing import Any
 from backend.infrastructure.storage.errors import SessionNotFoundError
 from backend.infrastructure.storage.types import SessionMemoryResetResult, SessionStorageResult, now_ms
 from backend.memory.events import AcceptedVisionEvent, coerce_accepted_vision_event
-from backend.memory.lifecycle import SessionMemoryResetEligibility, SessionMemoryRetentionEligibility
+from backend.memory.lifecycle import (
+    SHORT_TERM_MEMORY_TEMPLATE,
+    SESSION_MEMORY_TEMPLATE,
+    SessionMemoryResetEligibility,
+    SessionMemoryRetentionEligibility,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,21 +31,16 @@ class SessionStorageMixin:
         created_any = created_session_dir
         created_any = self._ensure_text_file(
             session_storage.short_term_memory_markdown_path,
-            "# Short-Term Visual Memory\n\n",
+            SHORT_TERM_MEMORY_TEMPLATE,
         ) or created_any
-        created_any = self._ensure_json_file(session_storage.short_term_memory_json_path, {}) or created_any
         created_any = self._ensure_text_file(
             session_storage.session_memory_markdown_path,
-            "# Session Memory\n\n",
+            SESSION_MEMORY_TEMPLATE,
         ) or created_any
-        created_any = self._ensure_json_file(session_storage.session_memory_json_path, {}) or created_any
         created_any = self._ensure_text_file(session_storage.vision_events_log_path, "") or created_any
         created_any = (
             self._ensure_text_file(session_storage.vision_routing_events_log_path, "") or created_any
         )
-
-        if created_any:
-            self._register_session_artifacts(session_id=session_id, session_storage=session_storage)
 
         return session_storage
 
@@ -65,27 +66,11 @@ class SessionStorageMixin:
             metadata=artifact_metadata,
         )
         self.register_artifact(
-            artifact_id=f"{session_id}:short_term_memory_json",
-            session_id=session_id,
-            artifact_kind="short_term_memory_json",
-            artifact_path=session_storage.short_term_memory_json_path,
-            content_type="application/json",
-            metadata=artifact_metadata,
-        )
-        self.register_artifact(
             artifact_id=f"{session_id}:session_memory_markdown",
             session_id=session_id,
             artifact_kind="session_memory_markdown",
             artifact_path=session_storage.session_memory_markdown_path,
             content_type="text/markdown",
-            metadata=artifact_metadata,
-        )
-        self.register_artifact(
-            artifact_id=f"{session_id}:session_memory_json",
-            session_id=session_id,
-            artifact_kind="session_memory_json",
-            artifact_path=session_storage.session_memory_json_path,
-            content_type="application/json",
             metadata=artifact_metadata,
         )
         self.register_artifact(
@@ -166,36 +151,6 @@ class SessionStorageMixin:
             quarantined_path,
         )
         return quarantined_path
-
-    def _safe_read_json_file(
-        self,
-        *,
-        path: Path,
-        default_payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        if not path.exists():
-            path.write_text(
-                json.dumps(default_payload, ensure_ascii=True, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            return dict(default_payload)
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (JSONDecodeError, OSError, UnicodeDecodeError) as exc:
-            self._quarantine_corrupt_file(path, reason=str(exc))
-            path.write_text(
-                json.dumps(default_payload, ensure_ascii=True, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            return dict(default_payload)
-        if not isinstance(payload, dict):
-            self._quarantine_corrupt_file(path, reason="JSON root must be an object")
-            path.write_text(
-                json.dumps(default_payload, ensure_ascii=True, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            return dict(default_payload)
-        return payload
 
     def _safe_read_jsonl_file(self, *, session_id: str, path: Path) -> list[AcceptedVisionEvent]:
         if not path.exists():
@@ -289,12 +244,12 @@ class SessionStorageMixin:
     def read_session_memory(self, *, session_id: str) -> dict[str, Any]:
         self._require_session_persisted(session_id=session_id)
         session_storage = self.get_session_storage_paths(session_id=session_id)
-        return self._safe_read_json_file(path=session_storage.session_memory_json_path, default_payload={})
+        return self._read_memory_markdown_payload(path=session_storage.session_memory_markdown_path)
 
     def read_short_term_memory(self, *, session_id: str) -> dict[str, Any]:
         self._require_session_persisted(session_id=session_id)
         session_storage = self.get_session_storage_paths(session_id=session_id)
-        return self._safe_read_json_file(path=session_storage.short_term_memory_json_path, default_payload={})
+        return self._read_memory_markdown_payload(path=session_storage.short_term_memory_markdown_path)
 
     def get_session_memory_reset_eligibility(
         self,
@@ -419,10 +374,6 @@ class SessionStorageMixin:
         session_storage = self.get_session_storage_paths(session_id=session_id)
         if not session_storage.session_dir.exists():
             session_storage = self.bootstrap_session_storage(session_id=session_id)
-        session_storage.short_term_memory_json_path.write_text(
-            json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
-            encoding="utf-8",
-        )
         session_storage.short_term_memory_markdown_path.write_text(
             markdown_text,
             encoding="utf-8",
@@ -438,14 +389,69 @@ class SessionStorageMixin:
         session_storage = self.get_session_storage_paths(session_id=session_id)
         if not session_storage.session_dir.exists():
             session_storage = self.bootstrap_session_storage(session_id=session_id)
-        session_storage.session_memory_json_path.write_text(
-            json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
-            encoding="utf-8",
-        )
         session_storage.session_memory_markdown_path.write_text(
             markdown_text,
             encoding="utf-8",
         )
+
+    def _read_memory_markdown_payload(self, *, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {}
+        try:
+            markdown = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return {}
+
+        if path.name == "SHORT_TERM.md":
+            payload = _coerce_short_term_memory_payload(markdown)
+            payload.update(_parse_section_key_value_bullets(markdown, section_name="Recent Changes"))
+            return payload
+        if path.name == "LONG_TERM.md":
+            payload = _coerce_session_memory_payload(markdown)
+            payload.update(
+                _parse_section_key_value_bullets(markdown, section_name="Important Facts Learned")
+            )
+            pending_follow_ups = _read_section_text(markdown, "Pending Follow-Ups")
+            if pending_follow_ups and pending_follow_ups.lower() != "none":
+                payload["open_uncertainties"] = _split_semicolon_list(pending_follow_ups)
+            return payload
+
+        payload: dict[str, Any] = {}
+        key_aliases = {
+            "current_scene": "current_scene_summary",
+            "visible_text": "recent_visible_text",
+            "documents_seen": "recent_documents",
+            "source_frames": "source_frame_ids",
+        }
+        lines = [line.strip() for line in markdown.splitlines() if line.strip()]
+        for line in lines:
+            if ":" not in line:
+                continue
+            normalized = line.removeprefix("- ").strip()
+            key_raw, value_raw = normalized.split(":", 1)
+            key = key_raw.strip().lower().replace(" ", "_")
+            key = key_aliases.get(key, key)
+            value = value_raw.strip()
+            if not value or value.lower() == "none":
+                continue
+            if key in {
+                "recent_entities",
+                "recent_actions",
+                "recent_visible_text",
+                "recent_documents",
+                "source_frame_ids",
+                "recurring_entities",
+                "documents_seen",
+                "notable_transitions",
+                "open_uncertainties",
+            }:
+                payload[key] = _parse_csv_list(value)
+                continue
+            if re.fullmatch(r"-?\d+", value):
+                payload[key] = int(value)
+                continue
+            payload[key] = value
+        return payload
 
     def read_session_memory_status(
         self,
@@ -617,3 +623,130 @@ class SessionStorageMixin:
             removed_session_dir=removed_session_dir,
             removed_vision_frames_dir=removed_vision_frames_dir,
         )
+
+
+def _parse_csv_list(raw_value: str) -> list[str]:
+    values: list[str] = []
+    for item in raw_value.split(","):
+        candidate = item.strip()
+        if not candidate:
+            continue
+        values.append(candidate)
+    return values
+
+
+def _coerce_session_memory_payload(markdown: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    payload["current_task_guess"] = _read_section_text(markdown, "Session Goal")
+    payload["summary_text"] = _read_section_text(markdown, "What Happened")
+    updated_at_ms = _coerce_optional_int(_read_section_text(markdown, "Last Updated"))
+    if updated_at_ms is not None:
+        payload["updated_at_ms"] = updated_at_ms
+    return payload
+
+
+def _coerce_short_term_memory_payload(markdown: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    payload["current_scene_summary"] = _read_section_text(markdown, "Current View")
+    payload["current_task_guess"] = _read_section_text(markdown, "Current Task Guess")
+    window_end_ts_ms = _coerce_optional_int(_read_section_text(markdown, "Timestamp"))
+    if window_end_ts_ms is not None:
+        payload["window_end_ts_ms"] = window_end_ts_ms
+    return payload
+
+
+def _parse_section_key_value_bullets(markdown: str, *, section_name: str) -> dict[str, Any]:
+    section_text = _read_section_text(markdown, section_name)
+    payload: dict[str, Any] = {}
+    key_aliases = {
+        "environment_summary": "environment_summary",
+        "recurring_entities": "recurring_entities",
+        "documents_seen": "documents_seen",
+        "notable_transitions": "notable_transitions",
+        "status": "status",
+        "reason": "reason",
+        "provider": "provider",
+        "model": "model",
+        "bootstrap_frame": "bootstrap_frame_id",
+        "next_retry": "next_retry_at_ms",
+        "last_attempt": "last_attempt_at_ms",
+        "attempt_count": "attempt_count",
+        "error_code": "error_code",
+        "source_frames": "source_frame_ids",
+        "recent_entities": "recent_entities",
+        "recent_actions": "recent_actions",
+        "visible_text": "recent_visible_text",
+        "documents_seen_short": "recent_documents",
+        "documents_seen_recent": "recent_documents",
+        "documents_seen_current": "recent_documents",
+    }
+    for raw_line in section_text.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("- ") or ":" not in line:
+            continue
+        key_raw, value_raw = line.removeprefix("- ").split(":", 1)
+        key = key_raw.strip().lower().replace(" ", "_")
+        canonical_key = key_aliases.get(key, key)
+        if section_name == "Recent Changes" and key == "documents_seen":
+            canonical_key = "recent_documents"
+        value = value_raw.strip()
+        if not value or value.lower() == "none":
+            continue
+        if canonical_key == "notable_transitions":
+            payload[canonical_key] = _split_semicolon_list(value)
+            continue
+        if canonical_key in {
+            "source_frame_ids",
+            "recent_entities",
+            "recent_actions",
+            "recent_visible_text",
+            "recent_documents",
+            "recurring_entities",
+            "documents_seen",
+            "notable_transitions",
+        }:
+            payload[canonical_key] = _parse_csv_list(value)
+            continue
+        if re.fullmatch(r"-?\d+", value):
+            payload[canonical_key] = int(value)
+            continue
+        payload[canonical_key] = value
+    return payload
+
+
+def _read_section_text(markdown: str, section_name: str) -> str:
+    header = f"## {section_name}"
+    lines = markdown.splitlines()
+    in_section = False
+    collected: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            if in_section:
+                break
+            in_section = stripped == header
+            continue
+        if in_section:
+            collected.append(line.rstrip())
+    return "\n".join(part for part in collected if part).strip()
+
+
+def _split_semicolon_list(raw_value: str) -> list[str]:
+    values: list[str] = []
+    for item in raw_value.split(";"):
+        candidate = item.strip()
+        if candidate:
+            values.append(candidate)
+    return values
+
+
+def _coerce_optional_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped and re.fullmatch(r"-?\d+", stripped):
+            return int(stripped)
+    return None

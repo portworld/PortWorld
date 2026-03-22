@@ -28,10 +28,13 @@ class LocalBackendStorage(
                 backend="local",
                 details={
                     "data_root": str(paths.data_root),
+                    "memory_root": str(paths.memory_root),
                     "user_root": str(paths.user_root),
                     "session_root": str(paths.session_root),
                     "vision_frames_root": str(paths.vision_frames_root),
                     "sqlite_path": str(paths.sqlite_path),
+                    "user_memory_path": str(paths.user_memory_path),
+                    "cross_session_memory_path": str(paths.cross_session_memory_path),
                     "user_profile_markdown_path": str(paths.user_profile_markdown_path),
                     "user_profile_json_path": str(paths.user_profile_json_path),
                 },
@@ -45,8 +48,8 @@ class LocalBackendStorage(
         return StorageBootstrapResult(
             storage_backend=self.backend_name,
             sqlite_path=self.paths.sqlite_path,
-            user_profile_markdown_path=self.paths.user_profile_markdown_path,
-            user_profile_json_path=self.paths.user_profile_json_path,
+            user_profile_markdown_path=self.paths.user_memory_path,
+            user_profile_json_path=None,
             bootstrapped_at_ms=now_ms(),
             storage_details=dict(self.storage_info.details),
         )

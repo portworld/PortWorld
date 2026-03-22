@@ -7,6 +7,11 @@ from typing import Any
 
 from backend.core.settings import Settings
 from backend.core.storage import BackendStorage, now_ms
+from backend.memory.materializer import (
+    coerce_session_memory_payload,
+    coerce_short_term_memory_payload,
+)
+from backend.memory.cross_session import promote_session_memory_to_cross_session
 from backend.vision.contracts import (
     VisionAnalyzer,
     VisionFrameContext,
@@ -302,6 +307,42 @@ class VisionMemoryRuntime(
             )
         if worker.pending_session_events:
             await self._materialize_session_memory(worker)
+        await self._promote_cross_session_memory(session_id=session_id, accepted_event_count=worker.accepted_event_count)
+
+    async def _promote_cross_session_memory(
+        self,
+        *,
+        session_id: str,
+        accepted_event_count: int,
+    ) -> None:
+        if accepted_event_count <= 0 or not self.storage.is_local_backend:
+            return
+
+        session_memory = await self._run_storage(
+            self.storage.read_session_memory,
+            session_id=session_id,
+        )
+        session_payload = coerce_session_memory_payload(session_memory)
+        if not session_payload:
+            return
+
+        try:
+            existing_markdown = await self._run_storage(self.storage.read_cross_session_memory)
+            updated_markdown = promote_session_memory_to_cross_session(
+                existing_markdown=existing_markdown,
+                session_memory=session_payload,
+            )
+            if updated_markdown != existing_markdown:
+                await self._run_storage(
+                    self.storage.write_cross_session_memory,
+                    markdown=updated_markdown,
+                )
+        except NotImplementedError:
+            logger.info(
+                "VISION_CROSS_SESSION_PROMOTION_SKIPPED session=%s backend=%s",
+                session_id,
+                self.storage.backend_name,
+            )
 
     async def _ensure_worker(self, *, session_id: str) -> SessionVisionWorker:
         while True:
@@ -361,10 +402,12 @@ class VisionMemoryRuntime(
             self.storage.read_short_term_memory,
             session_id=session_id,
         )
-        session_updated_at_ms = coerce_optional_int(previous_session_memory.get("updated_at_ms"))
+        session_payload = coerce_session_memory_payload(previous_session_memory)
+        short_term_payload = coerce_short_term_memory_payload(previous_short_term_memory)
+        session_updated_at_ms = coerce_optional_int(session_payload.get("updated_at_ms"))
         accepted_event_count = len(accepted_events)
         short_term_updated_at_ms = (
-            coerce_positive_optional_int(previous_short_term_memory.get("window_end_ts_ms"))
+            coerce_positive_optional_int(short_term_payload.get("window_end_ts_ms"))
             if accepted_event_count > 0
             else None
         )

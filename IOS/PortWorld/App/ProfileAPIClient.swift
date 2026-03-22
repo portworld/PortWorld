@@ -57,8 +57,20 @@ struct ProfileAPIClient {
 
     private enum CodingKeys: String, CodingKey {
       case profile
+      case userMemory = "user_memory"
       case isOnboarded = "is_onboarded"
       case missingFields = "missing_fields"
+    }
+
+    init(from decoder: Decoder) throws {
+      let container = try decoder.container(keyedBy: CodingKeys.self)
+      if let decodedMemory = try container.decodeIfPresent(Profile.self, forKey: .userMemory) {
+        profile = decodedMemory
+      } else {
+        profile = try container.decode(Profile.self, forKey: .profile)
+      }
+      isOnboarded = try container.decode(Bool.self, forKey: .isOnboarded)
+      missingFields = try container.decode([String].self, forKey: .missingFields)
     }
   }
 
@@ -136,7 +148,7 @@ struct ProfileAPIClient {
       case .serverError(let statusCode):
         return "The backend returned status \(statusCode)."
       case .decodingFailed:
-        return "The backend profile response could not be read."
+        return "The backend user memory response could not be read."
       }
     }
   }
@@ -152,7 +164,7 @@ struct ProfileAPIClient {
   func getProfile(settings: AppSettingsStore.Settings) async throws -> Response {
     let request = try makeRequest(
       baseURLString: settings.backendBaseURL,
-      path: "/profile",
+      path: "/memory/user",
       bearerToken: settings.bearerToken,
       method: "GET"
     )
@@ -173,7 +185,7 @@ struct ProfileAPIClient {
   func putProfile(settings: AppSettingsStore.Settings, draft: ProfileDraft) async throws -> Response {
     var request = try makeRequest(
       baseURLString: settings.backendBaseURL,
-      path: "/profile",
+      path: "/memory/user",
       bearerToken: settings.bearerToken,
       method: "PUT"
     )

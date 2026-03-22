@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from backend.core.storage import now_ms
@@ -62,6 +63,7 @@ def build_short_term_memory(
         "window_start_ts_ms": window_start_ts_ms,
         "window_end_ts_ms": latest_capture_ts_ms,
         "current_scene_summary": latest_event["scene_summary"] if latest_event else "",
+        "current_task_guess": latest_event["user_activity_guess"] if latest_event else "",
         "recent_entities": _unique_recent_values(window_events, "entities"),
         "recent_actions": _unique_recent_values(window_events, "actions"),
         "recent_visible_text": _unique_recent_values(window_events, "visible_text"),
@@ -70,14 +72,38 @@ def build_short_term_memory(
     }
 
     markdown_lines = [
-        "# Short-Term Visual Memory",
+        "# Short-Term Memory",
         "",
-        f"Current scene: {payload['current_scene_summary'] or 'No accepted observations yet.'}",
-        f"Source frames: {', '.join(payload['source_frame_ids']) if payload['source_frame_ids'] else 'none'}",
-        f"Recent entities: {', '.join(payload['recent_entities']) if payload['recent_entities'] else 'none'}",
-        f"Recent actions: {', '.join(payload['recent_actions']) if payload['recent_actions'] else 'none'}",
-        f"Visible text: {', '.join(payload['recent_visible_text']) if payload['recent_visible_text'] else 'none'}",
-        f"Documents seen: {', '.join(payload['recent_documents']) if payload['recent_documents'] else 'none'}",
+        "## Current View",
+        payload["current_scene_summary"] or "No accepted observations yet.",
+        "",
+        "## Recent Changes",
+        (
+            "- Source frames: "
+            + (", ".join(payload["source_frame_ids"]) if payload["source_frame_ids"] else "none")
+        ),
+        (
+            "- Recent entities: "
+            + (", ".join(payload["recent_entities"]) if payload["recent_entities"] else "none")
+        ),
+        (
+            "- Recent actions: "
+            + (", ".join(payload["recent_actions"]) if payload["recent_actions"] else "none")
+        ),
+        (
+            "- Visible text: "
+            + (", ".join(payload["recent_visible_text"]) if payload["recent_visible_text"] else "none")
+        ),
+        (
+            "- Documents seen: "
+            + (", ".join(payload["recent_documents"]) if payload["recent_documents"] else "none")
+        ),
+        "",
+        "## Current Task Guess",
+        payload["current_task_guess"] or "Unknown",
+        "",
+        "## Timestamp",
+        str(payload["window_end_ts_ms"] or 0),
         "",
     ]
     return payload, "\n".join(markdown_lines)
@@ -86,12 +112,13 @@ def build_short_term_memory(
 def build_session_memory_rollup(
     *,
     session_id: str,
-    previous_memory: dict[str, Any],
+    previous_memory: Mapping[str, Any] | str | None,
     recent_events: list[AcceptedVisionEvent],
 ) -> tuple[dict[str, Any], str]:
-    previous_transitions = normalize_string_list(previous_memory.get("notable_transitions"))
-    previous_entities = normalize_string_list(previous_memory.get("recurring_entities"))
-    previous_documents = normalize_string_list(previous_memory.get("documents_seen"))
+    previous_payload = coerce_session_memory_payload(previous_memory)
+    previous_transitions = normalize_string_list(previous_payload.get("notable_transitions"))
+    previous_entities = normalize_string_list(previous_payload.get("recurring_entities"))
+    previous_documents = normalize_string_list(previous_payload.get("documents_seen"))
     recent_activities = [
         normalize_string(event.get("user_activity_guess")) for event in recent_events
     ]
@@ -100,10 +127,10 @@ def build_session_memory_rollup(
     ]
     recent_scene_summaries = [summary for summary in recent_scene_summaries if summary]
     latest_activity = _last_non_empty(recent_activities) or normalize_string(
-        previous_memory.get("current_task_guess")
+        previous_payload.get("current_task_guess")
     )
     environment_summary = _build_environment_summary(
-        previous_summary=normalize_string(previous_memory.get("environment_summary")),
+        previous_summary=normalize_string(previous_payload.get("environment_summary")),
         recent_scene_summaries=recent_scene_summaries,
     )
     recurring_entities = _merge_unique(previous_entities, _unique_recent_values(recent_events, "entities"))
@@ -114,7 +141,7 @@ def build_session_memory_rollup(
     )
     open_uncertainties = _build_open_uncertainties(recent_events)
 
-    started_at_ms = coerce_optional_int(previous_memory.get("started_at_ms"))
+    started_at_ms = coerce_optional_int(previous_payload.get("started_at_ms"))
     if started_at_ms is None:
         started_at_ms = min(event["capture_ts_ms"] for event in recent_events) if recent_events else 0
 
@@ -140,17 +167,66 @@ def build_session_memory_rollup(
     markdown_lines = [
         "# Session Memory",
         "",
-        f"Current task guess: {payload['current_task_guess'] or 'Unknown'}",
-        f"Environment summary: {payload['environment_summary'] or 'Unknown'}",
-        f"Recurring entities: {', '.join(payload['recurring_entities']) if payload['recurring_entities'] else 'none'}",
-        f"Documents seen: {', '.join(payload['documents_seen']) if payload['documents_seen'] else 'none'}",
-        f"Notable transitions: {'; '.join(payload['notable_transitions']) if payload['notable_transitions'] else 'none'}",
-        f"Open uncertainties: {'; '.join(payload['open_uncertainties']) if payload['open_uncertainties'] else 'none'}",
+        "## Session Goal",
+        payload["current_task_guess"] or "Unknown",
         "",
-        payload["summary_text"] or "",
+        "## What Happened",
+        payload["summary_text"] or "No accepted observations yet.",
+        "",
+        "## Important Facts Learned",
+        (
+            "- Environment summary: "
+            + (payload["environment_summary"] or "unknown")
+        ),
+        (
+            "- Recurring entities: "
+            + (", ".join(payload["recurring_entities"]) if payload["recurring_entities"] else "none")
+        ),
+        (
+            "- Documents seen: "
+            + (", ".join(payload["documents_seen"]) if payload["documents_seen"] else "none")
+        ),
+        (
+            "- Notable transitions: "
+            + ("; ".join(payload["notable_transitions"]) if payload["notable_transitions"] else "none")
+        ),
+        "",
+        "## Pending Follow-Ups",
+        (
+            "; ".join(payload["open_uncertainties"]) if payload["open_uncertainties"] else "none"
+        ),
+        "",
+        "## Last Updated",
+        str(payload["updated_at_ms"]),
         "",
     ]
     return payload, "\n".join(markdown_lines)
+
+
+def coerce_session_memory_payload(value: Mapping[str, Any] | str | None) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        return dict(value)
+    if not isinstance(value, str):
+        return {}
+    lines = value.splitlines()
+    payload: dict[str, Any] = {}
+    payload["current_task_guess"] = _read_section_text(lines, "Session Goal")
+    payload["summary_text"] = _read_section_text(lines, "What Happened")
+    payload["updated_at_ms"] = coerce_optional_int(_read_section_text(lines, "Last Updated")) or 0
+    return payload
+
+
+def coerce_short_term_memory_payload(value: Mapping[str, Any] | str | None) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        return dict(value)
+    if not isinstance(value, str):
+        return {}
+    lines = value.splitlines()
+    payload: dict[str, Any] = {}
+    payload["current_scene_summary"] = _read_section_text(lines, "Current View")
+    payload["current_task_guess"] = _read_section_text(lines, "Current Task Guess")
+    payload["window_end_ts_ms"] = coerce_optional_int(_read_section_text(lines, "Timestamp")) or 0
+    return payload
 
 
 def _unique_recent_values(events: list[AcceptedVisionEvent], key: str) -> list[str]:
@@ -280,3 +356,19 @@ def _latest_event_by_capture_ts(events: list[AcceptedVisionEvent]) -> AcceptedVi
             latest_capture_ts_ms = capture_ts_ms
             latest_event = event
     return latest_event
+
+
+def _read_section_text(lines: list[str], section_name: str) -> str:
+    header = f"## {section_name}".strip()
+    in_section = False
+    collected: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            if in_section:
+                break
+            in_section = stripped == header
+            continue
+        if in_section:
+            collected.append(line.rstrip())
+    return "\n".join(part for part in collected if part).strip()

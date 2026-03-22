@@ -14,26 +14,26 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
-class ProfileToolExecutor:
+class UserMemoryToolExecutor:
     storage: BackendStorage
     mode: str
 
     async def __call__(self, call: ToolCall) -> ToolResult:
         try:
             if self.mode == "get":
-                profile_payload = await asyncio.to_thread(self.storage.read_user_profile)
+                user_memory_payload = await asyncio.to_thread(self.storage.read_user_profile)
             elif self.mode == "update":
-                profile_payload = await asyncio.to_thread(
-                    self._update_profile,
+                user_memory_payload = await asyncio.to_thread(
+                    self._update_user_memory,
                     call.arguments,
                 )
             elif self.mode == "complete":
-                profile_payload = await asyncio.to_thread(self.storage.read_user_profile)
+                user_memory_payload = await asyncio.to_thread(self.storage.read_user_profile)
             else:
-                raise ValueError(f"Unsupported profile tool mode: {self.mode}")
+                raise ValueError(f"Unsupported user-memory tool mode: {self.mode}")
         except (JSONDecodeError, OSError, ValueError) as exc:
             logger.warning(
-                "Profile tool failed session_id=%s call_id=%s mode=%s",
+                "User-memory tool failed session_id=%s call_id=%s mode=%s",
                 call.session_id,
                 call.call_id,
                 self.mode,
@@ -45,26 +45,26 @@ class ProfileToolExecutor:
                 call_id=call.call_id,
                 payload={
                     "session_id": call.session_id,
-                    "profile": {},
+                    "user_memory": {},
                     "missing_fields": list(allowed_profile_fields()),
                 },
-                error_code="PROFILE_TOOL_FAILED",
-                error_message="Profile tool failed",
+                error_code="USER_MEMORY_TOOL_FAILED",
+                error_message="User memory tool failed",
             )
 
-        profile = {
-            field_name: profile_payload[field_name]
+        user_memory = {
+            field_name: user_memory_payload[field_name]
             for field_name in allowed_profile_fields()
-            if field_name in profile_payload
+            if field_name in user_memory_payload
         }
-        present_fields = set(profile.keys())
-        metadata = profile_payload.get(PROFILE_METADATA_KEY)
+        present_fields = set(user_memory.keys())
+        metadata = user_memory_payload.get(PROFILE_METADATA_KEY)
         if not isinstance(metadata, dict):
             metadata = {}
 
         payload = {
             "session_id": call.session_id,
-            "profile": profile,
+            "user_memory": user_memory,
             "missing_fields": [
                 field_name
                 for field_name in allowed_profile_fields()
@@ -83,7 +83,7 @@ class ProfileToolExecutor:
             payload=payload,
         )
 
-    def _update_profile(self, arguments: dict[str, Any]) -> dict[str, object]:
+    def _update_user_memory(self, arguments: dict[str, Any]) -> dict[str, object]:
         current = self.storage.read_user_profile()
         merged = dict(current)
 
@@ -93,5 +93,9 @@ class ProfileToolExecutor:
 
         return self.storage.write_user_profile(
             payload=merged,
-            source="tool_update_user_profile",
+            source="tool_update_user_memory",
         )
+
+
+# Compatibility alias while call sites finish migrating.
+ProfileToolExecutor = UserMemoryToolExecutor

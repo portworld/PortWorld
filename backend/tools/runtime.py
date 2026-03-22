@@ -11,7 +11,7 @@ from backend.core.storage import BackendStorage, RealtimeReadOnlyStorageView
 from backend.memory.lifecycle import PROFILE_ALLOWLISTED_FIELDS
 from backend.tools.contracts import ToolCall, ToolDefinition, ToolResult
 from backend.tools.memory import MemoryToolExecutor
-from backend.tools.profile import ProfileToolExecutor
+from backend.tools.profile import UserMemoryToolExecutor
 from backend.tools.providers.tavily import TavilySearchProvider
 from backend.tools.registry import RealtimeToolRegistry, ToolRegistryError, UnknownToolError
 from backend.tools.search import SearchProvider
@@ -101,7 +101,7 @@ class SearchProviderFactory:
 @dataclass(frozen=True, slots=True)
 class ToolCatalogContext:
     storage: RealtimeReadOnlyStorageView
-    profile_storage: BackendStorage
+    user_memory_storage: BackendStorage
     search_provider: SearchProvider | None
     web_search_provider: str | None
     web_search_max_results: int
@@ -124,7 +124,7 @@ def _register_memory_tools(
     storage = context.storage
     registry.register(
         definition=ToolDefinition(
-            name="get_short_term_visual_context",
+            name="get_short_term_memory",
             description=(
                 "Read the current short-term visual memory for this active session."
             ),
@@ -141,9 +141,9 @@ def _register_memory_tools(
     )
     registry.register(
         definition=ToolDefinition(
-            name="get_session_visual_context",
+            name="get_long_term_memory",
             description=(
-                "Read the current session-level visual memory for this active session."
+                "Read the current long-term session memory for this active session."
             ),
             input_schema={
                 "type": "object",
@@ -153,7 +153,24 @@ def _register_memory_tools(
         ),
         executor=MemoryToolExecutor(
             storage=storage,
-            memory_scope="session",
+            memory_scope="long_term",
+        ),
+    )
+    registry.register(
+        definition=ToolDefinition(
+            name="get_cross_session_memory",
+            description=(
+                "Read the cross-session memory summary for this user."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        executor=MemoryToolExecutor(
+            storage=storage,
+            memory_scope="cross_session",
         ),
     )
 
@@ -196,21 +213,21 @@ def _register_profile_tools(
 ) -> None:
     registry.register(
         definition=ToolDefinition(
-            name="get_user_profile",
-            description="Read the saved user profile facts collected for this user.",
+            name="get_user_memory",
+            description="Read the saved durable user memory for this user.",
             input_schema={
                 "type": "object",
                 "properties": {},
                 "additionalProperties": False,
             },
         ),
-        executor=ProfileToolExecutor(storage=context.profile_storage, mode="get"),
+        executor=UserMemoryToolExecutor(storage=context.user_memory_storage, mode="get"),
     )
     registry.register(
         definition=ToolDefinition(
-            name="update_user_profile",
+            name="update_user_memory",
             description=(
-                "Update confirmed user profile facts. Omit fields that are still unknown."
+                "Update confirmed user memory facts. Omit fields that are still unknown."
             ),
             input_schema={
                 "type": "object",
@@ -233,11 +250,11 @@ def _register_profile_tools(
                 "additionalProperties": False,
             },
         ),
-        executor=ProfileToolExecutor(storage=context.profile_storage, mode="update"),
+        executor=UserMemoryToolExecutor(storage=context.user_memory_storage, mode="update"),
     )
     registry.register(
         definition=ToolDefinition(
-            name="complete_profile_onboarding",
+            name="complete_user_memory_onboarding",
             description=(
                 "Finish onboarding after the user has either shared enough profile context or explicitly chosen to skip the remaining questions."
             ),
@@ -247,7 +264,7 @@ def _register_profile_tools(
                 "additionalProperties": False,
             },
         ),
-        executor=ProfileToolExecutor(storage=context.profile_storage, mode="complete"),
+        executor=UserMemoryToolExecutor(storage=context.user_memory_storage, mode="complete"),
     )
 
 
@@ -284,7 +301,7 @@ class RealtimeToolingRuntime:
         registry = cls._build_registry(
             context=ToolCatalogContext(
                 storage=read_only_storage,
-                profile_storage=storage,
+                user_memory_storage=storage,
                 search_provider=search_provider,
                 web_search_provider=web_search_provider,
                 web_search_max_results=settings.realtime_web_search_max_results,
@@ -406,26 +423,26 @@ class RealtimeToolingRuntime:
             sections.append(tool_usage_block)
 
         try:
-            profile = self.storage.read_user_profile()
+            user_memory = self.storage.read_user_profile()
         except JSONDecodeError:
             logger.warning(
-                "Failed to parse user profile JSON, proceeding without profile context"
+                "Failed to parse user memory payload, proceeding without memory context"
             )
             return "\n\n".join(section for section in sections if section).strip() + "\n"
         except OSError as exc:
             logger.warning(
-                "Failed to read user profile from storage: %s, proceeding without profile context",
+                "Failed to read user memory from storage: %s, proceeding without memory context",
                 exc,
             )
             return "\n\n".join(section for section in sections if section).strip() + "\n"
 
-        profile_lines = self._build_profile_lines(profile)
-        if profile_lines:
+        user_memory_lines = self._build_profile_lines(user_memory)
+        if user_memory_lines:
             sections.append(
                 "\n".join(
                     [
-                        "Stable user profile context:",
-                        *profile_lines,
+                        "Stable user memory context:",
+                        *user_memory_lines,
                     ]
                 )
             )
@@ -434,32 +451,36 @@ class RealtimeToolingRuntime:
 
     def _build_tool_usage_block(self) -> str:
         guidance_lines = ["Tool usage policy:"]
-        if self.registry.has_tool("get_short_term_visual_context"):
+        if self.registry.has_tool("get_short_term_memory"):
             guidance_lines.append(
-                "- Use get_short_term_visual_context when the user asks about what is visible now or what was seen in the last few moments."
+                "- Use get_short_term_memory when the user asks about what is visible now or what was seen in the last few moments."
             )
-        if self.registry.has_tool("get_session_visual_context"):
+        if self.registry.has_tool("get_long_term_memory"):
             guidance_lines.append(
-                "- Use get_session_visual_context when the user asks about what has been seen across the current session."
+                "- Use get_long_term_memory when the user asks about what has been seen across the current session."
             )
-        if self.registry.has_tool("get_user_profile"):
+        if self.registry.has_tool("get_cross_session_memory"):
             guidance_lines.append(
-                "- Use get_user_profile to inspect the saved user profile before relying on memory about the user."
+                "- Use get_cross_session_memory when the user asks about durable context from prior sessions."
             )
-        if self.registry.has_tool("update_user_profile"):
+        if self.registry.has_tool("get_user_memory"):
             guidance_lines.append(
-                "- Use update_user_profile only for facts the user has clearly confirmed."
+                "- Use get_user_memory to inspect the saved user memory before relying on memory about the user."
             )
-        if self.registry.has_tool("complete_profile_onboarding"):
+        if self.registry.has_tool("update_user_memory"):
             guidance_lines.append(
-                "- Use complete_profile_onboarding only when the onboarding interview is genuinely complete and the user is ready to move on, even if some questions were skipped."
+                "- Use update_user_memory only for facts the user has clearly confirmed."
+            )
+        if self.registry.has_tool("complete_user_memory_onboarding"):
+            guidance_lines.append(
+                "- Use complete_user_memory_onboarding only when the onboarding interview is genuinely complete and the user is ready to move on, even if some questions were skipped."
             )
         if self.registry.has_tool("web_search"):
             guidance_lines.append(
                 "- Use web_search only when the user explicitly asks for fresh external facts or documentation."
             )
-        if self.registry.has_tool("get_short_term_visual_context") or self.registry.has_tool(
-            "get_session_visual_context"
+        if self.registry.has_tool("get_short_term_memory") or self.registry.has_tool(
+            "get_long_term_memory"
         ):
             guidance_lines.extend(
                 [

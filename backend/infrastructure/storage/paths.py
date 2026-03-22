@@ -12,6 +12,8 @@ from backend.memory.lifecycle import (
     SESSION_MEMORY_MARKDOWN_FILE_NAME,
     SHORT_TERM_MEMORY_JSON_FILE_NAME,
     SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME,
+    USER_MEMORY_TEMPLATE,
+    CROSS_SESSION_MEMORY_TEMPLATE,
     VISION_EVENTS_LOG_FILE_NAME,
     VISION_ROUTING_EVENTS_LOG_FILE_NAME,
 )
@@ -46,11 +48,14 @@ class StoragePathMixin:
     def _ensure_directories(self) -> None:
         for path in (
             self.paths.data_root,
+            self.paths.memory_root,
             self.paths.user_root,
             self.paths.session_root,
             self.paths.vision_frames_root,
         ):
             path.mkdir(parents=True, exist_ok=True)
+        self._ensure_text_file(self.paths.user_memory_path, USER_MEMORY_TEMPLATE)
+        self._ensure_text_file(self.paths.cross_session_memory_path, CROSS_SESSION_MEMORY_TEMPLATE)
 
     def _ensure_text_file(self, path: Path, default_text: str) -> bool:
         if path.exists():

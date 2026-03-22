@@ -141,6 +141,12 @@ class BackendStorage:
     def list_memory_export_artifacts(self) -> list[MemoryExportArtifact]:
         raise NotImplementedError
 
+    def read_user_memory(self) -> str:
+        return self.read_user_profile_markdown()
+
+    def read_cross_session_memory(self) -> str:
+        raise NotImplementedError
+
     def read_user_profile(self) -> dict[str, object]:
         raise NotImplementedError
 
@@ -157,6 +163,12 @@ class BackendStorage:
         raise NotImplementedError
 
     def reset_user_profile(self) -> dict[str, object]:
+        raise NotImplementedError
+
+    def write_user_memory(self, *, markdown: str) -> None:
+        raise NotImplementedError
+
+    def write_cross_session_memory(self, *, markdown: str) -> None:
         raise NotImplementedError
 
     def store_vision_frame_ingest(

@@ -259,7 +259,7 @@ class ToolCallDispatcher:
     async def _maybe_emit_onboarding_ready(self, tool_result) -> None:
         if self._send_onboarding_profile_ready is None:
             return
-        if tool_result.name != "complete_profile_onboarding":
+        if tool_result.name != "complete_user_memory_onboarding":
             return
         if tool_result.ok is False:
             return

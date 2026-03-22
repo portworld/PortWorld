@@ -107,14 +107,20 @@ def build_storage_paths(settings: Settings) -> StoragePaths:
             "Local storage paths are only defined when "
             "BACKEND_STORAGE_BACKEND=local."
         )
+    memory_root = settings.backend_data_dir / "memory"
+    user_memory_path = memory_root / "USER.md"
+    cross_session_memory_path = memory_root / "CROSS_SESSION.md"
     return StoragePaths(
         data_root=settings.backend_data_dir,
-        user_root=settings.backend_data_dir / "user",
-        session_root=settings.backend_data_dir / "session",
+        memory_root=memory_root,
+        user_root=memory_root,
+        session_root=memory_root / "sessions",
         vision_frames_root=settings.backend_data_dir / "vision_frames",
         sqlite_path=settings.backend_sqlite_path,
-        user_profile_markdown_path=settings.backend_data_dir / "user" / "user_profile.md",
-        user_profile_json_path=settings.backend_data_dir / "user" / "user_profile.json",
+        user_memory_path=user_memory_path,
+        cross_session_memory_path=cross_session_memory_path,
+        user_profile_markdown_path=user_memory_path,
+        user_profile_json_path=memory_root / "USER.json",
     )
 
 
