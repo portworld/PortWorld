@@ -86,8 +86,5 @@ class ProfileStorageMixin:
         )
         return {}
 
-    def write_user_memory(self, *, markdown: str) -> None:
-        self.paths.user_memory_path.write_text(markdown, encoding="utf-8")
-
     def write_cross_session_memory(self, *, markdown: str) -> None:
         self.paths.cross_session_memory_path.write_text(markdown, encoding="utf-8")

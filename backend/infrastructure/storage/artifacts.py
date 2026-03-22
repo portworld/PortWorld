@@ -53,7 +53,7 @@ class ArtifactStorageMixin:
         artifacts: list[MemoryExportArtifact] = []
         profile_artifacts = (
             (
-                "user_profile_markdown",
+                "user_memory_markdown",
                 self.paths.user_memory_path,
                 "text/markdown",
             ),

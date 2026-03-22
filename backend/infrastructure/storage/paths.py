@@ -8,9 +8,7 @@ from typing import Any
 
 from backend.infrastructure.storage.types import now_ms
 from backend.memory.lifecycle import (
-    SESSION_MEMORY_JSON_FILE_NAME,
     SESSION_MEMORY_MARKDOWN_FILE_NAME,
-    SHORT_TERM_MEMORY_JSON_FILE_NAME,
     SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME,
     USER_MEMORY_TEMPLATE,
     CROSS_SESSION_MEMORY_TEMPLATE,
@@ -63,15 +61,6 @@ class StoragePathMixin:
         path.write_text(default_text, encoding="utf-8")
         return True
 
-    def _ensure_json_file(self, path: Path, default_payload: dict[str, Any]) -> bool:
-        if path.exists():
-            return False
-        path.write_text(
-            json.dumps(default_payload, ensure_ascii=True, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        return True
-
     def _build_session_storage_result(self, *, session_id: str):
         from backend.infrastructure.storage.types import SessionStorageResult
 
@@ -79,9 +68,7 @@ class StoragePathMixin:
         return SessionStorageResult(
             session_dir=session_dir,
             short_term_memory_markdown_path=session_dir / SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME,
-            short_term_memory_json_path=session_dir / SHORT_TERM_MEMORY_JSON_FILE_NAME,
             session_memory_markdown_path=session_dir / SESSION_MEMORY_MARKDOWN_FILE_NAME,
-            session_memory_json_path=session_dir / SESSION_MEMORY_JSON_FILE_NAME,
             vision_events_log_path=session_dir / VISION_EVENTS_LOG_FILE_NAME,
             vision_routing_events_log_path=session_dir / VISION_ROUTING_EVENTS_LOG_FILE_NAME,
         )

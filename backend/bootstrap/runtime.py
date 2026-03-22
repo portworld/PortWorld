@@ -120,7 +120,6 @@ def build_storage_paths(settings: Settings) -> StoragePaths:
         user_memory_path=user_memory_path,
         cross_session_memory_path=cross_session_memory_path,
         user_profile_markdown_path=user_memory_path,
-        user_profile_json_path=memory_root / "USER.json",
     )
 
 

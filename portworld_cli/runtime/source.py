@@ -384,7 +384,6 @@ def run_bootstrap_storage_source(session) -> CommandResult:
         ("bootstrapped_at_ms", result.bootstrapped_at_ms),
         ("sqlite_path", result.sqlite_path),
         ("user_profile_markdown_path", result.user_profile_markdown_path),
-        ("user_profile_json_path", result.user_profile_json_path),
     )
     return CommandResult(
         ok=True,
