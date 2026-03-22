@@ -12,7 +12,7 @@ from portworld_cli.targets import (
 
 
 class ManagedTargetStatePathsTests(unittest.TestCase):
-    def test_gcp_state_file_and_legacy_status_key(self) -> None:
+    def test_gcp_state_file_and_status_key(self) -> None:
         paths = ManagedTargetStatePaths(Path("/tmp/portworld/.portworld/state"))
         self.assertEqual(
             paths.file_for_target(TARGET_GCP_CLOUD_RUN),
@@ -21,7 +21,7 @@ class ManagedTargetStatePathsTests(unittest.TestCase):
         self.assertEqual(
             paths.status_payload(exposed_only=True),
             {
-                "gcp_cloud_run": "/tmp/portworld/.portworld/state/gcp-cloud-run.json",
+                "gcp-cloud-run": "/tmp/portworld/.portworld/state/gcp-cloud-run.json",
             },
         )
 

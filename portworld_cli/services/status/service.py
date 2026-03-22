@@ -142,12 +142,8 @@ def run_status(cli_context: CLIContext) -> CommandResult:
             "runtime_source": session.project_config.runtime_source,
             "configured_runtime_source": session.config_session.configured_runtime_source,
             "effective_runtime_source": session.config_session.effective_runtime_source,
-            "runtime_source_derived_from_legacy": (
-                session.config_session.runtime_source_derived_from_legacy
-            ),
             "cloud_provider": session.project_config.cloud_provider,
             "active_target": active_target,
-            "derived_from_legacy": session.derived_from_legacy,
             "secret_readiness": secret_readiness.to_dict(),
             "extensions": extensions_summary.to_payload(),
             "node_mcp": {

@@ -61,7 +61,7 @@ class StatusCrossTargetTests(unittest.TestCase):
     @mock.patch("portworld_cli.services.status.service.build_health_summary")
     @mock.patch("portworld_cli.services.status.service.collect_local_runtime_status", return_value=None)
     @mock.patch("portworld_cli.services.status.service.collect_live_service_status")
-    def test_status_includes_by_target_and_preserves_compatibility_fields(
+    def test_status_includes_by_target_state_details(
         self,
         collect_live_status: mock.Mock,
         _collect_local_runtime: mock.Mock,
@@ -125,7 +125,11 @@ class StatusCrossTargetTests(unittest.TestCase):
 
             self.assertCountEqual(
                 result.data["state_paths"].keys(),
-                ("gcp_cloud_run", "aws_ecs_fargate", "azure_container_apps"),
+                (
+                    TARGET_GCP_CLOUD_RUN,
+                    TARGET_AWS_ECS_FARGATE,
+                    TARGET_AZURE_CONTAINER_APPS,
+                ),
             )
 
     @mock.patch("portworld_cli.services.status.service.collect_published_backend_check_config_payload")

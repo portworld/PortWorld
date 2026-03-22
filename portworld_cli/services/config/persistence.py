@@ -40,10 +40,8 @@ def write_config_artifacts(
         template=session.template,
         existing_env=existing_env,
         project_config=project_config,
-        derived_from_legacy=False,
         configured_runtime_source=project_config.runtime_source,
         effective_runtime_source=project_config.runtime_source or session.effective_runtime_source,
-        runtime_source_derived_from_legacy=False,
         remembered_deploy_state=session.remembered_deploy_state,
         remembered_deploy_state_target=session.remembered_deploy_state_target,
         workspace_resolution_source=session.workspace_resolution_source,
@@ -131,7 +129,6 @@ def _build_effective_env_values(
     env_updates: dict[str, str],
 ) -> dict[str, str]:
     values = dict(session.existing_env.known_values)
-    values.update(session.existing_env.legacy_alias_values)
     values.update(session.existing_env.preserved_overrides)
     values.update(config_selection)
     values.update(env_updates)

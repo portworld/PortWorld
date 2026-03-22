@@ -61,10 +61,8 @@ def run_config_show(cli_context: CLIContext) -> CommandResult:
             None if session.project_paths is None else session.project_paths.project_root
         ),
         env_path=session.env_path,
-        derived_from_legacy=session.derived_from_legacy,
         configured_runtime_source=session.configured_runtime_source,
         effective_runtime_source=session.effective_runtime_source,
-        runtime_source_derived_from_legacy=session.runtime_source_derived_from_legacy,
         workspace_resolution_source=session.workspace_resolution_source,
         active_workspace_root=session.active_workspace_root,
     )
@@ -134,10 +132,8 @@ def run_config_show(cli_context: CLIContext) -> CommandResult:
             "compose_path": str(session.workspace_paths.compose_file),
             "project_config": config_payload,
             "secret_readiness": secret_readiness.to_dict(),
-            "derived_from_legacy": session.derived_from_legacy,
             "configured_runtime_source": session.configured_runtime_source,
             "effective_runtime_source": session.effective_runtime_source,
-            "runtime_source_derived_from_legacy": session.runtime_source_derived_from_legacy,
             "workspace_resolution_source": session.workspace_resolution_source,
             "active_workspace_root": (
                 None if session.active_workspace_root is None else str(session.active_workspace_root)

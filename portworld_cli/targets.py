@@ -21,12 +21,6 @@ MANAGED_TARGETS: tuple[str, ...] = (
 # Phase 1 keeps the user-visible managed CLI target list unchanged.
 EXPOSED_MANAGED_TARGETS: tuple[str, ...] = (TARGET_GCP_CLOUD_RUN,)
 
-STATUS_STATE_PATH_KEYS: dict[str, str] = {
-    TARGET_GCP_CLOUD_RUN: "gcp_cloud_run",
-    TARGET_AWS_ECS_FARGATE: "aws_ecs_fargate",
-    TARGET_AZURE_CONTAINER_APPS: "azure_container_apps",
-}
-
 MANAGED_TARGETS_BY_PROVIDER: dict[str, tuple[str, ...]] = {
     CLOUD_PROVIDER_GCP: (TARGET_GCP_CLOUD_RUN,),
     CLOUD_PROVIDER_AWS: (TARGET_AWS_ECS_FARGATE,),
@@ -48,7 +42,5 @@ class ManagedTargetStatePaths:
         targets = EXPOSED_MANAGED_TARGETS if exposed_only else MANAGED_TARGETS
         payload: dict[str, str] = {}
         for target in targets:
-            key = STATUS_STATE_PATH_KEYS[target]
-            payload[key] = str(self.file_for_target(target))
+            payload[target] = str(self.file_for_target(target))
         return payload
-

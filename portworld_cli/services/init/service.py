@@ -5,12 +5,17 @@ from dataclasses import dataclass, replace
 import click
 
 from portworld_cli.context import CLIContext
-from portworld_cli.envfile import EnvFileParseError
+from portworld_cli.envfile import EnvFileParseError, load_env_template, parse_env_file
 from portworld_cli.output import CommandResult, DiagnosticCheck
-from portworld_cli.workspace.discovery.paths import ProjectRootResolutionError, WorkspacePaths
+from portworld_cli.workspace.discovery.paths import (
+    ProjectRootResolutionError,
+    WorkspacePaths,
+    resolve_project_paths,
+)
 from portworld_cli.workspace.state.machine_state import load_machine_state, remember_active_workspace
 from portworld_cli.workspace.project_config import (
     ProjectConfigError,
+    ProjectConfig,
     RUNTIME_SOURCE_PUBLISHED,
     RUNTIME_SOURCE_SOURCE,
     build_env_overrides_from_project_config,
@@ -47,7 +52,6 @@ from portworld_cli.services.config.types import CloudEditOptions, SecurityEditOp
 from portworld_cli.workspace.state.state_store import CLIStateDecodeError, CLIStateTypeError
 from portworld_cli.workspace.session import WorkspaceSession as ConfigSession
 from portworld_cli.workspace.session import (
-    build_workspace_session,
     load_workspace_session,
     require_source_workspace_session,
 )
@@ -147,13 +151,16 @@ def run_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
 
 def _run_source_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
     try:
-        session = load_workspace_session(cli_context)
-        session = require_source_workspace_session(
-            session,
-            command_name=COMMAND_NAME,
-            requested_runtime_source=options.runtime_source,
-            usage_error_type=ConfigUsageError,
-        )
+        try:
+            session = load_workspace_session(cli_context)
+            session = require_source_workspace_session(
+                session,
+                command_name=COMMAND_NAME,
+                requested_runtime_source=options.runtime_source,
+                usage_error_type=ConfigUsageError,
+            )
+        except ProjectRootResolutionError:
+            session = _build_source_init_session(cli_context)
 
         project_config, outcome = _collect_init_sections(
             session,
@@ -512,22 +519,29 @@ def _build_published_init_session(
     workspace_paths: WorkspacePaths,
 ) -> ConfigSession:
     active_workspace_root = load_machine_state().active_workspace_root
-    return replace(
-        build_workspace_session(
-            replace(cli_context, project_root_override=workspace_paths.workspace_root),
-            workspace_paths=workspace_paths,
-            workspace_resolution_source=(
-                "explicit"
-                if cli_context.project_root_override is not None
-                else (
-                    "active_workspace"
-                    if active_workspace_root == workspace_paths.workspace_root
-                    else "cwd"
-                )
-            ),
-            active_workspace_root=active_workspace_root,
-        ),
+    env_template = load_published_env_template()
+    existing_env = parse_env_file(workspace_paths.workspace_env_file, template=env_template)
+    return ConfigSession(
+        cli_context=replace(cli_context, project_root_override=workspace_paths.workspace_root),
+        workspace_paths=workspace_paths,
+        project_paths=None,
+        template=env_template,
+        existing_env=existing_env,
+        project_config=ProjectConfig(runtime_source=RUNTIME_SOURCE_PUBLISHED),
+        configured_runtime_source=RUNTIME_SOURCE_PUBLISHED,
         effective_runtime_source=RUNTIME_SOURCE_PUBLISHED,
+        remembered_deploy_state={},
+        remembered_deploy_state_target=None,
+        workspace_resolution_source=(
+            "explicit"
+            if cli_context.project_root_override is not None
+            else (
+                "active_workspace"
+                if active_workspace_root == workspace_paths.workspace_root
+                else "cwd"
+            )
+        ),
+        active_workspace_root=active_workspace_root,
     )
 
 
@@ -601,13 +615,44 @@ def _build_published_env_overrides(project_config, env_updates: dict[str, str]) 
     return overrides
 
 
+def _build_source_init_session(cli_context: CLIContext) -> ConfigSession:
+    project_paths = resolve_project_paths(
+        explicit_root=cli_context.project_root_override,
+    )
+    workspace_paths = WorkspacePaths.from_root(project_paths.project_root)
+    template = load_env_template(project_paths.env_example_file)
+    existing_env = parse_env_file(project_paths.env_file, template=template)
+    active_workspace_root = load_machine_state().active_workspace_root
+    return ConfigSession(
+        cli_context=cli_context,
+        workspace_paths=workspace_paths,
+        project_paths=project_paths,
+        template=template,
+        existing_env=existing_env,
+        project_config=ProjectConfig(runtime_source=RUNTIME_SOURCE_SOURCE),
+        configured_runtime_source=RUNTIME_SOURCE_SOURCE,
+        effective_runtime_source=RUNTIME_SOURCE_SOURCE,
+        remembered_deploy_state={},
+        remembered_deploy_state_target=None,
+        workspace_resolution_source=(
+            "explicit"
+            if cli_context.project_root_override is not None
+            else (
+                "active_workspace"
+                if active_workspace_root == project_paths.project_root
+                else "cwd"
+            )
+        ),
+        active_workspace_root=active_workspace_root,
+    )
+
+
 def _session_with_project_config(session, project_config):
     return replace(
         session,
         project_config=project_config,
         configured_runtime_source=project_config.runtime_source,
-        effective_runtime_source=project_config.runtime_source or session.effective_runtime_source,
-        runtime_source_derived_from_legacy=False,
+        effective_runtime_source=project_config.runtime_source,
     )
 
 

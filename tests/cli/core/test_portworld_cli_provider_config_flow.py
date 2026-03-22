@@ -28,7 +28,7 @@ class ProviderConfigFlowTests(unittest.TestCase):
         backend_dir.mkdir(parents=True, exist_ok=True)
         (backend_dir / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
 
-        repo_env_example = Path(__file__).resolve().parents[1] / "backend" / ".env.example"
+        repo_env_example = Path(__file__).resolve().parents[3] / "backend" / ".env.example"
         (backend_dir / ".env.example").write_text(
             repo_env_example.read_text(encoding="utf-8"),
             encoding="utf-8",
@@ -53,10 +53,8 @@ class ProviderConfigFlowTests(unittest.TestCase):
             template=template,
             existing_env=existing_env,
             project_config=project_config or ProjectConfig(runtime_source="source"),
-            derived_from_legacy=False,
             configured_runtime_source="source",
             effective_runtime_source="source",
-            runtime_source_derived_from_legacy=False,
             remembered_deploy_state={"service_name": "test-service"},
             remembered_deploy_state_target="aws-ecs-fargate",
             workspace_resolution_source="explicit",
@@ -106,7 +104,10 @@ class ProviderConfigFlowTests(unittest.TestCase):
 
     def test_non_interactive_bedrock_requires_region_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            session = self._build_session(Path(temp_dir))
+            session = self._build_session(
+                Path(temp_dir),
+                env_text="OPENAI_API_KEY=current-openai\nVISION_BEDROCK_REGION=\n",
+            )
             with self.assertRaisesRegex(
                 ConfigValidationError,
                 "VISION_BEDROCK_REGION \\(Bedrock Vision\\) is required in non-interactive mode.",

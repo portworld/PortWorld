@@ -68,8 +68,6 @@ class ProjectConfigVersionError(ProjectConfigError):
 @dataclass(frozen=True, slots=True)
 class LoadedProjectConfig:
     config: "ProjectConfig"
-    schema_version: int
-    runtime_source_explicit: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,7 +254,7 @@ class ProjectConfig:
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ProjectConfig":
         schema_version = _read_int(payload, "schema_version", default=SCHEMA_VERSION)
-        if schema_version not in {1, 2, 3, SCHEMA_VERSION}:
+        if schema_version != SCHEMA_VERSION:
             raise ProjectConfigVersionError(
                 f"Unsupported .portworld/project.json schema_version: {schema_version}."
             )
@@ -272,6 +270,8 @@ class ProjectConfig:
             "runtime_source",
             allowed={RUNTIME_SOURCE_SOURCE, RUNTIME_SOURCE_PUBLISHED},
         )
+        if runtime_source is None:
+            raise ProjectConfigTypeError("CLI project config must set runtime_source.")
         providers_payload = _read_object(payload, "providers", default={})
         security_payload = _read_object(payload, "security", default={})
         deploy_payload = _read_object(payload, "deploy", default={})
@@ -463,8 +463,6 @@ def load_project_config_record(path: Path) -> LoadedProjectConfig | None:
     config = ProjectConfig.from_payload(payload)
     return LoadedProjectConfig(
         config=config,
-        schema_version=_read_int(payload, "schema_version", default=SCHEMA_VERSION),
-        runtime_source_explicit=payload.get("runtime_source") is not None,
     )
 
 
@@ -488,115 +486,6 @@ def write_project_config(path: Path, config: ProjectConfig) -> None:
     finally:
         if tmp_path.exists():
             tmp_path.unlink()
-
-
-def derive_project_config(
-    *,
-    env_values: Mapping[str, str],
-    deploy_state: Mapping[str, Any] | None = None,
-    default_runtime_source: str = RUNTIME_SOURCE_SOURCE,
-) -> ProjectConfig:
-    remembered_state = deploy_state or {}
-    remembered_project_id = _coerce_optional_text(remembered_state.get("project_id"))
-    remembered_region = _coerce_optional_text(remembered_state.get("region"))
-    remembered_service_name = _coerce_optional_text(remembered_state.get("service_name"))
-    remembered_artifact_repository = _resolve_remembered_artifact_repository(
-        artifact_repository_base=_coerce_optional_text(
-            remembered_state.get("artifact_repository_base")
-        ),
-        artifact_repository=_coerce_optional_text(
-            remembered_state.get("artifact_repository")
-        ),
-        image_source_mode=_coerce_optional_text(
-            remembered_state.get("image_source_mode")
-        ),
-    )
-    remembered_sql_instance = _coerce_optional_text(
-        remembered_state.get("cloud_sql_instance")
-    )
-    remembered_database_name = _coerce_optional_text(remembered_state.get("database_name"))
-    remembered_bucket_name = _coerce_optional_text(remembered_state.get("bucket_name"))
-    remembered_target_exists = any(
-        value is not None
-        for value in (
-            remembered_project_id,
-            remembered_region,
-            remembered_service_name,
-            remembered_bucket_name,
-        )
-    )
-
-    return ProjectConfig(
-        project_mode=(
-            PROJECT_MODE_MANAGED if remembered_target_exists else PROJECT_MODE_LOCAL
-        ),
-        runtime_source=default_runtime_source,
-        cloud_provider=(
-            CLOUD_PROVIDER_GCP if remembered_target_exists else None
-        ),
-        providers=ProvidersConfig(
-            realtime=RealtimeProviderConfig(
-                provider=_normalized_provider(
-                    env_values.get("REALTIME_PROVIDER"),
-                    default=DEFAULT_REALTIME_PROVIDER,
-                )
-            ),
-            vision=VisionProviderConfig(
-                enabled=_parse_bool_string(
-                    env_values.get("VISION_MEMORY_ENABLED", "false")
-                ),
-                provider=_normalized_provider(
-                    env_values.get("VISION_MEMORY_PROVIDER"),
-                    default=DEFAULT_VISION_PROVIDER,
-                ),
-            ),
-            tooling=ToolingConfig(
-                enabled=_parse_bool_string(
-                    env_values.get("REALTIME_TOOLING_ENABLED", "false")
-                ),
-                web_search_provider=_normalized_provider(
-                    env_values.get("REALTIME_WEB_SEARCH_PROVIDER"),
-                    default=DEFAULT_WEB_SEARCH_PROVIDER,
-                ),
-            ),
-        ),
-        security=SecurityConfig(
-            backend_profile=(
-                _coerce_optional_text(env_values.get("BACKEND_PROFILE"))
-                or DEFAULT_BACKEND_PROFILE
-            ),
-            cors_origins=_parse_csv_values(
-                env_values.get("CORS_ORIGINS"),
-                default=DEFAULT_CORS_ORIGINS,
-            ),
-            allowed_hosts=_parse_csv_values(
-                env_values.get("BACKEND_ALLOWED_HOSTS"),
-                default=DEFAULT_ALLOWED_HOSTS,
-            ),
-        ),
-        deploy=DeployConfig(
-            preferred_target=(
-                GCP_CLOUD_RUN_TARGET if remembered_target_exists else None
-            ),
-            gcp_cloud_run=GCPCloudRunConfig(
-                project_id=remembered_project_id,
-                region=remembered_region,
-                service_name=remembered_service_name or DEFAULT_GCP_SERVICE_NAME,
-                artifact_repository=(
-                    remembered_artifact_repository or DEFAULT_GCP_ARTIFACT_REPOSITORY
-                ),
-                sql_instance_name=remembered_sql_instance or DEFAULT_GCP_SQL_INSTANCE_NAME,
-                database_name=remembered_database_name or DEFAULT_GCP_DATABASE_NAME,
-                bucket_name=remembered_bucket_name,
-                min_instances=DEFAULT_GCP_MIN_INSTANCES,
-                max_instances=DEFAULT_GCP_MAX_INSTANCES,
-                concurrency=DEFAULT_GCP_CONCURRENCY,
-                cpu=DEFAULT_GCP_CPU,
-                memory=DEFAULT_GCP_MEMORY,
-            ),
-        ),
-    )
-
 
 def build_env_overrides_from_project_config(
     config: ProjectConfig,

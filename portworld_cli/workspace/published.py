@@ -5,10 +5,8 @@ from importlib import resources
 from pathlib import Path
 import re
 import shutil
-import subprocess
 import tempfile
 import time
-from typing import Any
 from urllib.error import URLError
 
 from backend import __version__
@@ -48,30 +46,6 @@ class PublishedReleaseRef:
 class PublishedWorkspaceTarget:
     workspace_root: Path
     stack_name: str
-
-
-@dataclass(frozen=True, slots=True)
-class PublishedComposeStatus:
-    available: bool
-    running: bool | None
-    service_name: str | None
-    container_name: str | None
-    state: str | None
-    health: str | None
-    exit_code: int | None
-    warning: str | None = None
-
-    def to_payload(self) -> dict[str, object | None]:
-        return {
-            "available": self.available,
-            "running": self.running,
-            "service_name": self.service_name,
-            "container_name": self.container_name,
-            "state": self.state,
-            "health": self.health,
-            "exit_code": self.exit_code,
-            "warning": self.warning,
-        }
 
 
 def load_published_env_template() -> EnvTemplate:
@@ -188,67 +162,6 @@ def write_published_workspace_artifacts(
         force=force,
     )
     return env_write_result, compose_backup_path
-
-
-# Compatibility wrappers for moved runtime helpers.
-def build_compose_command(workspace_root: Path, *args: str) -> list[str]:
-    from portworld_cli.runtime.published import build_compose_command as _build_compose_command
-
-    return _build_compose_command(workspace_root, *args)
-
-
-def inspect_published_compose_status(workspace_root: Path) -> PublishedComposeStatus:
-    from portworld_cli.runtime.published import inspect_published_compose_status as _inspect
-
-    status = _inspect(workspace_root)
-    return PublishedComposeStatus(
-        available=status.available,
-        running=status.running,
-        service_name=status.service_name,
-        container_name=status.container_name,
-        state=status.state,
-        health=status.health,
-        exit_code=status.exit_code,
-        warning=status.warning,
-    )
-
-
-def run_backend_compose_cli(
-    workspace_root: Path,
-    *,
-    backend_args: list[str],
-    output_mount: tuple[Path, str] | None = None,
-) -> subprocess.CompletedProcess[str]:
-    from portworld_cli.runtime.published import run_backend_compose_cli as _run_backend_compose_cli
-
-    return _run_backend_compose_cli(
-        workspace_root,
-        backend_args=backend_args,
-        output_mount=output_mount,
-    )
-
-
-def parse_backend_cli_json(completed: subprocess.CompletedProcess[str]) -> dict[str, Any]:
-    from portworld_cli.runtime.published import parse_backend_cli_json as _parse_backend_cli_json
-
-    try:
-        return _parse_backend_cli_json(completed)
-    except RuntimeError as exc:
-        raise PublishedWorkspaceError(str(exc)) from exc
-
-
-def coerce_backend_cli_payload(
-    completed: subprocess.CompletedProcess[str],
-    *,
-    default_message: str,
-) -> dict[str, Any]:
-    from portworld_cli.runtime.published import coerce_backend_cli_payload as _coerce_backend_cli_payload
-
-    return _coerce_backend_cli_payload(
-        completed,
-        default_message=default_message,
-    )
-
 
 def _lookup_latest_release_tag() -> str:
     try:

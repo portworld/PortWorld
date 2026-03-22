@@ -259,7 +259,6 @@ def build_status_message(
         ),
         ("cloud_provider", session.project_config.cloud_provider or "none"),
         ("active_target", active_target or "none"),
-        ("derived_from_legacy", session.derived_from_legacy),
     ]
     if session.config_session.effective_runtime_source == "published":
         project_pairs[5:5] = [

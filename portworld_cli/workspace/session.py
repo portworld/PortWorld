@@ -106,10 +106,8 @@ class WorkspaceSession:
     template: EnvTemplate | None
     existing_env: ParsedEnvFile | None
     project_config: ProjectConfig
-    derived_from_legacy: bool
-    configured_runtime_source: str | None
+    configured_runtime_source: str
     effective_runtime_source: str
-    runtime_source_derived_from_legacy: bool
     remembered_deploy_state: dict[str, Any]
     remembered_deploy_state_target: str | None
     workspace_resolution_source: str
@@ -218,10 +216,6 @@ class InspectionSession:
     def project_config(self) -> ProjectConfig:
         return self.config_session.project_config
 
-    @property
-    def derived_from_legacy(self) -> bool:
-        return self.config_session.derived_from_legacy
-
     def active_target(self) -> str | None:
         if self.deploy_state.has_data():
             if self.config_session.remembered_deploy_state_target in MANAGED_TARGETS:
@@ -311,7 +305,6 @@ def require_source_workspace_session(
                 project_config=replace(session.project_config, runtime_source=RUNTIME_SOURCE_SOURCE),
                 configured_runtime_source=RUNTIME_SOURCE_SOURCE,
                 effective_runtime_source=RUNTIME_SOURCE_SOURCE,
-                runtime_source_derived_from_legacy=False,
             )
         )
     )
@@ -399,10 +392,8 @@ def _build_workspace_session(
         template=store_snapshot.template,
         existing_env=store_snapshot.existing_env,
         project_config=store_snapshot.project_config,
-        derived_from_legacy=store_snapshot.derived_from_legacy,
         configured_runtime_source=store_snapshot.configured_runtime_source,
         effective_runtime_source=store_snapshot.effective_runtime_source,
-        runtime_source_derived_from_legacy=store_snapshot.runtime_source_derived_from_legacy,
         remembered_deploy_state=store_snapshot.remembered_deploy_state,
         remembered_deploy_state_target=store_snapshot.remembered_deploy_state_target,
         workspace_resolution_source=workspace_resolution_source,
@@ -418,10 +409,8 @@ def _session_kwargs(session: WorkspaceSession) -> dict[str, Any]:
         "template": session.template,
         "existing_env": session.existing_env,
         "project_config": session.project_config,
-        "derived_from_legacy": session.derived_from_legacy,
         "configured_runtime_source": session.configured_runtime_source,
         "effective_runtime_source": session.effective_runtime_source,
-        "runtime_source_derived_from_legacy": session.runtime_source_derived_from_legacy,
         "remembered_deploy_state": session.remembered_deploy_state,
         "remembered_deploy_state_target": session.remembered_deploy_state_target,
         "workspace_resolution_source": session.workspace_resolution_source,
@@ -437,7 +426,6 @@ def _build_effective_env_values(
 ) -> dict[str, str]:
     values = dict(template.defaults())
     values.update(existing_env.known_values)
-    values.update(existing_env.legacy_alias_values)
     values.update(existing_env.preserved_overrides)
     values.update(config_overrides)
     return {key: str(value) for key, value in values.items()}
