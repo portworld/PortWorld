@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from backend.bootstrap.memory_export import write_memory_export_zip
+from backend.bootstrap.ops import (
+    bootstrap_backend_storage,
+    check_backend_config,
+    export_backend_memory,
+    migrate_backend_storage_layout,
+)
 from backend.bootstrap.runtime import (
     DoctorRuntimeDetails,
     build_backend_storage,
@@ -11,7 +16,6 @@ from backend.bootstrap.runtime import (
     collect_doctor_runtime_details,
 )
 from backend.core.settings import Settings, load_environment_files
-from backend.core.storage import now_ms
 from backend.realtime.factory import RealtimeProviderFactory
 from backend.tools.runtime import RealtimeToolingRuntime
 from backend.vision.factory import VisionAnalyzerFactory
@@ -337,7 +341,7 @@ def run_ops_check_config_source(
     *,
     full_readiness: bool,
 ) -> CommandResult:
-    result = check_runtime_configuration(
+    result = check_backend_config(
         _build_settings_for_ops(session),
         full_readiness=full_readiness,
     )
@@ -369,15 +373,7 @@ def run_ops_check_config_source(
 
 
 def run_bootstrap_storage_source(session) -> CommandResult:
-    settings = _build_settings_for_ops(session)
-    _, storage = build_backend_storage(settings)
-    if not storage.is_local_backend:
-        raise RuntimeError(
-            "portworld ops bootstrap-storage is only supported when "
-            "BACKEND_STORAGE_BACKEND=local. Managed metadata bootstrap now runs through "
-            "`portworld ops check-config --full` or normal runtime startup instead."
-        )
-    result = storage.bootstrap()
+    result = bootstrap_backend_storage(_build_settings_for_ops(session))
 
     payload = {"status": "ok", **result.to_dict()}
     message = format_key_value_lines(
@@ -399,25 +395,13 @@ def run_export_memory_source(
     *,
     output_path: Path | None,
 ) -> CommandResult:
-    settings = _build_settings_for_ops(session)
-    _, storage = build_backend_storage(settings)
-    storage.bootstrap()
-    artifacts = storage.list_memory_export_artifacts()
-    final_output_path = output_path or (Path.cwd() / f"portworld-memory-export-{now_ms()}.zip")
-    export_path = write_memory_export_zip(
-        artifacts=artifacts,
-        session_retention_days=settings.backend_session_memory_retention_days,
-        output_path=final_output_path,
+    payload = export_backend_memory(
+        _build_settings_for_ops(session),
+        output_path=output_path,
     )
-
-    payload = {
-        "status": "ok",
-        "artifact_count": len(artifacts),
-        "export_path": str(export_path),
-    }
     message = format_key_value_lines(
-        ("artifact_count", len(artifacts)),
-        ("export_path", export_path),
+        ("artifact_count", payload["artifact_count"]),
+        ("export_path", payload["export_path"]),
     )
     return CommandResult(
         ok=True,
@@ -428,22 +412,12 @@ def run_export_memory_source(
 
 
 def run_migrate_storage_layout_source(session) -> CommandResult:
-    settings = _build_settings_for_ops(session)
-    _, storage = build_backend_storage(settings)
-    if not storage.is_local_backend:
-        raise RuntimeError(
-            "portworld ops migrate-storage-layout is only supported when "
-            "BACKEND_STORAGE_BACKEND=local."
-        )
-    storage.bootstrap()
-    migration_result = storage.migrate_legacy_storage_layout()
-
-    payload: dict[str, Any] = {"status": "ok", **migration_result}
+    payload = migrate_backend_storage_layout(_build_settings_for_ops(session))
     message = format_key_value_lines(
-        ("migrated_count", migration_result.get("migrated_count")),
-        ("orphaned_count", migration_result.get("orphaned_count")),
-        ("session_ids_scanned", migration_result.get("session_ids_scanned")),
-        ("orphan_root", migration_result.get("orphan_root")),
+        ("migrated_count", payload.get("migrated_count")),
+        ("orphaned_count", payload.get("orphaned_count")),
+        ("session_ids_scanned", payload.get("session_ids_scanned")),
+        ("orphan_root", payload.get("orphan_root")),
     )
     return CommandResult(
         ok=True,

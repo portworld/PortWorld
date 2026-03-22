@@ -351,7 +351,7 @@ def run_deploy_gcp_cloud_run(
                     DiagnosticCheck(
                         id="liveness_probe",
                         status="warn",
-                        message="Cloud Run service deployed, but the final /healthz probe did not succeed.",
+                        message="Cloud Run service deployed, but the final /livez probe did not succeed.",
                         action="Wait for the revision to finish starting, then re-run the health check command from the summary.",
                     )
                 )

@@ -99,7 +99,6 @@ def evaluate_aws_ecs_fargate_readiness(
     bucket_name = _first_non_empty(
         explicit_s3_bucket,
         env_values.get("BACKEND_OBJECT_STORE_NAME"),
-        env_values.get("BACKEND_OBJECT_STORE_BUCKET"),
     )
 
     cli_ok = aws_cli_available()

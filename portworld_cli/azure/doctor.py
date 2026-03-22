@@ -95,7 +95,6 @@ def evaluate_azure_container_apps_readiness(
     blob_container = _first_non_empty(
         explicit_blob_container,
         env_values.get("BACKEND_OBJECT_STORE_NAME"),
-        env_values.get("BACKEND_OBJECT_STORE_BUCKET"),
     )
     blob_endpoint = _first_non_empty(
         explicit_blob_endpoint,

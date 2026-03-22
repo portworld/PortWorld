@@ -12,31 +12,17 @@ class BackendStorageSettingsTests(unittest.TestCase):
         with mock.patch.dict(os.environ, extra_env, clear=True):
             return Settings.from_env()
 
-    def test_legacy_managed_alias_and_bucket_alias_are_normalized(self) -> None:
-        settings = self._settings(
-            {
-                "BACKEND_STORAGE_BACKEND": "postgres_gcs",
-                "BACKEND_DATABASE_URL": "postgresql://user:pass@localhost:5432/db",
-                "BACKEND_OBJECT_STORE_PROVIDER": "gcs",
-                "BACKEND_OBJECT_STORE_BUCKET": "legacy-bucket",
-                "BACKEND_OBJECT_STORE_PREFIX": "svc",
-            }
-        )
-        self.assertEqual(settings.backend_storage_backend, "managed")
-        self.assertEqual(settings.backend_object_store_name, "legacy-bucket")
-        settings.validate_storage_contract()
-
-    def test_canonical_name_wins_over_bucket_alias(self) -> None:
+    def test_managed_storage_accepts_canonical_object_store_name(self) -> None:
         settings = self._settings(
             {
                 "BACKEND_STORAGE_BACKEND": "managed",
                 "BACKEND_DATABASE_URL": "postgresql://user:pass@localhost:5432/db",
                 "BACKEND_OBJECT_STORE_PROVIDER": "gcs",
                 "BACKEND_OBJECT_STORE_NAME": "canonical-bucket",
-                "BACKEND_OBJECT_STORE_BUCKET": "legacy-bucket",
                 "BACKEND_OBJECT_STORE_PREFIX": "svc",
             }
         )
+        self.assertEqual(settings.backend_storage_backend, "managed")
         self.assertEqual(settings.backend_object_store_name, "canonical-bucket")
         settings.validate_storage_contract()
 
@@ -95,26 +81,6 @@ class BackendStorageSettingsTests(unittest.TestCase):
                 if endpoint is not None:
                     env["BACKEND_OBJECT_STORE_ENDPOINT"] = endpoint
                 settings = self._settings(env)
-                settings.validate_storage_contract()
-
-    def test_managed_bucket_alias_works_across_supported_providers(self) -> None:
-        for provider, endpoint in (
-            ("gcs", None),
-            ("s3", None),
-            ("azure_blob", "https://pwstorage123.blob.core.windows.net"),
-        ):
-            with self.subTest(provider=provider):
-                env = {
-                    "BACKEND_STORAGE_BACKEND": "managed",
-                    "BACKEND_DATABASE_URL": "postgresql://user:pass@localhost:5432/db",
-                    "BACKEND_OBJECT_STORE_PROVIDER": provider,
-                    "BACKEND_OBJECT_STORE_BUCKET": "legacy-store-name",
-                    "BACKEND_OBJECT_STORE_PREFIX": "svc",
-                }
-                if endpoint is not None:
-                    env["BACKEND_OBJECT_STORE_ENDPOINT"] = endpoint
-                settings = self._settings(env)
-                self.assertEqual(settings.backend_object_store_name, "legacy-store-name")
                 settings.validate_storage_contract()
 
     def test_local_requires_filesystem_provider(self) -> None:

@@ -7,7 +7,7 @@ from portworld_cli.aws.deploy import _ResolvedAWSDeployConfig, _build_runtime_en
 
 
 class AWSRuntimeEnvVarsTests(unittest.TestCase):
-    def test_managed_s3_env_emits_canonical_and_compatibility_keys(self) -> None:
+    def test_managed_s3_env_emits_canonical_keys(self) -> None:
         env_values = OrderedDict(
             [
                 ("BACKEND_DATA_DIR", "backend/var"),
@@ -41,7 +41,6 @@ class AWSRuntimeEnvVarsTests(unittest.TestCase):
         self.assertEqual(env["BACKEND_STORAGE_BACKEND"], "managed")
         self.assertEqual(env["BACKEND_OBJECT_STORE_PROVIDER"], "s3")
         self.assertEqual(env["BACKEND_OBJECT_STORE_NAME"], "aws-managed-bucket")
-        self.assertEqual(env["BACKEND_OBJECT_STORE_BUCKET"], "aws-managed-bucket")
         self.assertEqual(env["BACKEND_OBJECT_STORE_PREFIX"], "service")
         self.assertEqual(env["BACKEND_DATABASE_URL"], "postgresql://user:pass@db.example:5432/app")
         self.assertNotIn("BACKEND_DATA_DIR", env)

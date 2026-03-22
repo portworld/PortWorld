@@ -7,13 +7,16 @@ from pathlib import Path
 from typing import Any
 
 from backend.api.app import create_app_from_settings
-from backend.bootstrap.memory_export import write_memory_export_zip
+from backend.bootstrap.ops import (
+    bootstrap_backend_storage,
+    check_backend_config,
+    export_backend_memory,
+    migrate_backend_storage_layout,
+)
 from backend.bootstrap.runtime import (
-    build_backend_storage,
-    check_runtime_configuration,
+    ConfigCheckResult,
 )
 from backend.core.settings import Settings, load_environment_files
-from backend.core.storage import now_ms
 
 
 def _json_dump(payload: dict[str, Any]) -> None:
@@ -44,7 +47,7 @@ def _serve(args: argparse.Namespace) -> int:
 
 
 def _check_config(args: argparse.Namespace) -> int:
-    result = check_runtime_configuration(
+    result: ConfigCheckResult = check_backend_config(
         Settings.from_env(),
         full_readiness=bool(args.full_readiness),
     )
@@ -53,56 +56,26 @@ def _check_config(args: argparse.Namespace) -> int:
 
 
 def _bootstrap_storage(_: argparse.Namespace) -> int:
-    _, storage = build_backend_storage(Settings.from_env())
-    if not storage.is_local_backend:
-        raise RuntimeError(
-            "bootstrap-storage is only supported when BACKEND_STORAGE_BACKEND=local. "
-            "Managed metadata bootstrap runs through check-config --full or normal runtime startup."
-        )
-    result = storage.bootstrap()
+    result = bootstrap_backend_storage(Settings.from_env())
     _json_dump({"status": "ok", **result.to_dict()})
     return 0
 
 
 def _export_memory(args: argparse.Namespace) -> int:
-    settings = Settings.from_env()
-    _, storage = build_backend_storage(settings)
-    storage.bootstrap()
-    artifacts = storage.list_memory_export_artifacts()
-    output_path = (
+    payload = export_backend_memory(
+        Settings.from_env(),
+        output_path=(
         Path(args.output)
         if args.output is not None
-        else Path.cwd() / f"portworld-memory-export-{now_ms()}.zip"
+        else None
+        ),
     )
-    export_path = write_memory_export_zip(
-        artifacts=artifacts,
-        session_retention_days=settings.backend_session_memory_retention_days,
-        output_path=output_path,
-    )
-    _json_dump(
-        {
-            "status": "ok",
-            "artifact_count": len(artifacts),
-            "export_path": str(export_path),
-        }
-    )
+    _json_dump(payload)
     return 0
 
 
 def _migrate_storage_layout(_: argparse.Namespace) -> int:
-    _, storage = build_backend_storage(Settings.from_env())
-    if not storage.is_local_backend:
-        raise RuntimeError(
-            "migrate-storage-layout is only supported when BACKEND_STORAGE_BACKEND=local."
-        )
-    storage.bootstrap()
-    result = storage.migrate_legacy_storage_layout()
-    _json_dump(
-        {
-            "status": "ok",
-            **result,
-        }
-    )
+    _json_dump(migrate_backend_storage_layout(Settings.from_env()))
     return 0
 
 
