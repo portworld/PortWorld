@@ -15,7 +15,9 @@ Public install path:
 curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash
 ```
 
-The bootstrap installs `uv` automatically and downloads Python 3.11+ when needed.
+The bootstrap installs `uv` automatically, downloads Python 3.11+ when needed, and bootstraps
+Node.js/npm/npx in user space when needed for Node-based MCP stdio launchers. Published/container
+workspaces use the Node runtime baked into the backend image instead of depending on the host PATH.
 
 Manual fallback for a pinned release:
 
@@ -53,6 +55,12 @@ This flow:
 - creates a local published workspace
 - pins a released backend image
 - lets you run PortWorld locally without cloning the repo
+- uses the backend image as the runtime source of truth for Node MCP stdio prerequisites
+
+Example extension manifests for the filesystem MCP server:
+
+- local/source runtime: [mcp-filesystem-local.extensions.json](/Users/pierrehaas/.codex/worktrees/30fa/PortWorld/docs/operations/examples/mcp-filesystem-local.extensions.json)
+- published/container runtime: [mcp-filesystem-published.extensions.json](/Users/pierrehaas/.codex/worktrees/30fa/PortWorld/docs/operations/examples/mcp-filesystem-published.extensions.json)
 
 ## Contributor Path
 

@@ -16,6 +16,7 @@ FastAPI + Uvicorn backend that relays realtime voice sessions through selectable
 ## Requirements
 
 - Python 3.11+
+- Node.js/npm/npx for Node-based MCP stdio extensions (the public `install.sh` bootstrap installs these in user space when missing)
 - Docker and Docker Compose (for the Docker path)
 - Provider credentials for your selected providers:
   - `OPENAI_API_KEY` when `REALTIME_PROVIDER=openai`
@@ -29,9 +30,12 @@ Public install path:
 curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash
 ```
 
-The bootstrap installs `uv` automatically and downloads Python 3.11+ when the machine does not
-already provide a suitable interpreter. On a fresh machine, `portworld init` now defaults to the
-operator-friendly zero-clone workspace flow and can be run from any directory.
+The bootstrap installs `uv` automatically, downloads Python 3.11+ when the machine does not
+already provide a suitable interpreter, and bootstraps Node.js/npm/npx in user space for MCP
+Node launchers when those tools are missing. For published/container runtimes, the backend image
+now carries its own Node runtime so stdio Node MCP servers do not depend on host PATH state. On
+a fresh machine, `portworld init` now defaults to the operator-friendly zero-clone workspace flow
+and can be run from any directory.
 
 Default operator path after install:
 
@@ -42,6 +46,11 @@ docker compose up -d
 portworld doctor --target local
 portworld status
 ```
+
+Example extension manifests for the filesystem MCP server:
+
+- local/source runtime: [mcp-filesystem-local.extensions.json](/Users/pierrehaas/.codex/worktrees/30fa/PortWorld/docs/operations/examples/mcp-filesystem-local.extensions.json)
+- published/container runtime: [mcp-filesystem-published.extensions.json](/Users/pierrehaas/.codex/worktrees/30fa/PortWorld/docs/operations/examples/mcp-filesystem-published.extensions.json)
 
 Manual install fallback for a pinned release version:
 
