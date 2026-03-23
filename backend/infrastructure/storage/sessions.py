@@ -402,12 +402,17 @@ class SessionStorageMixin:
         except (OSError, UnicodeDecodeError):
             return {}
 
+        from backend.memory.materializer import (
+            coerce_session_memory_payload,
+            coerce_short_term_memory_payload,
+        )
+
         if path.name == "SHORT_TERM.md":
-            payload = _coerce_short_term_memory_payload(markdown)
+            payload = coerce_short_term_memory_payload(markdown)
             payload.update(_parse_section_key_value_bullets(markdown, section_name="Recent Changes"))
             return payload
         if path.name == "LONG_TERM.md":
-            payload = _coerce_session_memory_payload(markdown)
+            payload = coerce_session_memory_payload(markdown)
             payload.update(
                 _parse_section_key_value_bullets(markdown, section_name="Important Facts Learned")
             )
@@ -635,26 +640,6 @@ def _parse_csv_list(raw_value: str) -> list[str]:
     return values
 
 
-def _coerce_session_memory_payload(markdown: str) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
-    payload["current_task_guess"] = _read_section_text(markdown, "Session Goal")
-    payload["summary_text"] = _read_section_text(markdown, "What Happened")
-    updated_at_ms = _coerce_optional_int(_read_section_text(markdown, "Last Updated"))
-    if updated_at_ms is not None:
-        payload["updated_at_ms"] = updated_at_ms
-    return payload
-
-
-def _coerce_short_term_memory_payload(markdown: str) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
-    payload["current_scene_summary"] = _read_section_text(markdown, "Current View")
-    payload["current_task_guess"] = _read_section_text(markdown, "Current Task Guess")
-    window_end_ts_ms = _coerce_optional_int(_read_section_text(markdown, "Timestamp"))
-    if window_end_ts_ms is not None:
-        payload["window_end_ts_ms"] = window_end_ts_ms
-    return payload
-
-
 def _parse_section_key_value_bullets(markdown: str, *, section_name: str) -> dict[str, Any]:
     section_text = _read_section_text(markdown, section_name)
     payload: dict[str, Any] = {}
@@ -738,15 +723,3 @@ def _split_semicolon_list(raw_value: str) -> list[str]:
         if candidate:
             values.append(candidate)
     return values
-
-
-def _coerce_optional_int(value: object) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        stripped = value.strip()
-        if stripped and re.fullmatch(r"-?\d+", stripped):
-            return int(stripped)
-    return None

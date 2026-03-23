@@ -14,9 +14,6 @@ from backend.memory.lifecycle import (
 )
 from backend.memory.normalize import normalize_optional_string, normalize_string
 
-PROFILE_MARKDOWN_HEADER = "# User\n\n"
-
-
 def parse_profile_record(payload: Mapping[str, object]) -> ProfileRecord:
     metadata_payload = payload.get(PROFILE_METADATA_KEY)
     metadata = ProfileLifecycleMetadata()
@@ -248,7 +245,6 @@ def _coerce_optional_int(value: object) -> int | None:
 
 
 __all__ = [
-    "PROFILE_MARKDOWN_HEADER",
     "build_profile_payload",
     "build_profile_record",
     "empty_profile_markdown",
