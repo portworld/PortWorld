@@ -326,7 +326,6 @@ def _resolve_aws_deploy_config(
     bucket_name = _first_non_empty(
         options.bucket,
         env_values.get("BACKEND_OBJECT_STORE_NAME"),
-        env_values.get("BACKEND_OBJECT_STORE_BUCKET"),
         f"{app_name}-memory",
     )
     assert bucket_name is not None
@@ -421,7 +420,6 @@ def _build_runtime_env_vars(
         "BACKEND_STORAGE_BACKEND",
         "BACKEND_OBJECT_STORE_PROVIDER",
         "BACKEND_OBJECT_STORE_NAME",
-        "BACKEND_OBJECT_STORE_BUCKET",
         "BACKEND_OBJECT_STORE_PREFIX",
         "BACKEND_DATABASE_URL",
         "PORT",
@@ -435,7 +433,6 @@ def _build_runtime_env_vars(
     final_env["BACKEND_STORAGE_BACKEND"] = "managed"
     final_env["BACKEND_OBJECT_STORE_PROVIDER"] = "s3"
     final_env["BACKEND_OBJECT_STORE_NAME"] = config.bucket_name
-    final_env["BACKEND_OBJECT_STORE_BUCKET"] = config.bucket_name
     final_env["BACKEND_OBJECT_STORE_PREFIX"] = config.app_name
     final_env["BACKEND_DATABASE_URL"] = database_url
     final_env["CORS_ORIGINS"] = config.cors_origins

@@ -1,3 +1,5 @@
+"""Minimal shared normalization helpers for memory payloads and markdown parsing."""
+
 from __future__ import annotations
 
 from typing import Any

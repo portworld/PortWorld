@@ -9,6 +9,7 @@ from backend.bootstrap.runtime import build_runtime_dependencies
 from backend.core.rate_limit import RateLimitDecision, SlidingWindowRateLimiter
 from backend.core.settings import Settings
 from backend.core.storage import BackendStorage, StorageBootstrapResult, StorageInfo
+from backend.memory.consolidation import DurableMemoryConsolidationRuntime
 from backend.realtime.factory import RealtimeProviderFactory
 from backend.realtime.session_modes import build_default_realtime_session_mode_registry
 from backend.tools.runtime import RealtimeToolingRuntime
@@ -29,6 +30,7 @@ class AppRuntime:
     realtime_provider: RealtimeProviderFactory
     vision_memory_runtime: VisionMemoryRuntime | None
     realtime_tooling_runtime: RealtimeToolingRuntime | None
+    durable_memory_runtime: DurableMemoryConsolidationRuntime | None
     rate_limiter: SlidingWindowRateLimiter
     storage_bootstrap_result: StorageBootstrapResult | None = field(
         default=None,
@@ -47,6 +49,7 @@ class AppRuntime:
             realtime_provider=dependencies.realtime_provider_factory,
             vision_memory_runtime=dependencies.vision_memory_runtime,
             realtime_tooling_runtime=dependencies.realtime_tooling_runtime,
+            durable_memory_runtime=dependencies.durable_memory_runtime,
             rate_limiter=SlidingWindowRateLimiter(
                 num_shards=64,
                 max_keys=50_000,
@@ -67,8 +70,12 @@ class AppRuntime:
             await self.vision_memory_runtime.startup()
         if self.realtime_tooling_runtime is not None:
             await self.realtime_tooling_runtime.startup()
+        if self.durable_memory_runtime is not None:
+            await self.durable_memory_runtime.startup()
 
     async def shutdown(self) -> None:
+        if self.durable_memory_runtime is not None:
+            await self.durable_memory_runtime.shutdown()
         if self.realtime_tooling_runtime is not None:
             await self.realtime_tooling_runtime.shutdown()
         if self.vision_memory_runtime is not None:
@@ -91,22 +98,13 @@ class AppRuntime:
         client_ip: str,
         session_id: str,
     ) -> RateLimitDecision:
-        session_key = _rate_key(session_id)
-        if self.settings.backend_enable_ip_rate_limits:
-            ip_key = _rate_key(client_ip)
-            ip_decision = await self.rate_limiter.allow(
-                key=f"ws_activate:ip:{ip_key}",
-                limit=self.settings.backend_rate_limit_ws_ip_max_attempts,
-                window_seconds=self.settings.backend_rate_limit_ws_window_seconds,
-                scope="ip",
-            )
-            if not ip_decision.allowed:
-                return ip_decision
-        return await self.rate_limiter.allow(
-            key=f"ws_activate:session:{session_key}",
-            limit=self.settings.backend_rate_limit_ws_session_max_attempts,
+        return await self._limit_with_optional_ip_gate(
+            client_ip=client_ip,
+            session_id=session_id,
+            key_prefix="ws_activate",
+            ip_limit=self.settings.backend_rate_limit_ws_ip_max_attempts,
+            session_limit=self.settings.backend_rate_limit_ws_session_max_attempts,
             window_seconds=self.settings.backend_rate_limit_ws_window_seconds,
-            scope="session",
         )
 
     async def limit_vision_frame_ingest(
@@ -115,22 +113,13 @@ class AppRuntime:
         client_ip: str,
         session_id: str,
     ) -> RateLimitDecision:
-        session_key = _rate_key(session_id)
-        if self.settings.backend_enable_ip_rate_limits:
-            ip_key = _rate_key(client_ip)
-            ip_decision = await self.rate_limiter.allow(
-                key=f"vision_ingest:ip:{ip_key}",
-                limit=self.settings.backend_rate_limit_vision_ip_max_requests,
-                window_seconds=self.settings.backend_rate_limit_vision_window_seconds,
-                scope="ip",
-            )
-            if not ip_decision.allowed:
-                return ip_decision
-        return await self.rate_limiter.allow(
-            key=f"vision_ingest:session:{session_key}",
-            limit=self.settings.backend_rate_limit_vision_session_max_requests,
+        return await self._limit_with_optional_ip_gate(
+            client_ip=client_ip,
+            session_id=session_id,
+            key_prefix="vision_ingest",
+            ip_limit=self.settings.backend_rate_limit_vision_ip_max_requests,
+            session_limit=self.settings.backend_rate_limit_vision_session_max_requests,
             window_seconds=self.settings.backend_rate_limit_vision_window_seconds,
-            scope="session",
         )
 
     async def limit_http_request(
@@ -199,6 +188,34 @@ class AppRuntime:
                 len(expired_sessions),
                 [result.session_id for result in expired_sessions],
             )
+
+    async def _limit_with_optional_ip_gate(
+        self,
+        *,
+        client_ip: str,
+        session_id: str,
+        key_prefix: str,
+        ip_limit: int,
+        session_limit: int,
+        window_seconds: int,
+    ) -> RateLimitDecision:
+        session_key = _rate_key(session_id)
+        if self.settings.backend_enable_ip_rate_limits:
+            ip_key = _rate_key(client_ip)
+            ip_decision = await self.rate_limiter.allow(
+                key=f"{key_prefix}:ip:{ip_key}",
+                limit=ip_limit,
+                window_seconds=window_seconds,
+                scope="ip",
+            )
+            if not ip_decision.allowed:
+                return ip_decision
+        return await self.rate_limiter.allow(
+            key=f"{key_prefix}:session:{session_key}",
+            limit=session_limit,
+            window_seconds=window_seconds,
+            scope="session",
+        )
 
 
 def get_app_runtime(app: Any) -> AppRuntime:

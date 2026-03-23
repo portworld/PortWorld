@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
 from dotenv import load_dotenv
 
@@ -14,8 +15,7 @@ _BACKEND_ENV_PATH = _BACKEND_ROOT / ".env"
 
 DEFAULT_INSTRUCTIONS = "You are a concise assistant. Keep answers short, clear, and practical."
 STORAGE_BACKEND_MANAGED = "managed"
-LEGACY_STORAGE_BACKEND_POSTGRES_GCS = "postgres_gcs"
-SUPPORTED_STORAGE_BACKENDS = {"local", STORAGE_BACKEND_MANAGED, LEGACY_STORAGE_BACKEND_POSTGRES_GCS}
+SUPPORTED_STORAGE_BACKENDS = {"local", STORAGE_BACKEND_MANAGED}
 SUPPORTED_OBJECT_STORE_PROVIDERS = {"filesystem", "gcs", "s3", "azure_blob"}
 DEFAULT_VISION_MODELS_BY_PROVIDER: dict[str, str] = {
     "mistral": "ministral-3b-2512",
@@ -33,6 +33,52 @@ _NVIDIA_VISION_HOST_MARKERS = (
     "build.nvidia.com",
     "docs.api.nvidia.com",
 )
+
+_VISION_PROVIDER_API_KEY_ATTR_BY_PROVIDER: Mapping[str, str] = {
+    "mistral": "vision_mistral_api_key",
+    "nvidia_integrate": "vision_nvidia_api_key",
+    "openai": "vision_openai_api_key",
+    "azure_openai": "vision_azure_openai_api_key",
+    "gemini": "vision_gemini_api_key",
+    "claude": "vision_claude_api_key",
+    "groq": "vision_groq_api_key",
+}
+
+_VISION_PROVIDER_BASE_URL_ATTR_BY_PROVIDER: Mapping[str, str] = {
+    "mistral": "vision_mistral_base_url",
+    "nvidia_integrate": "vision_nvidia_base_url",
+    "openai": "vision_openai_base_url",
+    "gemini": "vision_gemini_base_url",
+    "claude": "vision_claude_base_url",
+    "groq": "vision_groq_base_url",
+}
+
+_VISION_PROVIDER_MODEL_ATTR_BY_PROVIDER: Mapping[str, str] = {
+    "mistral": "vision_mistral_model",
+    "nvidia_integrate": "vision_nvidia_model",
+    "openai": "vision_openai_model",
+    "azure_openai": "vision_azure_openai_model",
+    "gemini": "vision_gemini_model",
+    "claude": "vision_claude_model",
+    "bedrock": "vision_bedrock_model",
+    "groq": "vision_groq_model",
+}
+
+_VISION_PROVIDER_REGION_ATTR_BY_PROVIDER: Mapping[str, str] = {
+    "bedrock": "vision_bedrock_region",
+}
+
+_VISION_PROVIDER_AWS_ACCESS_KEY_ID_ATTR_BY_PROVIDER: Mapping[str, str] = {
+    "bedrock": "vision_bedrock_aws_access_key_id",
+}
+
+_VISION_PROVIDER_AWS_SECRET_ACCESS_KEY_ATTR_BY_PROVIDER: Mapping[str, str] = {
+    "bedrock": "vision_bedrock_aws_secret_access_key",
+}
+
+_VISION_PROVIDER_AWS_SESSION_TOKEN_ATTR_BY_PROVIDER: Mapping[str, str] = {
+    "bedrock": "vision_bedrock_aws_session_token",
+}
 
 
 class MissingRealtimeProviderAPIKeyError(RuntimeError):
@@ -163,7 +209,6 @@ class Settings:
     backend_object_store_provider: str
     backend_object_store_name: str | None
     backend_object_store_endpoint: str | None
-    backend_object_store_bucket: str | None
     backend_object_store_prefix: str | None
     backend_debug_trace_ws_messages: bool
     backend_max_vision_request_bytes: int
@@ -171,7 +216,6 @@ class Settings:
     backend_session_memory_retention_days: int
     vision_memory_enabled: bool
     vision_memory_provider: str
-    vision_memory_model: str
     vision_short_term_window_seconds: int
     vision_min_analysis_gap_seconds: int
     vision_scene_change_hamming_threshold: int
@@ -187,6 +231,8 @@ class Settings:
     realtime_tool_timeout_ms: int
     realtime_web_search_provider: str
     realtime_web_search_max_results: int
+    memory_consolidation_enabled: bool
+    memory_consolidation_timeout_ms: int
     backend_profile: str
     backend_allowed_hosts: list[str]
     backend_forwarded_allow_ips: list[str]
@@ -207,12 +253,15 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         backend_profile = (_get_env("BACKEND_PROFILE") or "development").strip().lower()
+        vision_settings = _load_vision_settings()
         return cls(
             **_load_credentials_settings(),
             **_load_realtime_settings(),
             **_load_storage_settings(),
-            **_load_vision_settings(),
-            **_load_tooling_settings(),
+            **vision_settings,
+            **_load_tooling_settings(
+                vision_memory_enabled=bool(vision_settings["vision_memory_enabled"])
+            ),
             **_load_server_settings(backend_profile=backend_profile),
             **_load_rate_limit_settings(backend_profile=backend_profile),
         )
@@ -293,10 +342,7 @@ class Settings:
             )
 
     def require_openai_api_key(self) -> str:
-        key = self.resolve_realtime_api_key(provider="openai")
-        if not key:
-            raise MissingOpenAIAPIKeyError("OPENAI_API_KEY is required at runtime")
-        return key
+        return self.require_realtime_api_key(provider="openai")
 
     def resolve_realtime_api_key(self, *, provider: str | None = None) -> str | None:
         provider_name = (provider or self.realtime_provider).strip().lower()
@@ -346,80 +392,37 @@ class Settings:
             return endpoint or None
         return None
 
-    def _resolve_vision_provider_scoped_api_key(self, *, provider: str) -> str | None:
+    def _resolve_provider_scoped_attr(
+        self,
+        *,
+        provider: str,
+        attr_by_provider: Mapping[str, str],
+    ) -> str | None:
         provider_name = provider.strip().lower()
-        if provider_name == "mistral":
-            key = (self.vision_mistral_api_key or "").strip()
-            return key or None
-        if provider_name == "nvidia_integrate":
-            key = (self.vision_nvidia_api_key or "").strip()
-            return key or None
-        if provider_name == "openai":
-            key = (self.vision_openai_api_key or "").strip()
-            return key or None
-        if provider_name == "azure_openai":
-            key = (self.vision_azure_openai_api_key or "").strip()
-            return key or None
-        if provider_name == "gemini":
-            key = (self.vision_gemini_api_key or "").strip()
-            return key or None
-        if provider_name == "claude":
-            key = (self.vision_claude_api_key or "").strip()
-            return key or None
-        if provider_name == "groq":
-            key = (self.vision_groq_api_key or "").strip()
-            return key or None
-        return None
+        attr_name = attr_by_provider.get(provider_name)
+        if not attr_name:
+            return None
+        raw_value = getattr(self, attr_name, None)
+        value = (raw_value or "").strip()
+        return value or None
+
+    def _resolve_vision_provider_scoped_api_key(self, *, provider: str) -> str | None:
+        return self._resolve_provider_scoped_attr(
+            provider=provider,
+            attr_by_provider=_VISION_PROVIDER_API_KEY_ATTR_BY_PROVIDER,
+        )
 
     def _resolve_vision_provider_scoped_base_url(self, *, provider: str) -> str | None:
-        provider_name = provider.strip().lower()
-        if provider_name == "mistral":
-            base_url = (self.vision_mistral_base_url or "").strip()
-            return base_url or None
-        if provider_name == "nvidia_integrate":
-            base_url = (self.vision_nvidia_base_url or "").strip()
-            return base_url or None
-        if provider_name == "openai":
-            base_url = (self.vision_openai_base_url or "").strip()
-            return base_url or None
-        if provider_name == "gemini":
-            base_url = (self.vision_gemini_base_url or "").strip()
-            return base_url or None
-        if provider_name == "claude":
-            base_url = (self.vision_claude_base_url or "").strip()
-            return base_url or None
-        if provider_name == "groq":
-            base_url = (self.vision_groq_base_url or "").strip()
-            return base_url or None
-        return None
+        return self._resolve_provider_scoped_attr(
+            provider=provider,
+            attr_by_provider=_VISION_PROVIDER_BASE_URL_ATTR_BY_PROVIDER,
+        )
 
     def _resolve_vision_provider_scoped_model(self, *, provider: str) -> str | None:
-        provider_name = provider.strip().lower()
-        if provider_name == "mistral":
-            model_name = (self.vision_mistral_model or "").strip()
-            return model_name or None
-        if provider_name == "nvidia_integrate":
-            model_name = (self.vision_nvidia_model or "").strip()
-            return model_name or None
-        if provider_name == "openai":
-            model_name = (self.vision_openai_model or "").strip()
-            return model_name or None
-        if provider_name == "azure_openai":
-            model_name = (self.vision_azure_openai_model or "").strip()
-            return model_name or None
-        if provider_name == "gemini":
-            model_name = (self.vision_gemini_model or "").strip()
-            return model_name or None
-        if provider_name == "claude":
-            model_name = (self.vision_claude_model or "").strip()
-            return model_name or None
-        if provider_name == "bedrock":
-            model_name = (self.vision_bedrock_model or "").strip()
-            return model_name or None
-        if provider_name == "groq":
-            model_name = (self.vision_groq_model or "").strip()
-            return model_name or None
-        return None
+        return self._resolve_provider_scoped_attr(
+            provider=provider,
+            attr_by_provider=_VISION_PROVIDER_MODEL_ATTR_BY_PROVIDER,
+        )
 
     def resolve_vision_provider_endpoint(self, *, provider: str | None = None) -> str | None:
         provider_name = (provider or self.vision_memory_provider).strip().lower()
@@ -441,11 +444,7 @@ class Settings:
             deployment = (self.vision_azure_openai_deployment or "").strip()
             if deployment:
                 return deployment
-            model_name = self._resolve_vision_provider_scoped_model(provider=provider_name)
-            if model_name:
-                return model_name
-            legacy_model_name = (self.vision_memory_model or "").strip()
-            return legacy_model_name or None
+            return self._resolve_vision_provider_scoped_model(provider=provider_name)
         return None
 
     def resolve_vision_provider_model(self, *, provider: str | None = None) -> str | None:
@@ -453,18 +452,15 @@ class Settings:
         model_name = self._resolve_vision_provider_scoped_model(provider=provider_name)
         if model_name:
             return model_name
-        legacy_model_name = (self.vision_memory_model or "").strip()
-        if legacy_model_name:
-            return legacy_model_name
         default_model_name = DEFAULT_VISION_MODELS_BY_PROVIDER.get(provider_name, "").strip()
         return default_model_name or None
 
     def resolve_vision_provider_region(self, *, provider: str | None = None) -> str | None:
         provider_name = (provider or self.vision_memory_provider).strip().lower()
-        if provider_name == "bedrock":
-            region = (self.vision_bedrock_region or "").strip()
-            return region or None
-        return None
+        return self._resolve_provider_scoped_attr(
+            provider=provider_name,
+            attr_by_provider=_VISION_PROVIDER_REGION_ATTR_BY_PROVIDER,
+        )
 
     def resolve_vision_provider_aws_access_key_id(
         self,
@@ -472,10 +468,10 @@ class Settings:
         provider: str | None = None,
     ) -> str | None:
         provider_name = (provider or self.vision_memory_provider).strip().lower()
-        if provider_name == "bedrock":
-            access_key_id = (self.vision_bedrock_aws_access_key_id or "").strip()
-            return access_key_id or None
-        return None
+        return self._resolve_provider_scoped_attr(
+            provider=provider_name,
+            attr_by_provider=_VISION_PROVIDER_AWS_ACCESS_KEY_ID_ATTR_BY_PROVIDER,
+        )
 
     def resolve_vision_provider_aws_secret_access_key(
         self,
@@ -483,10 +479,10 @@ class Settings:
         provider: str | None = None,
     ) -> str | None:
         provider_name = (provider or self.vision_memory_provider).strip().lower()
-        if provider_name == "bedrock":
-            secret_access_key = (self.vision_bedrock_aws_secret_access_key or "").strip()
-            return secret_access_key or None
-        return None
+        return self._resolve_provider_scoped_attr(
+            provider=provider_name,
+            attr_by_provider=_VISION_PROVIDER_AWS_SECRET_ACCESS_KEY_ATTR_BY_PROVIDER,
+        )
 
     def resolve_vision_provider_aws_session_token(
         self,
@@ -494,24 +490,18 @@ class Settings:
         provider: str | None = None,
     ) -> str | None:
         provider_name = (provider or self.vision_memory_provider).strip().lower()
-        if provider_name == "bedrock":
-            session_token = (self.vision_bedrock_aws_session_token or "").strip()
-            return session_token or None
-        return None
+        return self._resolve_provider_scoped_attr(
+            provider=provider_name,
+            attr_by_provider=_VISION_PROVIDER_AWS_SESSION_TOKEN_ATTR_BY_PROVIDER,
+        )
 
     def resolve_vision_provider_api_key(self, *, provider: str | None = None) -> str | None:
         provider_name = (provider or self.vision_memory_provider).strip().lower()
-        key = self._resolve_vision_provider_scoped_api_key(provider=provider_name)
-        if key:
-            return key
-        return None
+        return self._resolve_vision_provider_scoped_api_key(provider=provider_name)
 
     def resolve_vision_provider_base_url(self, *, provider: str | None = None) -> str | None:
         provider_name = (provider or self.vision_memory_provider).strip().lower()
-        base_url = self._resolve_vision_provider_scoped_base_url(provider=provider_name)
-        if base_url:
-            return base_url
-        return None
+        return self._resolve_vision_provider_scoped_base_url(provider=provider_name)
 
     def require_vision_provider_api_key(self, *, provider: str | None = None) -> str:
         provider_name = (provider or self.vision_memory_provider).strip().lower()
@@ -525,17 +515,27 @@ class Settings:
         if provider_name == "mistral":
             raise RuntimeError(
                 "VISION_MISTRAL_API_KEY "
-                "is required when VISION_MEMORY_ENABLED=true and VISION_MEMORY_PROVIDER=mistral"
+                "is required when VISION_MEMORY_PROVIDER=mistral and either "
+                "VISION_MEMORY_ENABLED=true or MEMORY_CONSOLIDATION_ENABLED=true"
             )
         if provider_name == "nvidia_integrate":
             raise RuntimeError(
                 "VISION_NVIDIA_API_KEY "
-                "is required when VISION_MEMORY_ENABLED=true and "
-                "VISION_MEMORY_PROVIDER=nvidia_integrate"
+                "is required when VISION_MEMORY_PROVIDER=nvidia_integrate and either "
+                "VISION_MEMORY_ENABLED=true or MEMORY_CONSOLIDATION_ENABLED=true"
             )
         raise RuntimeError(
             f"Missing vision provider API key for provider={provider_name!r}. "
             f"Set VISION_{provider_name.upper()}_API_KEY."
+        )
+
+    def resolve_memory_consolidation_provider(self) -> str:
+        provider_name = self.vision_memory_provider.strip().lower()
+        return provider_name or "mistral"
+
+    def resolve_memory_consolidation_model(self) -> str | None:
+        return self.resolve_vision_provider_model(
+            provider=self.resolve_memory_consolidation_provider()
         )
 
     def validate_vision_provider_credentials(self, *, provider: str | None = None) -> None:
@@ -651,17 +651,12 @@ def _load_storage_settings() -> dict[str, str | int | bool | Path]:
         _get_env("BACKEND_SQLITE_PATH") or str(backend_data_dir / "portworld.db")
     )
     backend_storage_backend = (_get_env("BACKEND_STORAGE_BACKEND") or "local").strip().lower()
-    if backend_storage_backend == LEGACY_STORAGE_BACKEND_POSTGRES_GCS:
-        backend_storage_backend = STORAGE_BACKEND_MANAGED
     backend_database_url = (_get_env("BACKEND_DATABASE_URL") or "").strip() or None
     backend_object_store_provider = (
         _get_env("BACKEND_OBJECT_STORE_PROVIDER") or "filesystem"
     ).strip().lower()
     backend_object_store_name = (_get_env("BACKEND_OBJECT_STORE_NAME") or "").strip() or None
     backend_object_store_endpoint = (_get_env("BACKEND_OBJECT_STORE_ENDPOINT") or "").strip() or None
-    backend_object_store_bucket = (_get_env("BACKEND_OBJECT_STORE_BUCKET") or "").strip() or None
-    if backend_object_store_name is None:
-        backend_object_store_name = backend_object_store_bucket
     backend_object_store_prefix = (_get_env("BACKEND_OBJECT_STORE_PREFIX") or "").strip() or None
     return {
         "backend_data_dir": backend_data_dir,
@@ -671,7 +666,6 @@ def _load_storage_settings() -> dict[str, str | int | bool | Path]:
         "backend_object_store_provider": backend_object_store_provider,
         "backend_object_store_name": backend_object_store_name,
         "backend_object_store_endpoint": backend_object_store_endpoint,
-        "backend_object_store_bucket": backend_object_store_bucket,
         "backend_object_store_prefix": backend_object_store_prefix,
         "backend_debug_trace_ws_messages": _parse_bool_env(
             "BACKEND_DEBUG_TRACE_WS_MESSAGES",
@@ -702,7 +696,6 @@ def _load_vision_settings() -> dict[str, str | int | bool]:
             default=False,
         ),
         "vision_memory_provider": (_get_env("VISION_MEMORY_PROVIDER") or "mistral").strip().lower(),
-        "vision_memory_model": (_get_env("VISION_MEMORY_MODEL") or "").strip(),
         "vision_short_term_window_seconds": _parse_int_env(
             "VISION_SHORT_TERM_WINDOW_SECONDS",
             default=30,
@@ -774,7 +767,10 @@ def _looks_like_nvidia_integrate_model(model_name: str) -> bool:
     return "/" in candidate
 
 
-def _load_tooling_settings() -> dict[str, str | int | bool]:
+def _load_tooling_settings(
+    *,
+    vision_memory_enabled: bool,
+) -> dict[str, str | int | bool]:
     return {
         "realtime_tooling_enabled": _parse_bool_env(
             "REALTIME_TOOLING_ENABLED",
@@ -793,6 +789,15 @@ def _load_tooling_settings() -> dict[str, str | int | bool]:
             default=3,
             minimum=1,
             maximum=5,
+        ),
+        "memory_consolidation_enabled": _parse_bool_env(
+            "MEMORY_CONSOLIDATION_ENABLED",
+            default=vision_memory_enabled,
+        ),
+        "memory_consolidation_timeout_ms": _parse_int_env(
+            "MEMORY_CONSOLIDATION_TIMEOUT_MS",
+            default=12000,
+            minimum=1000,
         ),
     }
 

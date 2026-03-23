@@ -8,6 +8,7 @@ from fastapi import WebSocket
 
 from backend.core.settings import MissingOpenAIAPIKeyError
 from backend.core.storage import BackendStorage
+from backend.memory.consolidation import DurableMemoryConsolidationRuntime
 from backend.realtime.client import RealtimeClientError
 from backend.realtime.factory import BridgeBinding
 from backend.vision.runtime import VisionMemoryRuntime
@@ -39,6 +40,7 @@ async def activate_session(
     build_session_bridge: BuildSessionBridge,
     storage: BackendStorage,
     vision_memory_runtime: VisionMemoryRuntime | None,
+    durable_memory_runtime: DurableMemoryConsolidationRuntime | None,
     trace_ws_messages_enabled: bool,
 ) -> SessionRecord | None:
     fallback_session = active_session
@@ -161,6 +163,7 @@ async def activate_session(
             send_control=send_control,
             storage=storage,
             vision_memory_runtime=vision_memory_runtime,
+            durable_memory_runtime=durable_memory_runtime,
             trace_ws_messages_enabled=trace_ws_messages_enabled,
         )
         fallback_session = None
@@ -192,6 +195,7 @@ async def activate_session(
             send_control=send_control,
             storage=storage,
             vision_memory_runtime=vision_memory_runtime,
+            durable_memory_runtime=durable_memory_runtime,
             trace_ws_messages_enabled=trace_ws_messages_enabled,
         )
 

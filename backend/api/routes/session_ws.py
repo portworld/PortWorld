@@ -70,6 +70,7 @@ async def ws_session(websocket: WebSocket) -> None:
                 send_control=send_control,
                 storage=runtime.storage,
                 vision_memory_runtime=runtime.vision_memory_runtime,
+                durable_memory_runtime=runtime.durable_memory_runtime,
                 emit_session_state=False,
                 trace_ws_messages_enabled=runtime.settings.backend_debug_trace_ws_messages,
             )

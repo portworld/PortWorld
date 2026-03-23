@@ -11,8 +11,10 @@ from typing import Any
 from backend.infrastructure.storage.common.memory_markdown import parse_csv_list as common_parse_csv_list
 from backend.infrastructure.storage.errors import SessionNotFoundError
 from backend.infrastructure.storage.types import SessionMemoryResetResult, SessionStorageResult, now_ms
+from backend.memory.candidates import MemoryCandidate, coerce_memory_candidate
 from backend.memory.events import AcceptedVisionEvent, coerce_accepted_vision_event
 from backend.memory.lifecycle import (
+    MEMORY_CANDIDATES_LOG_FILE_NAME,
     SHORT_TERM_MEMORY_TEMPLATE,
     SESSION_MEMORY_TEMPLATE,
     SessionMemoryResetEligibility,
@@ -38,6 +40,9 @@ class SessionStorageMixin:
             session_storage.session_memory_markdown_path,
             SESSION_MEMORY_TEMPLATE,
         ) or created_any
+        created_any = (
+            self._ensure_text_file(session_storage.memory_candidates_log_path, "") or created_any
+        )
         created_any = self._ensure_text_file(session_storage.vision_events_log_path, "") or created_any
         created_any = (
             self._ensure_text_file(session_storage.vision_routing_events_log_path, "") or created_any
@@ -72,6 +77,14 @@ class SessionStorageMixin:
             artifact_kind="session_memory_markdown",
             artifact_path=session_storage.session_memory_markdown_path,
             content_type="text/markdown",
+            metadata=artifact_metadata,
+        )
+        self.register_artifact(
+            artifact_id=f"{session_id}:memory_candidate_log",
+            session_id=session_id,
+            artifact_kind="memory_candidate_log",
+            artifact_path=session_storage.memory_candidates_log_path,
+            content_type="application/x-ndjson",
             metadata=artifact_metadata,
         )
         self.register_artifact(
@@ -252,6 +265,51 @@ class SessionStorageMixin:
         session_storage = self.get_session_storage_paths(session_id=session_id)
         return self._read_memory_markdown_payload(path=session_storage.short_term_memory_markdown_path)
 
+    def read_session_memory_markdown(self, *, session_id: str) -> str:
+        self._require_session_persisted(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        if not session_storage.session_memory_markdown_path.exists():
+            return ""
+        return session_storage.session_memory_markdown_path.read_text(encoding="utf-8")
+
+    def read_short_term_memory_markdown(self, *, session_id: str) -> str:
+        self._require_session_persisted(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        if not session_storage.short_term_memory_markdown_path.exists():
+            return ""
+        return session_storage.short_term_memory_markdown_path.read_text(encoding="utf-8")
+
+    def append_memory_candidate(self, *, session_id: str, candidate: dict[str, Any]) -> None:
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        if not session_storage.session_dir.exists():
+            session_storage = self.bootstrap_session_storage(session_id=session_id)
+        with session_storage.memory_candidates_log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(candidate, ensure_ascii=True, sort_keys=True) + "\n")
+
+    def read_memory_candidates(self, *, session_id: str) -> list[dict[str, Any]]:
+        self._require_session_persisted(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        if not session_storage.memory_candidates_log_path.exists():
+            return []
+        try:
+            lines = session_storage.memory_candidates_log_path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            return []
+        candidates: list[dict[str, Any]] = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except JSONDecodeError:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            candidate, _ = coerce_memory_candidate(payload)
+            if candidate is not None:
+                candidates.append(dict(candidate))
+        return candidates
+
     def get_session_memory_reset_eligibility(
         self,
         *,
@@ -403,12 +461,17 @@ class SessionStorageMixin:
         except (OSError, UnicodeDecodeError):
             return {}
 
+        from backend.memory.materializer import (
+            coerce_session_memory_payload,
+            coerce_short_term_memory_payload,
+        )
+
         if path.name == "SHORT_TERM.md":
-            payload = _coerce_short_term_memory_payload(markdown)
+            payload = coerce_short_term_memory_payload(markdown)
             payload.update(_parse_section_key_value_bullets(markdown, section_name="Recent Changes"))
             return payload
         if path.name == "LONG_TERM.md":
-            payload = _coerce_session_memory_payload(markdown)
+            payload = coerce_session_memory_payload(markdown)
             payload.update(
                 _parse_section_key_value_bullets(markdown, section_name="Important Facts Learned")
             )
@@ -630,26 +693,6 @@ def _parse_csv_list(raw_value: str) -> list[str]:
     return common_parse_csv_list(raw_value)
 
 
-def _coerce_session_memory_payload(markdown: str) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
-    payload["current_task_guess"] = _read_section_text(markdown, "Session Goal")
-    payload["summary_text"] = _read_section_text(markdown, "What Happened")
-    updated_at_ms = _coerce_optional_int(_read_section_text(markdown, "Last Updated"))
-    if updated_at_ms is not None:
-        payload["updated_at_ms"] = updated_at_ms
-    return payload
-
-
-def _coerce_short_term_memory_payload(markdown: str) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
-    payload["current_scene_summary"] = _read_section_text(markdown, "Current View")
-    payload["current_task_guess"] = _read_section_text(markdown, "Current Task Guess")
-    window_end_ts_ms = _coerce_optional_int(_read_section_text(markdown, "Timestamp"))
-    if window_end_ts_ms is not None:
-        payload["window_end_ts_ms"] = window_end_ts_ms
-    return payload
-
-
 def _parse_section_key_value_bullets(markdown: str, *, section_name: str) -> dict[str, Any]:
     section_text = _read_section_text(markdown, section_name)
     payload: dict[str, Any] = {}
@@ -733,15 +776,3 @@ def _split_semicolon_list(raw_value: str) -> list[str]:
         if candidate:
             values.append(candidate)
     return values
-
-
-def _coerce_optional_int(value: object) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        stripped = value.strip()
-        if stripped and re.fullmatch(r"-?\d+", stripped):
-            return int(stripped)
-    return None
