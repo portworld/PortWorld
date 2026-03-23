@@ -28,7 +28,6 @@ class DoctorRoutingTests(unittest.TestCase):
             aws_service=None,
             aws_vpc_id=None,
             aws_subnet_ids=None,
-            aws_certificate_arn=None,
             aws_database_url=None,
             aws_s3_bucket=None,
             azure_subscription=None,

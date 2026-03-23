@@ -27,26 +27,99 @@ class AzureDoctorTests(unittest.TestCase):
         by_id = {check.id: check for check in evaluation.checks}
         self.assertEqual(by_id["az_cli_installed"].status, "fail")
 
+    @mock.patch(
+        "portworld_cli.azure.doctor._container_app_checks",
+        return_value=(
+            [
+                mock.Mock(id="container_app_fqdn_present", status="pass"),
+                mock.Mock(id="container_app_ingress_external", status="pass"),
+            ],
+            "app.westeurope.azurecontainerapps.io",
+            {
+                "properties": {
+                    "configuration": {
+                        "ingress": {
+                            "fqdn": "app.westeurope.azurecontainerapps.io",
+                            "external": True,
+                        }
+                    },
+                    "template": {
+                        "containers": [
+                            {
+                                "env": [
+                                    {"name": "BACKEND_STORAGE_BACKEND", "value": "managed"},
+                                    {"name": "BACKEND_OBJECT_STORE_PROVIDER", "value": "azure_blob"},
+                                    {"name": "BACKEND_OBJECT_STORE_NAME", "value": "pw-artifacts"},
+                                    {
+                                        "name": "BACKEND_OBJECT_STORE_ENDPOINT",
+                                        "value": "https://pwstorage123.blob.core.windows.net",
+                                    },
+                                    {
+                                        "name": "BACKEND_DATABASE_URL",
+                                        "secretRef": "backend-database-url",
+                                    },
+                                ]
+                            }
+                        ]
+                    },
+                }
+            },
+        ),
+    )
+    @mock.patch(
+        "portworld_cli.azure.doctor._container_apps_environment_exists_check",
+        return_value=mock.Mock(id="azure_container_apps_environment_exists", status="pass"),
+    )
+    @mock.patch(
+        "portworld_cli.azure.doctor._postgres_database_exists_check",
+        return_value=mock.Mock(id="azure_postgres_database_exists", status="pass"),
+    )
+    @mock.patch(
+        "portworld_cli.azure.doctor._postgres_server_exists_check",
+        return_value=mock.Mock(id="azure_postgres_server_exists", status="pass"),
+    )
+    @mock.patch(
+        "portworld_cli.azure.doctor._storage_checks",
+        return_value=[
+            mock.Mock(id="azure_storage_account_exists", status="pass"),
+            mock.Mock(id="azure_blob_container_exists", status="pass"),
+        ],
+    )
+    @mock.patch(
+        "portworld_cli.azure.doctor._acr_exists_check",
+        return_value=mock.Mock(id="azure_acr_exists", status="pass"),
+    )
+    @mock.patch(
+        "portworld_cli.azure.doctor._resource_group_exists_check",
+        return_value=mock.Mock(id="azure_resource_group_exists", status="pass"),
+    )
+    @mock.patch(
+        "portworld_cli.azure.doctor._provider_registration_checks",
+        return_value=[
+            mock.Mock(id="az_provider_microsoft_app_registered", status="pass"),
+            mock.Mock(id="az_provider_microsoft_containerregistry_registered", status="pass"),
+            mock.Mock(id="az_provider_microsoft_storage_registered", status="pass"),
+            mock.Mock(id="az_provider_microsoft_dbforpostgresql_registered", status="pass"),
+        ],
+    )
     @mock.patch("portworld_cli.azure.doctor.run_az_json")
     @mock.patch("portworld_cli.azure.doctor.azure_cli_available", return_value=True)
     def test_valid_configuration_passes_core_checks(
         self,
         _available: mock.Mock,
         run_az_json: mock.Mock,
+        _provider_registration_checks: mock.Mock,
+        _resource_group_exists_check: mock.Mock,
+        _acr_exists_check: mock.Mock,
+        _storage_checks: mock.Mock,
+        _postgres_server_exists_check: mock.Mock,
+        _postgres_database_exists_check: mock.Mock,
+        _container_apps_environment_exists_check: mock.Mock,
+        _container_app_checks: mock.Mock,
     ) -> None:
         run_az_json.side_effect = [
             mock.Mock(ok=True, value={"name": "containerapp"}, message=None),
             mock.Mock(ok=True, value={"id": "sub-1", "tenantId": "tenant-1"}, message=None),
-            mock.Mock(ok=True, value={"registrationState": "Registered"}, message=None),
-            mock.Mock(
-                ok=True,
-                value={
-                    "properties": {
-                        "configuration": {"ingress": {"fqdn": "app.westeurope.azurecontainerapps.io", "external": True}}
-                    }
-                },
-                message=None,
-            ),
         ]
         evaluation = evaluate_azure_container_apps_readiness(
             explicit_subscription=None,
