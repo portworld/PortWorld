@@ -103,24 +103,20 @@ def build_default_realtime_session_mode_registry(
     registry.register(
         RealtimeSessionModeDefinition(
             name="default",
-            instructions=settings.openai_realtime_instructions.rstrip()
+            instructions=settings.realtime_instructions.rstrip()
             + "\n\n"
             + DEFAULT_REALTIME_MEMORY_INSTRUCTIONS,
             allowed_tool_names=DEFAULT_MODE_ALLOWED_TOOL_NAMES,
         )
     )
-    registry.register(
-        RealtimeSessionModeDefinition(
-            name="user_memory_onboarding",
-            instructions=USER_MEMORY_ONBOARDING_INSTRUCTIONS,
-            allowed_tool_names=USER_MEMORY_ONBOARDING_ALLOWED_TOOL_NAMES,
-        )
-    )
-    registry.register(
-        RealtimeSessionModeDefinition(
-            name="profile_onboarding",
-            instructions=USER_MEMORY_ONBOARDING_INSTRUCTIONS,
-            allowed_tool_names=USER_MEMORY_ONBOARDING_ALLOWED_TOOL_NAMES,
-        )
-    )
+    registry.register(_build_onboarding_mode_definition("user_memory_onboarding"))
+    registry.register(_build_onboarding_mode_definition("profile_onboarding"))
     return registry
+
+
+def _build_onboarding_mode_definition(name: str) -> RealtimeSessionModeDefinition:
+    return RealtimeSessionModeDefinition(
+        name=name,
+        instructions=USER_MEMORY_ONBOARDING_INSTRUCTIONS,
+        allowed_tool_names=USER_MEMORY_ONBOARDING_ALLOWED_TOOL_NAMES,
+    )

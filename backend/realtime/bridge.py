@@ -71,10 +71,6 @@ class IOSRealtimeBridge:
             send_onboarding_profile_ready=self._send_onboarding_profile_ready,
         )
 
-        self._cancelled_response_ids: set[str] = set()
-        self._started_response_ids: set[str] = set()
-        self._last_stopped_response_id: str | None = None
-
         turn_config = TurnConfig(
             server_turn_detection_enabled=server_turn_detection_enabled,
             manual_turn_fallback_enabled=manual_turn_fallback_enabled,
@@ -150,8 +146,8 @@ class IOSRealtimeBridge:
             await self._upstream_client.close()
 
     async def _interrupt_active_response(self, *, reason: str) -> None:
-        response_id = self._turn_manager.state.current_response_id
-        if response_id is None or response_id in self._cancelled_response_ids:
+        response_id = self._turn_manager.mark_response_cancelled()
+        if response_id is None:
             return
 
         logger.warning(
@@ -160,11 +156,6 @@ class IOSRealtimeBridge:
             response_id,
             reason,
         )
-
-        self._cancelled_response_ids.add(response_id)
-        self._started_response_ids.discard(response_id)
-        self._last_stopped_response_id = response_id
-        self._turn_manager.state.current_response_id = None
 
         try:
             await self._upstream_client.cancel_response(response_id=response_id)
@@ -222,94 +213,120 @@ class IOSRealtimeBridge:
         if not isinstance(payload, dict):
             payload = {}
 
-        handler = self._UPSTREAM_EVENT_HANDLERS.get(event_type)
-        if handler is not None:
-            await handler(self, payload)
-            return
+        handler = self._UPSTREAM_EVENT_HANDLERS.get(event_type, IOSRealtimeBridge._handle_unhandled_event)
+        await handler(self, payload, event)
 
-        if event_type == NormalizedRealtimeEventTypes.SESSION_READY:
-            logger.info("Upstream %s session=%s", event_type, self._session_id)
-            self._mark_session_ready()
-            return
-
-        if event_type == NormalizedRealtimeEventTypes.TOOL_CALL_COMPLETED:
-            await self._tool_dispatcher.handle_event(payload)
-            return
-
-        if event_type == NormalizedRealtimeEventTypes.INPUT_AUDIO_COMMITTED:
-            logger.debug("Upstream input_audio_buffer.committed session=%s", self._session_id)
-            return
-
-        logger.debug(
-            "Unhandled upstream event type=%s source=%s",
-            event_type,
-            event.get("source"),
-        )
-
-    async def _handle_audio_delta(self, event: dict[str, Any]) -> None:
+    async def _handle_audio_delta(
+        self,
+        event: dict[str, Any],
+        _normalized_event: NormalizedRealtimeEvent,
+    ) -> None:
         self._turn_manager.on_audio_delta()
         await self._on_audio_delta(event)
 
-    async def _handle_audio_done(self, event: dict[str, Any]) -> None:
+    async def _handle_audio_done(
+        self,
+        event: dict[str, Any],
+        _normalized_event: NormalizedRealtimeEvent,
+    ) -> None:
         await self._on_response_done(event)
 
-    async def _handle_response_done(self, event: dict[str, Any]) -> None:
+    async def _handle_response_done(
+        self,
+        event: dict[str, Any],
+        _normalized_event: NormalizedRealtimeEvent,
+    ) -> None:
         await self._on_response_done(event)
-        self._turn_manager.reset(self._tool_dispatcher)
+        self._turn_manager.reset()
 
-    async def _handle_speech_started(self, event: dict[str, Any]) -> None:
+    async def _handle_speech_started(
+        self,
+        event: dict[str, Any],
+        _normalized_event: NormalizedRealtimeEvent,
+    ) -> None:
         self._turn_manager.on_vad_speech_started()
         logger.info("Upstream VAD speech_started session=%s", self._session_id)
         if self._turn_manager.state.current_response_id is not None:
             await self._interrupt_active_response(reason="speech_started")
         await self._send_envelope("assistant.thinking", {"status": "thinking"})
 
-    async def _handle_speech_stopped(self, event: dict[str, Any]) -> None:
+    async def _handle_speech_stopped(
+        self,
+        event: dict[str, Any],
+        _normalized_event: NormalizedRealtimeEvent,
+    ) -> None:
         self._turn_manager.on_vad_speech_stopped()
         logger.info("Upstream VAD speech_stopped session=%s", self._session_id)
         await self._turn_manager.finalize_turn_if_needed(reason="speech_stopped")
 
-    async def _handle_response_created(self, event: dict[str, Any]) -> None:
+    async def _handle_response_created(
+        self,
+        event: dict[str, Any],
+        _normalized_event: NormalizedRealtimeEvent,
+    ) -> None:
         logger.info("Upstream response.created session=%s", self._session_id)
         self._turn_manager.on_response_created()
 
-    async def _handle_function_call_done(self, event: dict[str, Any]) -> None:
+    async def _handle_tool_call_completed(
+        self,
+        event: dict[str, Any],
+        _normalized_event: NormalizedRealtimeEvent,
+    ) -> None:
         await self._tool_dispatcher.handle_event(event)
 
-    async def _handle_error_event(self, event: dict[str, Any]) -> None:
+    async def _handle_error_event(
+        self,
+        event: dict[str, Any],
+        _normalized_event: NormalizedRealtimeEvent,
+    ) -> None:
         await self._on_upstream_error_event(event)
 
+    async def _handle_session_ready(
+        self,
+        _event: dict[str, Any],
+        normalized_event: NormalizedRealtimeEvent,
+    ) -> None:
+        logger.info("Upstream %s session=%s", normalized_event.get("type"), self._session_id)
+        self._mark_session_ready()
+
+    async def _handle_input_audio_committed(
+        self,
+        _event: dict[str, Any],
+        _normalized_event: NormalizedRealtimeEvent,
+    ) -> None:
+        logger.debug("Upstream input_audio_buffer.committed session=%s", self._session_id)
+
+    async def _handle_unhandled_event(
+        self,
+        _event: dict[str, Any],
+        normalized_event: NormalizedRealtimeEvent,
+    ) -> None:
+        logger.debug(
+            "Unhandled upstream event type=%s source=%s",
+            normalized_event.get("type"),
+            normalized_event.get("source"),
+        )
+
     _UPSTREAM_EVENT_HANDLERS: dict[str, Any] = {
+        NormalizedRealtimeEventTypes.SESSION_READY: _handle_session_ready,
         NormalizedRealtimeEventTypes.RESPONSE_AUDIO_DELTA: _handle_audio_delta,
         NormalizedRealtimeEventTypes.RESPONSE_AUDIO_DONE: _handle_audio_done,
         NormalizedRealtimeEventTypes.RESPONSE_DONE: _handle_response_done,
         NormalizedRealtimeEventTypes.INPUT_SPEECH_STARTED: _handle_speech_started,
         NormalizedRealtimeEventTypes.INPUT_SPEECH_STOPPED: _handle_speech_stopped,
         NormalizedRealtimeEventTypes.RESPONSE_CREATED: _handle_response_created,
+        NormalizedRealtimeEventTypes.INPUT_AUDIO_COMMITTED: _handle_input_audio_committed,
+        NormalizedRealtimeEventTypes.TOOL_CALL_COMPLETED: _handle_tool_call_completed,
         NormalizedRealtimeEventTypes.ERROR: _handle_error_event,
     }
 
     async def _on_response_done(self, event: dict[str, Any]) -> None:
-        response_id = self._extract_response_id(event)
-
-        if response_id is None and len(self._started_response_ids) == 1:
-            response_id = next(iter(self._started_response_ids))
-
-        if response_id is None:
-            response_id = self._turn_manager.state.current_response_id
-
+        response_id = self._turn_manager.resolve_response_done_id(
+            response_id=self._extract_response_id(event)
+        )
         if response_id is None:
             return
 
-        if response_id == self._last_stopped_response_id:
-            return
-
-        self._started_response_ids.discard(response_id)
-        if response_id in self._cancelled_response_ids:
-            self._cancelled_response_ids.remove(response_id)
-            return
-
-        self._last_stopped_response_id = response_id
         await self._send_envelope(
             "assistant.playback.control",
             {"command": "stop_response", "response_id": response_id},
@@ -321,23 +338,19 @@ class IOSRealtimeBridge:
             return
 
         response_id = self._resolve_response_id(event)
-        if response_id in self._cancelled_response_ids:
+        if self._turn_manager.is_response_cancelled(response_id=response_id):
             logger.info(
                 "Ignoring late audio delta for cancelled response session=%s response_id=%s",
                 self._session_id,
                 response_id,
             )
             return
-        if response_id not in self._started_response_ids:
-            self._started_response_ids.add(response_id)
-            if self._last_stopped_response_id == response_id:
-                self._last_stopped_response_id = None
+        if self._turn_manager.register_audio_delta(response_id=response_id):
             await self._send_envelope(
                 "assistant.playback.control",
                 {"command": "start_response", "response_id": response_id},
             )
 
-        self._turn_manager.state.current_response_id = response_id
         try:
             pcm_bytes = base64.b64decode(delta_b64, validate=True)
         except (ValueError, TypeError):

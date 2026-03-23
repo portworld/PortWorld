@@ -191,12 +191,12 @@ class Settings:
     tavily_base_url: str | None
     backend_bearer_token: str | None
     realtime_provider: str
-    openai_realtime_model: str
-    openai_realtime_voice: str
-    openai_realtime_instructions: str
-    openai_realtime_include_turn_detection: bool
-    openai_realtime_enable_manual_turn_fallback: bool
-    openai_realtime_manual_turn_fallback_delay_ms: int
+    realtime_model: str
+    realtime_voice: str
+    realtime_instructions: str
+    realtime_include_turn_detection: bool
+    realtime_enable_manual_turn_fallback: bool
+    realtime_manual_turn_fallback_delay_ms: int
     gemini_live_api_key: str | None
     gemini_live_model: str
     gemini_live_base_url: str | None
@@ -373,7 +373,7 @@ class Settings:
     def resolve_realtime_model(self, *, provider: str | None = None) -> str:
         provider_name = (provider or self.realtime_provider).strip().lower()
         if provider_name == "openai":
-            return self.openai_realtime_model
+            return self.realtime_model
         if provider_name == "gemini_live":
             return self.gemini_live_model
         raise RuntimeError(f"Unsupported realtime provider {provider_name!r}")
@@ -609,25 +609,26 @@ def _load_credentials_settings() -> dict[str, str | None]:
 
 
 def _load_realtime_settings() -> dict[str, str | int | bool | None]:
+    _raise_if_removed_realtime_env_keys_set()
     return {
         "backend_bearer_token": (_get_env("BACKEND_BEARER_TOKEN") or "").strip() or None,
         "realtime_provider": (_get_env("REALTIME_PROVIDER") or "openai").strip().lower(),
-        "openai_realtime_model": os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime"),
-        "openai_realtime_voice": os.getenv("OPENAI_REALTIME_VOICE", "ash"),
-        "openai_realtime_instructions": os.getenv(
-            "OPENAI_REALTIME_INSTRUCTIONS",
+        "realtime_model": os.getenv("REALTIME_MODEL", "gpt-realtime"),
+        "realtime_voice": os.getenv("REALTIME_VOICE", "ash"),
+        "realtime_instructions": os.getenv(
+            "REALTIME_INSTRUCTIONS",
             DEFAULT_INSTRUCTIONS,
         ),
-        "openai_realtime_include_turn_detection": _parse_bool_env(
-            "OPENAI_REALTIME_INCLUDE_TURN_DETECTION",
+        "realtime_include_turn_detection": _parse_bool_env(
+            "REALTIME_INCLUDE_TURN_DETECTION",
             default=True,
         ),
-        "openai_realtime_enable_manual_turn_fallback": _parse_bool_env(
-            "OPENAI_REALTIME_ENABLE_MANUAL_TURN_FALLBACK",
+        "realtime_enable_manual_turn_fallback": _parse_bool_env(
+            "REALTIME_ENABLE_MANUAL_TURN_FALLBACK",
             default=True,
         ),
-        "openai_realtime_manual_turn_fallback_delay_ms": _parse_int_env(
-            "OPENAI_REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS",
+        "realtime_manual_turn_fallback_delay_ms": _parse_int_env(
+            "REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS",
             default=900,
             minimum=100,
         ),
@@ -642,7 +643,26 @@ def _load_realtime_settings() -> dict[str, str | int | bool | None]:
             default=20,
             minimum=1,
         ),
-    }
+}
+
+
+def _raise_if_removed_realtime_env_keys_set() -> None:
+    removed_keys = (
+        ("OPENAI_REALTIME_MODEL", "REALTIME_MODEL"),
+        ("OPENAI_REALTIME_VOICE", "REALTIME_VOICE"),
+        ("OPENAI_REALTIME_INSTRUCTIONS", "REALTIME_INSTRUCTIONS"),
+        ("OPENAI_REALTIME_INCLUDE_TURN_DETECTION", "REALTIME_INCLUDE_TURN_DETECTION"),
+        ("OPENAI_REALTIME_ENABLE_MANUAL_TURN_FALLBACK", "REALTIME_ENABLE_MANUAL_TURN_FALLBACK"),
+        ("OPENAI_REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS", "REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS"),
+    )
+    used_removed_keys = [old for old, _ in removed_keys if os.getenv(old) is not None]
+    if not used_removed_keys:
+        return
+    replacements = ", ".join(f"{old}->{new}" for old, new in removed_keys if old in used_removed_keys)
+    raise RuntimeError(
+        "Removed realtime environment variables are set. "
+        f"Use the new keys instead: {replacements}"
+    )
 
 
 def _load_storage_settings() -> dict[str, str | int | bool | Path]:

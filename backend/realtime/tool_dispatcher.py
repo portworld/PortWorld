@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
@@ -37,8 +38,8 @@ class ToolCallDispatcher:
         self._tooling_runtime = tooling_runtime
         self._send_response_create = send_response_create
         self._send_onboarding_profile_ready = send_onboarding_profile_ready
-        self._processed_tool_call_ids: dict[str, None] = {}
-        self._processed_tool_item_ids: dict[str, None] = {}
+        self._processed_tool_call_ids: OrderedDict[str, None] = OrderedDict()
+        self._processed_tool_item_ids: OrderedDict[str, None] = OrderedDict()
         self._processed_tool_dedupe_limit = max(1, dedupe_limit)
         self._saw_duplicate_tool_call_event_for_turn = False
 
@@ -152,15 +153,14 @@ class ToolCallDispatcher:
 
     def _remember_processed_tool_id(
         self,
-        id_store: dict[str, None],
+        id_store: OrderedDict[str, None],
         processed_id: str,
     ) -> None:
         if processed_id in id_store:
-            id_store.pop(processed_id, None)
+            id_store.pop(processed_id)
         id_store[processed_id] = None
         while len(id_store) > self._processed_tool_dedupe_limit:
-            oldest_id = next(iter(id_store))
-            id_store.pop(oldest_id, None)
+            id_store.popitem(last=False)
 
     def _extract_tool_call_or_error(
         self,
