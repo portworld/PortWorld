@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.core.settings import Settings
+from backend.tools.catalog import (
+    DEFAULT_MODE_ALLOWED_TOOL_NAMES,
+    USER_MEMORY_ONBOARDING_ALLOWED_TOOL_NAMES,
+)
 
 
 USER_MEMORY_ONBOARDING_INSTRUCTIONS = """
@@ -102,41 +106,21 @@ def build_default_realtime_session_mode_registry(
             instructions=settings.openai_realtime_instructions.rstrip()
             + "\n\n"
             + DEFAULT_REALTIME_MEMORY_INSTRUCTIONS,
-            allowed_tool_names=frozenset(
-                {
-                    "get_short_term_memory",
-                    "get_long_term_memory",
-                    "get_cross_session_memory",
-                    "capture_memory_candidate",
-                    "web_search",
-                }
-            ),
+            allowed_tool_names=DEFAULT_MODE_ALLOWED_TOOL_NAMES,
         )
     )
     registry.register(
         RealtimeSessionModeDefinition(
             name="user_memory_onboarding",
             instructions=USER_MEMORY_ONBOARDING_INSTRUCTIONS,
-            allowed_tool_names=frozenset(
-                {
-                    "get_user_memory",
-                    "update_user_memory",
-                    "complete_user_memory_onboarding",
-                }
-            ),
+            allowed_tool_names=USER_MEMORY_ONBOARDING_ALLOWED_TOOL_NAMES,
         )
     )
     registry.register(
         RealtimeSessionModeDefinition(
             name="profile_onboarding",
             instructions=USER_MEMORY_ONBOARDING_INSTRUCTIONS,
-            allowed_tool_names=frozenset(
-                {
-                    "get_user_memory",
-                    "update_user_memory",
-                    "complete_user_memory_onboarding",
-                }
-            ),
+            allowed_tool_names=USER_MEMORY_ONBOARDING_ALLOWED_TOOL_NAMES,
         )
     )
     return registry
