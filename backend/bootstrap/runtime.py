@@ -93,7 +93,7 @@ def build_backend_storage(settings: Settings) -> tuple[StorageInfo, BackendStora
         database_url=settings.backend_database_url or "",
         object_store=build_object_store(
             provider=settings.backend_object_store_provider,
-            store_name=settings.backend_object_store_name or settings.backend_object_store_bucket or "",
+            store_name=settings.backend_object_store_name or "",
             endpoint=settings.backend_object_store_endpoint,
             key_prefix=settings.backend_object_store_prefix or "",
         ),
