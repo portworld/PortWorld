@@ -24,6 +24,9 @@ class TurnState:
     server_vad_speaking: bool = False
     has_active_upstream_response: bool = False
     current_response_id: str | None = None
+    cancelled_response_ids: set[str] = field(default_factory=set)
+    started_response_ids: set[str] = field(default_factory=set)
+    last_stopped_response_id: str | None = None
 
     def reset(self) -> None:
         self.audio_seen = False
@@ -33,6 +36,9 @@ class TurnState:
         self.last_audio_at_monotonic = None
         self.current_response_id = None
         self.has_active_upstream_response = False
+        self.cancelled_response_ids.clear()
+        self.started_response_ids.clear()
+        self.last_stopped_response_id = None
 
 
 @dataclass(slots=True)
@@ -88,10 +94,62 @@ class TurnManager:
     def on_audio_delta(self) -> None:
         self._state.response_started = True
 
-    def reset(self, tool_dispatcher: "ToolCallDispatcher") -> None:
+    def reset(self) -> None:
         self._state.reset()
-        tool_dispatcher.reset_turn_state()
+        self._tool_dispatcher.reset_turn_state()
         self._cancel_finalize_task()
+
+    def mark_response_cancelled(self) -> str | None:
+        response_id = self._state.current_response_id
+        if response_id is None or response_id in self._state.cancelled_response_ids:
+            return None
+        self._state.cancelled_response_ids.add(response_id)
+        self._state.started_response_ids.discard(response_id)
+        self._state.last_stopped_response_id = response_id
+        self._state.current_response_id = None
+        self._state.has_active_upstream_response = False
+        return response_id
+
+    def register_audio_delta(self, *, response_id: str) -> bool:
+        if response_id in self._state.cancelled_response_ids:
+            return False
+
+        should_emit_start = False
+        if response_id not in self._state.started_response_ids:
+            self._state.started_response_ids.add(response_id)
+            if self._state.last_stopped_response_id == response_id:
+                self._state.last_stopped_response_id = None
+            should_emit_start = True
+
+        self._state.current_response_id = response_id
+        self._state.response_started = True
+        self._state.has_active_upstream_response = True
+        return should_emit_start
+
+    def resolve_response_done_id(self, *, response_id: str | None) -> str | None:
+        resolved = response_id
+        if resolved is None and len(self._state.started_response_ids) == 1:
+            resolved = next(iter(self._state.started_response_ids))
+        if resolved is None:
+            resolved = self._state.current_response_id
+        if resolved is None:
+            return None
+        if resolved == self._state.last_stopped_response_id:
+            return None
+
+        self._state.started_response_ids.discard(resolved)
+        if resolved in self._state.cancelled_response_ids:
+            self._state.cancelled_response_ids.remove(resolved)
+            return None
+
+        self._state.last_stopped_response_id = resolved
+        if self._state.current_response_id == resolved:
+            self._state.current_response_id = None
+        self._state.has_active_upstream_response = False
+        return resolved
+
+    def is_response_cancelled(self, *, response_id: str) -> bool:
+        return response_id in self._state.cancelled_response_ids
 
     def client_end_turn_ignore_reason(self) -> str | None:
         if not self._config.server_turn_detection_enabled:

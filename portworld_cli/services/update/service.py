@@ -36,7 +36,6 @@ from portworld_cli.targets import (
     TARGET_AZURE_CONTAINER_APPS,
     TARGET_GCP_CLOUD_RUN,
 )
-from portworld_cli.workspace.project_config import GCP_CLOUD_RUN_TARGET
 from portworld_cli.services.common import ErrorMappingPolicy, map_command_exception
 from portworld_cli.workspace.discovery.paths import ProjectPaths, ProjectRootResolutionError, resolve_project_paths
 from portworld_cli.workspace.session import load_inspection_session, load_workspace_session
@@ -53,7 +52,7 @@ UV_TOOL_UPGRADE_COMMAND = "uv tool upgrade {package_name}"
 LEGACY_PIPX_UPGRADE_COMMAND = "python3 -m pipx upgrade {package_name}"
 UPDATE_CLI_COMMAND_NAME = "portworld update cli"
 UPDATE_DEPLOY_COMMAND_NAME = "portworld update deploy"
-SELF_HOST_DOCS_HINT = "See backend/README.md and docs/BACKEND_SELF_HOSTING.md."
+SELF_HOST_DOCS_HINT = "See backend/README.md and docs/operations/BACKEND_SELF_HOSTING.md."
 
 
 class UpdateUsageError(RuntimeError):
@@ -224,10 +223,8 @@ def _dispatch_update_deploy(
                 service=options.aws_service,
                 vpc_id=options.aws_vpc_id,
                 subnet_ids=options.aws_subnet_ids,
-                certificate_arn=None,
                 database_url=options.aws_database_url,
                 bucket=options.aws_s3_bucket,
-                alb_url=None,
                 ecr_repo=options.aws_ecr_repo,
                 tag=options.tag,
                 cors_origins=options.cors_origins,

@@ -92,10 +92,8 @@ def _run_aws_deploy(
     service: str | None,
     vpc_id: str | None,
     subnet_ids: str | None,
-    certificate_arn: str | None,
     database_url: str | None,
     bucket: str | None,
-    alb_url: str | None,
     ecr_repo: str | None,
     tag: str | None,
     cors_origins: str | None,
@@ -111,10 +109,8 @@ def _run_aws_deploy(
                 service=service,
                 vpc_id=vpc_id,
                 subnet_ids=subnet_ids,
-                certificate_arn=certificate_arn,
                 database_url=database_url,
                 bucket=bucket,
-                alb_url=alb_url,
                 ecr_repo=ecr_repo,
                 tag=tag,
                 cors_origins=cors_origins,
@@ -130,10 +126,8 @@ def _run_aws_deploy(
 @click.option("--cluster", default=None, help="Legacy AWS service alias.", hidden=True)
 @click.option("--vpc-id", default=None, help="VPC id.", hidden=True)
 @click.option("--subnet-ids", default=None, help="Subnet ids (comma-separated).", hidden=True)
-@click.option("--certificate-arn", default=None, help="Legacy unused AWS certificate option.", hidden=True)
 @click.option("--database-url", default=None, help="Existing managed PostgreSQL URL.")
 @click.option("--bucket", default=None, help="S3 bucket name for managed memory objects.")
-@click.option("--alb-url", default=None, help="Legacy unused ALB URL option.", hidden=True)
 @click.option("--ecr-repo", default=None, help="ECR repository name.")
 @click.option("--tag", default=None, help="Container image tag.")
 @click.option("--cors-origins", default=None, help="Explicit production CORS origins (comma-separated).")
@@ -146,10 +140,8 @@ def deploy_aws_ecs_fargate_command(
     service: str | None,
     vpc_id: str | None,
     subnet_ids: str | None,
-    certificate_arn: str | None,
     database_url: str | None,
     bucket: str | None,
-    alb_url: str | None,
     ecr_repo: str | None,
     tag: str | None,
     cors_origins: str | None,
@@ -163,10 +155,8 @@ def deploy_aws_ecs_fargate_command(
         service=service,
         vpc_id=vpc_id,
         subnet_ids=subnet_ids,
-        certificate_arn=certificate_arn,
         database_url=database_url,
         bucket=bucket,
-        alb_url=alb_url,
         ecr_repo=ecr_repo,
         tag=tag,
         cors_origins=cors_origins,

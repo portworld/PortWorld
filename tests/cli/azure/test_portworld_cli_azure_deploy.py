@@ -6,6 +6,7 @@ import unittest
 from unittest import mock
 
 from portworld_cli.azure.deploy import (
+    _DeployMutationResult,
     DeployAzureContainerAppsOptions,
     _ResolvedAzureDeployConfig,
     _run_azure_deploy_mutations,
@@ -31,8 +32,12 @@ def _base_config() -> _ResolvedAzureDeployConfig:
         storage_account="pwstorage123",
         blob_container="pw-artifacts",
         blob_endpoint="https://pwstorage123.blob.core.windows.net",
+        acr_name="pwapp123",
         acr_server="pw.azurecr.io",
         acr_repo="app-backend",
+        postgres_server_name="pwpgapp123",
+        postgres_database_name="portworld",
+        postgres_admin_username="pwadmin",
         image_tag="abc123",
         image_uri="pw.azurecr.io/app-backend:abc123",
         cors_origins="https://app.example.com",
@@ -46,7 +51,14 @@ class AzureDeployTests(unittest.TestCase):
     @mock.patch("portworld_cli.azure.deploy.write_deploy_state")
     @mock.patch("portworld_cli.azure.deploy._probe_ws", return_value=True)
     @mock.patch("portworld_cli.azure.deploy._probe_livez", return_value=True)
-    @mock.patch("portworld_cli.azure.deploy._run_azure_deploy_mutations", return_value="app.westeurope.azurecontainerapps.io")
+    @mock.patch(
+        "portworld_cli.azure.deploy._run_azure_deploy_mutations",
+        return_value=_DeployMutationResult(
+            fqdn="app.westeurope.azurecontainerapps.io",
+            database_url="postgresql://user:pass@db:5432/app",
+            image_uri="pw.azurecr.io/app-backend:abc123",
+        ),
+    )
     @mock.patch("portworld_cli.azure.deploy._confirm_mutations")
     @mock.patch("portworld_cli.azure.deploy._resolve_azure_deploy_config")
     @mock.patch("portworld_cli.azure.deploy.load_deploy_session")
@@ -153,10 +165,27 @@ class AzureDeployTests(unittest.TestCase):
         write_state.assert_not_called()
 
     @mock.patch("portworld_cli.azure.deploy._wait_for_container_app_readiness", return_value="app.westeurope.azurecontainerapps.io")
+    @mock.patch("portworld_cli.azure.deploy._ensure_postgres_and_database_url", return_value="postgresql://user:pass@db:5432/app")
+    @mock.patch("portworld_cli.azure.deploy._ensure_container_apps_environment")
+    @mock.patch("portworld_cli.azure.deploy._ensure_storage")
+    @mock.patch(
+        "portworld_cli.azure.deploy._ensure_acr",
+        return_value=("pw.azurecr.io", "acr-user", "acr-password"),
+    )
+    @mock.patch("portworld_cli.azure.deploy._set_container_app_registry_credentials")
+    @mock.patch("portworld_cli.azure.deploy._ensure_resource_provider")
+    @mock.patch("portworld_cli.azure.deploy._ensure_resource_group")
     @mock.patch("portworld_cli.azure.deploy.run_az_json")
     def test_mutations_use_secretrefs_for_sensitive_env_values(
         self,
         run_az_json: mock.Mock,
+        _ensure_resource_group: mock.Mock,
+        _ensure_resource_provider: mock.Mock,
+        _set_container_app_registry_credentials: mock.Mock,
+        _ensure_acr: mock.Mock,
+        _ensure_storage: mock.Mock,
+        _ensure_container_apps_environment: mock.Mock,
+        _ensure_postgres_and_database_url: mock.Mock,
         _wait_ready: mock.Mock,
     ) -> None:
         run_az_json.side_effect = [
@@ -172,8 +201,8 @@ class AzureDeployTests(unittest.TestCase):
                 "CORS_ORIGINS": "https://app.example.com",
             }
         )
-        fqdn = _run_azure_deploy_mutations(config=_base_config(), env_values=env_values, stage_records=stages)
-        self.assertEqual(fqdn, "app.westeurope.azurecontainerapps.io")
+        result = _run_azure_deploy_mutations(config=_base_config(), env_values=env_values, stage_records=stages)
+        self.assertEqual(result.fqdn, "app.westeurope.azurecontainerapps.io")
         update_call = run_az_json.call_args_list[2].args[0]
         self.assertIn("--secrets", update_call)
         self.assertIn("--set-env-vars", update_call)

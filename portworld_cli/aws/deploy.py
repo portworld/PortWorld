@@ -37,7 +37,6 @@ from portworld_cli.targets import TARGET_AWS_ECS_FARGATE
 from portworld_cli.workspace.project_config import RUNTIME_SOURCE_PUBLISHED
 
 COMMAND_NAME = "portworld deploy aws-ecs-fargate"
-DEPRECATED_APP_RUNNER_COMMAND_NAME = "portworld deploy aws-app-runner"
 RDS_INSTANCE_CLASS = "db.t3.micro"
 RDS_STORAGE_GB = "20"
 ECS_EXECUTION_ROLE_NAME = "portworld-ecs-task-execution"
@@ -58,18 +57,12 @@ class DeployAWSECSFargateOptions:
     service: str | None
     vpc_id: str | None
     subnet_ids: str | None
-    certificate_arn: str | None
     database_url: str | None
     bucket: str | None
-    alb_url: str | None
     ecr_repo: str | None
     tag: str | None
     cors_origins: str | None
     allowed_hosts: str | None
-
-
-# Backward-compatible alias retained for legacy callers.
-DeployAWSAppRunnerOptions = DeployAWSECSFargateOptions
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,25 +287,6 @@ def run_deploy_aws_ecs_fargate(
             data={"error_type": "Abort", "resources": resources, "stages": stage_records},
             exit_code=1,
         )
-
-
-def run_deploy_aws_app_runner(
-    cli_context: CLIContext,
-    options: DeployAWSAppRunnerOptions,
-) -> CommandResult:
-    return CommandResult(
-        ok=False,
-        command=DEPRECATED_APP_RUNNER_COMMAND_NAME,
-        message="AWS App Runner is no longer supported for the realtime backend. Use `portworld deploy aws-ecs-fargate`.",
-        data={
-            "error_type": "DeprecatedTarget",
-            "deprecated_target": "aws-app-runner",
-            "replacement_target": TARGET_AWS_ECS_FARGATE,
-        },
-        exit_code=2,
-    )
-
-
 def _resolve_aws_deploy_config(
     cli_context: CLIContext,
     *,
@@ -352,7 +326,6 @@ def _resolve_aws_deploy_config(
     bucket_name = _first_non_empty(
         options.bucket,
         env_values.get("BACKEND_OBJECT_STORE_NAME"),
-        env_values.get("BACKEND_OBJECT_STORE_BUCKET"),
         f"{app_name}-memory",
     )
     assert bucket_name is not None
@@ -447,7 +420,6 @@ def _build_runtime_env_vars(
         "BACKEND_STORAGE_BACKEND",
         "BACKEND_OBJECT_STORE_PROVIDER",
         "BACKEND_OBJECT_STORE_NAME",
-        "BACKEND_OBJECT_STORE_BUCKET",
         "BACKEND_OBJECT_STORE_PREFIX",
         "BACKEND_DATABASE_URL",
         "PORT",
@@ -461,7 +433,6 @@ def _build_runtime_env_vars(
     final_env["BACKEND_STORAGE_BACKEND"] = "managed"
     final_env["BACKEND_OBJECT_STORE_PROVIDER"] = "s3"
     final_env["BACKEND_OBJECT_STORE_NAME"] = config.bucket_name
-    final_env["BACKEND_OBJECT_STORE_BUCKET"] = config.bucket_name
     final_env["BACKEND_OBJECT_STORE_PREFIX"] = config.app_name
     final_env["BACKEND_DATABASE_URL"] = database_url
     final_env["CORS_ORIGINS"] = config.cors_origins

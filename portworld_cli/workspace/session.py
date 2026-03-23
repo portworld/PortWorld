@@ -496,7 +496,6 @@ def _build_effective_env_values(
 ) -> dict[str, str]:
     values = dict(template.defaults())
     values.update(existing_env.known_values)
-    values.update(existing_env.legacy_alias_values)
     values.update(existing_env.preserved_overrides)
     values.update(config_overrides)
     return {key: str(value) for key, value in values.items()}

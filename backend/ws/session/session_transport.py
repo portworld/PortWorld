@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from backend.ws.protocol.contracts import make_envelope
 from backend.ws.protocol.frame_codec import encode_frame
 from backend.ws.session.session_context import SessionConnectionContext
 from backend.ws.session.session_registry import SessionRecord
+from backend.ws.session.transport_contracts import SendBinary, SendControl
 
 logger = logging.getLogger(__name__)
-
-SendControl = Callable[..., Awaitable[None]]
-SendBinary = Callable[[int, int, bytes], Awaitable[None]]
 
 
 def make_send_control(context: SessionConnectionContext) -> SendControl:

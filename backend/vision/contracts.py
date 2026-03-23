@@ -65,7 +65,7 @@ def _normalize_confidence(value: object) -> float:
     return confidence
 
 
-def _extract_json_object_text(payload: str) -> str:
+def extract_json_object_text(payload: str) -> str:
     stripped = payload.strip()
     if not stripped:
         raise json.JSONDecodeError("Empty provider payload", payload, 0)
@@ -187,7 +187,7 @@ def parse_provider_observation_payload(payload: str | bytes | dict[str, object])
         return ProviderObservationPayload.model_validate(payload)
     if isinstance(payload, bytes):
         return ProviderObservationPayload.model_validate_json(payload)
-    return ProviderObservationPayload.model_validate(json.loads(_extract_json_object_text(payload)))
+    return ProviderObservationPayload.model_validate(json.loads(extract_json_object_text(payload)))
 
 
 class VisionAnalyzer(Protocol):

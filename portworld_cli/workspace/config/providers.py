@@ -210,12 +210,6 @@ def _validate_provider_flag_conflicts(options: ProviderEditOptions) -> None:
         raise ConfigUsageError("Use only one of --with-vision or --without-vision.")
     if options.with_tooling and options.without_tooling:
         raise ConfigUsageError("Use only one of --with-tooling or --without-tooling.")
-    if (options.openai_api_key or "").strip():
-        raise ConfigUsageError("--openai-api-key has been removed. Use --realtime-api-key.")
-    if (options.vision_provider_api_key or "").strip():
-        raise ConfigUsageError("--vision-provider-api-key has been removed. Use --vision-api-key.")
-    if (options.tavily_api_key or "").strip():
-        raise ConfigUsageError("--tavily-api-key has been removed. Use --search-api-key.")
 
 
 def _validate_provider_toggle_dependencies(

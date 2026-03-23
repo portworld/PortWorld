@@ -131,7 +131,6 @@ def _build_effective_env_values(
     env_updates: dict[str, str],
 ) -> dict[str, str]:
     values = dict(session.existing_env.known_values)
-    values.update(session.existing_env.legacy_alias_values)
     values.update(session.existing_env.preserved_overrides)
     values.update(config_selection)
     values.update(env_updates)

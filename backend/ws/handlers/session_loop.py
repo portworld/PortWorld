@@ -4,9 +4,10 @@ import logging
 
 from backend.ws.handlers.binary_dispatch import dispatch_binary_frame
 from backend.ws.handlers.control_dispatch import dispatch_control_envelope, parse_control_envelope
+from backend.ws.protocol.error_utils import send_error
 from backend.ws.session.session_context import SessionConnectionContext
 from backend.ws.session.session_runtime import trace_ws_message
-from backend.ws.session.session_transport import SendBinary, SendControl
+from backend.ws.session.transport_contracts import SendBinary, SendControl
 
 logger = logging.getLogger(__name__)
 
@@ -68,14 +69,9 @@ async def process_next_websocket_message(
     dispatch_result = await dispatch_control_envelope(
         envelope=envelope,
         active_session=context.active_session,
-        websocket=context.websocket,
+        context=context,
         send_control=send_control,
         send_server_audio=send_server_audio,
-        telemetry=context.telemetry,
-        settings=context.runtime.settings,
-        build_session_bridge=context.runtime.make_session_bridge,
-        storage=context.runtime.storage,
-        vision_memory_runtime=context.runtime.vision_memory_runtime,
     )
     context.active_session = dispatch_result.active_session
     if not dispatch_result.handled:
@@ -111,17 +107,17 @@ async def _allow_session_activation(
         activation_rate_decision.scope,
         activation_rate_decision.retry_after_seconds,
     )
-    await send_control(
-        "error",
-        {
-            "code": "RATE_LIMITED",
-            "message": (
-                "Session activation rate limit exceeded "
-                f"for {activation_rate_decision.scope}"
-            ),
-            "retriable": True,
+    await send_error(
+        send_control,
+        code="RATE_LIMITED",
+        message=(
+            "Session activation rate limit exceeded "
+            f"for {activation_rate_decision.scope}"
+        ),
+        retriable=True,
+        fallback_session_id=envelope_session_id,
+        extra_payload={
             "retry_after_seconds": activation_rate_decision.retry_after_seconds,
         },
-        fallback_session_id=envelope_session_id,
     )
     return False

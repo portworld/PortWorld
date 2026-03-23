@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Literal
 
 from backend.core.storage import now_ms
 from backend.memory.materializer import build_accepted_vision_event
@@ -14,6 +15,10 @@ from backend.vision.runtime.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from backend.vision.policy.gating import VisionProviderBudgetState, VisionSignalSnapshot
+    from backend.vision.runtime.models import SessionVisionWorker
 
 
 class VisionAnalysisMixin:
@@ -48,11 +53,11 @@ class VisionAnalysisMixin:
     async def _defer_candidate(
         self,
         *,
-        worker,
+        worker: "SessionVisionWorker",
         pending_frame: PendingVisionFrame,
-        signal,
-        route,
-        provider_budget_state,
+        signal: "VisionSignalSnapshot",
+        route: VisionRouteDecision,
+        provider_budget_state: "VisionProviderBudgetState",
     ) -> None:
         bootstrap_candidate = route.memory_bootstrap_required and worker.accepted_event_count == 0
         incoming = DeferredVisionCandidate(
@@ -63,104 +68,8 @@ class VisionAnalysisMixin:
             bootstrap_candidate=bootstrap_candidate,
         )
         existing = worker.best_deferred_candidate
-        if existing is None:
-            worker.best_deferred_candidate = incoming
-            await self._run_storage(
-                self.storage.update_vision_frame_processing,
-                session_id=signal.session_id,
-                frame_id=signal.frame_id,
-                processing_status="retry_pending" if bootstrap_candidate else "deferred",
-                gate_status="accepted",
-                gate_reason=route.reason,
-                phash=signal.dhash_hex,
-                provider=self.provider_name,
-                model=self.model_name,
-                next_retry_at_ms=provider_budget_state.available_at_ms,
-                routing_status=route.action,
-                routing_reason=route.reason,
-                routing_score=route.priority_score,
-                routing_metadata=self._build_routing_metadata(
-                    signal=signal,
-                    route=route,
-                    provider_budget_state=provider_budget_state,
-                    analysis_outcome="deferred_candidate_selected",
-                ),
-            )
-            if bootstrap_candidate:
-                worker.bootstrap_state = "bootstrap_pending"
-                await self._persist_bootstrap_memory_state(
-                    worker=worker,
-                    status="bootstrap_pending",
-                    reason=route.reason,
-                    frame_id=signal.frame_id,
-                    next_retry_at_ms=provider_budget_state.available_at_ms,
-                    attempt_count=await self._current_attempt_count(
-                        session_id=signal.session_id,
-                        frame_id=signal.frame_id,
-                    ),
-                )
-            await self._append_routing_event(
-                signal=signal,
-                route=route,
-                provider_budget_state=provider_budget_state,
-                did_attempt_analysis=False,
-                analysis_outcome="deferred_candidate_selected",
-            )
-            async with worker.condition:
-                worker.condition.notify_all()
-            return
-        if existing.bootstrap_candidate and bootstrap_candidate:
-            if incoming.route.priority_score > existing.route.priority_score:
-                worker.best_deferred_candidate = incoming
-                await self._run_storage(
-                    self.storage.update_vision_frame_processing,
-                    session_id=signal.session_id,
-                    frame_id=signal.frame_id,
-                    processing_status="retry_pending",
-                    gate_status="accepted",
-                    gate_reason=route.reason,
-                    phash=signal.dhash_hex,
-                    provider=self.provider_name,
-                    model=self.model_name,
-                    next_retry_at_ms=provider_budget_state.available_at_ms,
-                    routing_status=route.action,
-                    routing_reason=route.reason,
-                    routing_score=route.priority_score,
-                    routing_metadata=self._build_routing_metadata(
-                        signal=signal,
-                        route=route,
-                        provider_budget_state=provider_budget_state,
-                        analysis_outcome="deferred_candidate_selected",
-                    ),
-                )
-                await self._mark_store_only(
-                    pending_frame=existing.pending_frame,
-                    signal=existing.signal,
-                    route=existing.route,
-                    provider_budget_state=provider_budget_state,
-                    reason="bootstrap_candidate_replaced_by_stronger_frame",
-                )
-                await self._persist_bootstrap_memory_state(
-                    worker=worker,
-                    status="bootstrap_pending",
-                    reason=route.reason,
-                    frame_id=signal.frame_id,
-                    next_retry_at_ms=provider_budget_state.available_at_ms,
-                    attempt_count=await self._current_attempt_count(
-                        session_id=signal.session_id,
-                        frame_id=signal.frame_id,
-                    ),
-                )
-                await self._append_routing_event(
-                    signal=signal,
-                    route=route,
-                    provider_budget_state=provider_budget_state,
-                    did_attempt_analysis=False,
-                    analysis_outcome="deferred_candidate_selected",
-                )
-                async with worker.condition:
-                    worker.condition.notify_all()
-                return
+        selection = self._select_deferred_candidate_action(existing=existing, incoming=incoming)
+        if selection == "keep_existing_bootstrap":
             await self._mark_store_only(
                 pending_frame=pending_frame,
                 signal=signal,
@@ -169,57 +78,19 @@ class VisionAnalysisMixin:
                 reason="bootstrap_candidate_already_pending",
             )
             return
-        if is_candidate_stronger(incoming, existing):
-            worker.best_deferred_candidate = incoming
-            await self._run_storage(
-                self.storage.update_vision_frame_processing,
-                session_id=signal.session_id,
-                frame_id=signal.frame_id,
-                processing_status="retry_pending" if bootstrap_candidate else "deferred",
-                gate_status="accepted",
-                gate_reason=route.reason,
-                phash=signal.dhash_hex,
-                provider=self.provider_name,
-                model=self.model_name,
-                next_retry_at_ms=provider_budget_state.available_at_ms,
-                routing_status=route.action,
-                routing_reason=route.reason,
-                routing_score=route.priority_score,
-                routing_metadata=self._build_routing_metadata(
-                    signal=signal,
-                    route=route,
-                    provider_budget_state=provider_budget_state,
-                    analysis_outcome="deferred_candidate_selected",
-                ),
-            )
-            await self._mark_store_only(
-                pending_frame=existing.pending_frame,
-                signal=existing.signal,
-                route=existing.route,
+        if selection in {"select", "replace_bootstrap", "replace"}:
+            replace_reason: str | None = None
+            if selection == "replace_bootstrap":
+                replace_reason = "bootstrap_candidate_replaced_by_stronger_frame"
+            elif selection == "replace":
+                replace_reason = "deferred_replaced_by_higher_priority_candidate"
+            await self._persist_selected_deferred_candidate(
+                worker=worker,
+                incoming=incoming,
                 provider_budget_state=provider_budget_state,
-                reason="deferred_replaced_by_higher_priority_candidate",
+                replaced_candidate=existing,
+                replaced_reason=replace_reason,
             )
-            if bootstrap_candidate:
-                await self._persist_bootstrap_memory_state(
-                    worker=worker,
-                    status="bootstrap_pending",
-                    reason=route.reason,
-                    frame_id=signal.frame_id,
-                    next_retry_at_ms=provider_budget_state.available_at_ms,
-                    attempt_count=await self._current_attempt_count(
-                        session_id=signal.session_id,
-                        frame_id=signal.frame_id,
-                    ),
-                )
-            await self._append_routing_event(
-                signal=signal,
-                route=route,
-                provider_budget_state=provider_budget_state,
-                did_attempt_analysis=False,
-                analysis_outcome="deferred_candidate_selected",
-            )
-            async with worker.condition:
-                worker.condition.notify_all()
             return
         await self._mark_store_only(
             pending_frame=pending_frame,
@@ -229,30 +100,104 @@ class VisionAnalysisMixin:
             reason="deferred_not_selected_lower_priority",
         )
 
+    def _select_deferred_candidate_action(
+        self,
+        *,
+        existing: DeferredVisionCandidate | None,
+        incoming: DeferredVisionCandidate,
+    ) -> Literal["select", "replace_bootstrap", "replace", "keep_existing_bootstrap", "keep_existing"]:
+        if existing is None:
+            return "select"
+        if existing.bootstrap_candidate and incoming.bootstrap_candidate:
+            if incoming.route.priority_score > existing.route.priority_score:
+                return "replace_bootstrap"
+            return "keep_existing_bootstrap"
+        if is_candidate_stronger(incoming, existing):
+            return "replace"
+        return "keep_existing"
+
+    async def _persist_selected_deferred_candidate(
+        self,
+        *,
+        worker: "SessionVisionWorker",
+        incoming: DeferredVisionCandidate,
+        provider_budget_state: "VisionProviderBudgetState",
+        replaced_candidate: DeferredVisionCandidate | None,
+        replaced_reason: str | None,
+    ) -> None:
+        signal = incoming.signal
+        route = incoming.route
+        worker.best_deferred_candidate = incoming
+        await self._update_frame_processing(
+            session_id=signal.session_id,
+            frame_id=signal.frame_id,
+            processing_status="retry_pending" if incoming.bootstrap_candidate else "deferred",
+            gate_status="accepted",
+            gate_reason=route.reason,
+            phash=signal.dhash_hex,
+            next_retry_at_ms=provider_budget_state.available_at_ms,
+            routing_status=route.action,
+            routing_reason=route.reason,
+            routing_score=route.priority_score,
+            routing_metadata=self._build_routing_metadata(
+                signal=signal,
+                route=route,
+                provider_budget_state=provider_budget_state,
+                analysis_outcome="deferred_candidate_selected",
+            ),
+        )
+        if replaced_candidate is not None and replaced_reason is not None:
+            await self._mark_store_only(
+                pending_frame=replaced_candidate.pending_frame,
+                signal=replaced_candidate.signal,
+                route=replaced_candidate.route,
+                provider_budget_state=provider_budget_state,
+                reason=replaced_reason,
+            )
+        if incoming.bootstrap_candidate:
+            worker.bootstrap_state = "bootstrap_pending"
+            await self._persist_bootstrap_memory_state(
+                worker=worker,
+                status="bootstrap_pending",
+                reason=route.reason,
+                frame_id=signal.frame_id,
+                next_retry_at_ms=provider_budget_state.available_at_ms,
+                attempt_count=await self._current_attempt_count(
+                    session_id=signal.session_id,
+                    frame_id=signal.frame_id,
+                ),
+            )
+        await self._append_routing_event(
+            signal=signal,
+            route=route,
+            provider_budget_state=provider_budget_state,
+            did_attempt_analysis=False,
+            analysis_outcome="deferred_candidate_selected",
+        )
+        async with worker.condition:
+            worker.condition.notify_all()
+
     async def _handle_terminal_analysis_failure(
         self,
         *,
-        worker,
+        worker: "SessionVisionWorker",
         pending_frame: PendingVisionFrame,
-        signal,
-        route,
-        slot_state,
+        signal: "VisionSignalSnapshot",
+        route: VisionRouteDecision,
+        slot_state: "VisionProviderBudgetState",
         error_code: str,
-        error_details: dict,
+        error_details: dict[str, object],
         bootstrap_reason: str,
     ) -> None:
         session_id = pending_frame.frame_context.session_id
         frame_id = pending_frame.frame_context.frame_id
-        await self._run_storage(
-            self.storage.update_vision_frame_processing,
+        await self._update_frame_processing(
             session_id=session_id,
             frame_id=frame_id,
             processing_status="analysis_failed",
             gate_status="accepted",
             gate_reason=route.reason,
             phash=signal.dhash_hex,
-            provider=self.provider_name,
-            model=self.model_name,
             analyzed_at_ms=now_ms(),
             next_retry_at_ms=None,
             attempt_count=await self._current_attempt_count(
@@ -320,10 +265,10 @@ class VisionAnalysisMixin:
     async def _handle_rate_limit_failure(
         self,
         *,
-        worker,
+        worker: "SessionVisionWorker",
         pending_frame: PendingVisionFrame,
-        signal,
-        route,
+        signal: "VisionSignalSnapshot",
+        route: VisionRouteDecision,
         exc: VisionRateLimitError,
     ) -> None:
         await self.provider_budget.record_rate_limit(exc.retry_after_seconds)
@@ -337,16 +282,13 @@ class VisionAnalysisMixin:
         session_id = pending_frame.frame_context.session_id
         frame_id = pending_frame.frame_context.frame_id
         bootstrap_retry = route.memory_bootstrap_required and worker.accepted_event_count == 0
-        await self._run_storage(
-            self.storage.update_vision_frame_processing,
+        await self._update_frame_processing(
             session_id=session_id,
             frame_id=frame_id,
             processing_status="retry_pending" if bootstrap_retry else "analysis_rate_limited",
             gate_status="accepted",
             gate_reason=route.reason,
             phash=signal.dhash_hex,
-            provider=self.provider_name,
-            model=self.model_name,
             analyzed_at_ms=now_ms(),
             next_retry_at_ms=cooldown_state.available_at_ms,
             attempt_count=await self._current_attempt_count(
@@ -418,10 +360,10 @@ class VisionAnalysisMixin:
     async def _analyze_now(
         self,
         *,
-        worker,
+        worker: "SessionVisionWorker",
         pending_frame: PendingVisionFrame,
-        signal,
-        route,
+        signal: "VisionSignalSnapshot",
+        route: VisionRouteDecision,
     ) -> None:
         slot_state = await self.provider_budget.acquire_analysis_slot()
         if not slot_state.available_now:
@@ -446,16 +388,13 @@ class VisionAnalysisMixin:
             )
             return
 
-        await self._run_storage(
-            self.storage.update_vision_frame_processing,
+        await self._update_frame_processing(
             session_id=pending_frame.frame_context.session_id,
             frame_id=pending_frame.frame_context.frame_id,
             processing_status="analyzing",
             gate_status="accepted",
             gate_reason=route.reason,
             phash=signal.dhash_hex,
-            provider=self.provider_name,
-            model=self.model_name,
             next_retry_at_ms=None,
             attempt_count=(await self._current_attempt_count(
                 session_id=pending_frame.frame_context.session_id,
@@ -546,16 +485,13 @@ class VisionAnalysisMixin:
         await self._materialize_short_term_memory(worker)
         if self._should_roll_session_memory(worker):
             await self._materialize_session_memory(worker)
-        await self._run_storage(
-            self.storage.update_vision_frame_processing,
+        await self._update_frame_processing(
             session_id=observation.session_id,
             frame_id=observation.frame_id,
             processing_status="analyzed",
             gate_status="accepted",
             gate_reason=route.reason,
             phash=signal.dhash_hex,
-            provider=self.provider_name,
-            model=self.model_name,
             analyzed_at_ms=now_ms(),
             next_retry_at_ms=None,
             error_details=None,

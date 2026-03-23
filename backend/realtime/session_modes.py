@@ -3,9 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.core.settings import Settings
+from backend.tools.catalog import (
+    DEFAULT_MODE_ALLOWED_TOOL_NAMES,
+    USER_MEMORY_ONBOARDING_ALLOWED_TOOL_NAMES,
+)
 
 
-PROFILE_ONBOARDING_INSTRUCTIONS = """
+USER_MEMORY_ONBOARDING_INSTRUCTIONS = """
 You are Mario, welcoming a first-time PortWorld user through a live voice onboarding conversation.
 
 Role:
@@ -54,6 +58,17 @@ Completion rule:
 - Only after complete_user_memory_onboarding succeeds, tell the user they are all set and ready to continue in the app.
 """.strip()
 
+DEFAULT_REALTIME_MEMORY_INSTRUCTIONS = """
+Memory behavior:
+- USER memory is already loaded into your instructions in compact form.
+- Do not ask the user whether you should remember something.
+- Use lazy memory tools only when the answer depends on cross-session or session memory that is not already in your instructions.
+- When the user naturally reveals a durable preference, identity detail, intended use, or meaningful ongoing thread, capture it with capture_memory_candidate.
+- Do not use capture_memory_candidate for one-off transient requests or low-confidence guesses.
+""".strip()
+
+PROFILE_ONBOARDING_INSTRUCTIONS = USER_MEMORY_ONBOARDING_INSTRUCTIONS
+
 
 @dataclass(frozen=True, slots=True)
 class RealtimeSessionModeDefinition:
@@ -88,30 +103,20 @@ def build_default_realtime_session_mode_registry(
     registry.register(
         RealtimeSessionModeDefinition(
             name="default",
-            instructions=settings.openai_realtime_instructions,
-            allowed_tool_names=frozenset(
-                {
-                    "get_short_term_memory",
-                    "get_long_term_memory",
-                    "get_cross_session_memory",
-                    "get_user_memory",
-                    "update_user_memory",
-                    "web_search",
-                }
-            ),
+            instructions=settings.realtime_instructions.rstrip()
+            + "\n\n"
+            + DEFAULT_REALTIME_MEMORY_INSTRUCTIONS,
+            allowed_tool_names=DEFAULT_MODE_ALLOWED_TOOL_NAMES,
         )
     )
-    registry.register(
-        RealtimeSessionModeDefinition(
-            name="profile_onboarding",
-            instructions=PROFILE_ONBOARDING_INSTRUCTIONS,
-            allowed_tool_names=frozenset(
-                {
-                    "get_user_memory",
-                    "update_user_memory",
-                    "complete_user_memory_onboarding",
-                }
-            ),
-        )
-    )
+    registry.register(_build_onboarding_mode_definition("user_memory_onboarding"))
+    registry.register(_build_onboarding_mode_definition("profile_onboarding"))
     return registry
+
+
+def _build_onboarding_mode_definition(name: str) -> RealtimeSessionModeDefinition:
+    return RealtimeSessionModeDefinition(
+        name=name,
+        instructions=USER_MEMORY_ONBOARDING_INSTRUCTIONS,
+        allowed_tool_names=USER_MEMORY_ONBOARDING_ALLOWED_TOOL_NAMES,
+    )

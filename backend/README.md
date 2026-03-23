@@ -7,6 +7,7 @@ FastAPI + Uvicorn backend that relays realtime voice sessions through selectable
 - **Realtime voice relay** — bridges a WebSocket audio session to the selected realtime provider; streams assistant audio back to the client
 - **Persistent memory** — canonical markdown memory files (`USER.md`, `CROSS_SESSION.md`, per-session `SHORT_TERM.md` / `LONG_TERM.md`) with configurable retention
 - **Visual memory** *(opt-in)* — ingests JPEG frames via `POST /vision/frame`, routes them through adaptive scene-change gating, and builds semantic session memory using pluggable vision providers, including native Mistral and NVIDIA Integrate
+- **Durable-memory consolidation** *(opt-in)* — rewrites `USER.md` and `CROSS_SESSION.md` at session close using the same provider/model surface as visual memory
 - **Realtime tooling** *(opt-in)* — registers memory-recall tools with the active OpenAI session; optionally adds web search via Tavily
 - **Bearer token auth** — all non-health endpoints can require `Authorization: Bearer <token>`; production mode enforces this at startup
 - **Rate limiting** — sliding-window limits on WebSocket setup, session activation, vision ingest, and protected profile/memory-admin HTTP routes
@@ -160,6 +161,7 @@ Legacy provider alias keys are not supported. Use canonical provider-scoped keys
 | `REALTIME_PROVIDER` | Realtime provider id (`openai` or `gemini_live`) |
 | `VISION_MEMORY_ENABLED` | Set `true` to enable the vision provider pipeline |
 | `VISION_MEMORY_PROVIDER` | Vision provider id when vision is enabled (`mistral`, `nvidia_integrate`, `openai`, `azure_openai`, `gemini`, `claude`, `bedrock`, or `groq`) |
+| `MEMORY_CONSOLIDATION_ENABLED` | Enables durable-memory rewrite at session close; reuses `VISION_MEMORY_PROVIDER` and that provider's credentials/model. Defaults to the current `VISION_MEMORY_ENABLED` value when unset |
 | `REALTIME_TOOLING_ENABLED` | Set `true` to enable realtime tooling |
 | `REALTIME_WEB_SEARCH_PROVIDER` | Search provider id when tooling is enabled (currently `tavily`) |
 
@@ -183,6 +185,8 @@ Legacy provider alias keys are not supported. Use canonical provider-scoped keys
 | `bedrock` | required config: `VISION_BEDROCK_REGION` (optional AWS credentials: `VISION_BEDROCK_AWS_ACCESS_KEY_ID`, `VISION_BEDROCK_AWS_SECRET_ACCESS_KEY`, `VISION_BEDROCK_AWS_SESSION_TOKEN`) |
 | `groq` | `VISION_GROQ_API_KEY` |
 
+When `MEMORY_CONSOLIDATION_ENABLED=true`, the same `VISION_MEMORY_PROVIDER` credentials and model are also used for durable-memory consolidation, even if `VISION_MEMORY_ENABLED=false`.
+
 **Search provider required keys (when `REALTIME_TOOLING_ENABLED=true`)**
 
 | Provider id | Required key(s) |
@@ -205,7 +209,6 @@ Set `BACKEND_PROFILE=production` to enforce the following at startup:
 
 - `local` for SQLite + filesystem (default)
 - `managed` for object-store-backed memory plus Postgres operational metadata
-- `postgres_gcs` as a compatibility alias that is normalized to `managed`
 
 Managed storage uses these canonical object-store variables for memory files:
 
@@ -215,10 +218,6 @@ Managed storage uses these canonical object-store variables for memory files:
 | `BACKEND_OBJECT_STORE_NAME` | Bucket/container name for the managed object store |
 | `BACKEND_OBJECT_STORE_ENDPOINT` | Optional custom endpoint (required for `azure_blob`) |
 | `BACKEND_OBJECT_STORE_PREFIX` | Prefix used for artifact paths |
-
-Compatibility alias:
-
-- `BACKEND_OBJECT_STORE_BUCKET` is still accepted when `BACKEND_OBJECT_STORE_NAME` is unset.
 
 **Rate limiting**
 

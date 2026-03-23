@@ -12,6 +12,12 @@ from backend.vision.runtime.models import coerce_optional_int, latest_capture_ts
 
 
 class VisionMemoryProjectionMixin:
+    def _initialize_storage_writer_capabilities(self) -> None:
+        short_term_parameters = inspect.signature(self.storage.write_short_term_memory).parameters
+        session_parameters = inspect.signature(self.storage.write_session_memory).parameters
+        self._storage_supports_short_term_payload = "payload" in short_term_parameters
+        self._storage_supports_session_payload = "payload" in session_parameters
+
     def _prune_short_term_window_events(self, worker) -> None:
         if not worker.short_term_window_events:
             return
@@ -241,8 +247,9 @@ class VisionMemoryProjectionMixin:
         markdown_text: str,
     ) -> None:
         writer = self.storage.write_short_term_memory
-        parameters = inspect.signature(writer).parameters
-        if "payload" in parameters:
+        if self._storage_supports_short_term_payload is None:
+            self._initialize_storage_writer_capabilities()
+        if self._storage_supports_short_term_payload:
             writer(session_id=session_id, payload=payload, markdown_text=markdown_text)
             return
         writer(session_id=session_id, markdown=markdown_text)
@@ -255,8 +262,9 @@ class VisionMemoryProjectionMixin:
         markdown_text: str,
     ) -> None:
         writer = self.storage.write_session_memory
-        parameters = inspect.signature(writer).parameters
-        if "payload" in parameters:
+        if self._storage_supports_session_payload is None:
+            self._initialize_storage_writer_capabilities()
+        if self._storage_supports_session_payload:
             writer(session_id=session_id, payload=payload, markdown_text=markdown_text)
             return
         writer(session_id=session_id, markdown=markdown_text)

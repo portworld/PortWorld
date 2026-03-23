@@ -141,16 +141,13 @@ class VisionFrameJournalMixin:
         provider_budget_state: "VisionProviderBudgetState",
         reason: str,
     ) -> None:
-        await self._run_storage(
-            self.storage.update_vision_frame_processing,
+        await self._update_frame_processing(
             session_id=pending_frame.frame_context.session_id,
             frame_id=pending_frame.frame_context.frame_id,
             processing_status="gated_rejected",
             gate_status="rejected",
             gate_reason=reason,
             phash=signal.dhash_hex,
-            provider=self.provider_name,
-            model=self.model_name,
             routing_status="drop_redundant",
             routing_reason=reason,
             routing_score=route.priority_score if route is not None else None,
@@ -184,16 +181,13 @@ class VisionFrameJournalMixin:
         provider_budget_state: "VisionProviderBudgetState",
         reason: str,
     ) -> None:
-        await self._run_storage(
-            self.storage.update_vision_frame_processing,
+        await self._update_frame_processing(
             session_id=pending_frame.frame_context.session_id,
             frame_id=pending_frame.frame_context.frame_id,
             processing_status="stored_only",
             gate_status="accepted",
             gate_reason=reason,
             phash=signal.dhash_hex,
-            provider=self.provider_name,
-            model=self.model_name,
             routing_status="store_only",
             routing_reason=reason,
             routing_score=route.priority_score if route is not None else None,

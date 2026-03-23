@@ -22,6 +22,8 @@ class ManagedTargetStatePathsTests(unittest.TestCase):
             paths.status_payload(exposed_only=True),
             {
                 "gcp_cloud_run": "/tmp/portworld/.portworld/state/gcp-cloud-run.json",
+                "aws_ecs_fargate": "/tmp/portworld/.portworld/state/aws-ecs-fargate.json",
+                "azure_container_apps": "/tmp/portworld/.portworld/state/azure-container-apps.json",
             },
         )
 

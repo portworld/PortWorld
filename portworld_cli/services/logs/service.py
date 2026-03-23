@@ -263,15 +263,6 @@ def run_logs_aws_ecs_fargate(
         },
         exit_code=0,
     )
-
-
-def run_logs_aws_app_runner(
-    cli_context: CLIContext,
-    options: LogsAWSECSFargateOptions,
-) -> CommandResult:
-    return run_logs_aws_ecs_fargate(cli_context, options)
-
-
 def run_logs_azure_container_apps(
     cli_context: CLIContext,
     options: LogsAzureContainerAppsOptions,

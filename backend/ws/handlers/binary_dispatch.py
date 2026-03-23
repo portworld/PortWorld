@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
 
 from backend.realtime.client import RealtimeClientError
+from backend.ws.protocol.error_utils import send_error
 from backend.ws.protocol.frame_codec import (
     CLIENT_AUDIO_FRAME_TYPE,
+    FrameCodecError,
     decode_frame,
 )
 from backend.ws.session.session_registry import SessionRecord
+from backend.ws.session.transport_contracts import SendControl
 from backend.ws.telemetry import SessionTelemetry
 
 logger = logging.getLogger(__name__)
-
-SendControl = Callable[..., Awaitable[None]]
 
 
 async def dispatch_binary_frame(
@@ -30,19 +30,17 @@ async def dispatch_binary_frame(
 
     try:
         frame_type, frame_ts_ms, payload_bytes = decode_frame(raw_bytes)
-    except Exception as exc:
+    except (FrameCodecError, TypeError) as exc:
         logger.warning(
             "Invalid binary frame for session=%s: %s",
             active_session.session_id,
             exc,
         )
-        await send_control(
-            "error",
-            {
-                "code": "INVALID_BINARY_FRAME",
-                "message": "Invalid binary frame",
-                "retriable": False,
-            },
+        await send_error(
+            send_control,
+            code="INVALID_BINARY_FRAME",
+            message="Invalid binary frame",
+            retriable=False,
         )
         return True
 
@@ -82,12 +80,10 @@ async def dispatch_binary_frame(
             active_session.session_id,
             exc,
         )
-        await send_control(
-            "error",
-            {
-                "code": "UPSTREAM_SEND_FAILED",
-                "message": "Failed to forward audio upstream",
-                "retriable": True,
-            },
+        await send_error(
+            send_control,
+            code="UPSTREAM_SEND_FAILED",
+            message="Failed to forward audio upstream",
+            retriable=True,
         )
     return True

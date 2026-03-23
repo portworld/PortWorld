@@ -70,9 +70,6 @@ class InitOptions:
     realtime_api_key: str | None
     vision_api_key: str | None
     search_api_key: str | None
-    openai_api_key: str | None
-    vision_provider_api_key: str | None
-    tavily_api_key: str | None
     backend_profile: str | None
     cors_origins: str | None
     allowed_hosts: str | None
@@ -435,9 +432,6 @@ def _collect_init_sections(
             realtime_api_key=options.realtime_api_key,
             vision_api_key=options.vision_api_key,
             search_api_key=options.search_api_key,
-            openai_api_key=options.openai_api_key,
-            vision_provider_api_key=options.vision_provider_api_key,
-            tavily_api_key=options.tavily_api_key,
         ),
     )
     project_config, env_updates = apply_provider_section(

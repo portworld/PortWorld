@@ -42,7 +42,7 @@ def build_openai_session_bridge(
 ) -> BridgeBinding:
     context = BridgeBindingContext()
     api_key = settings.require_openai_api_key()
-    base_instructions = settings.openai_realtime_instructions
+    base_instructions = settings.realtime_instructions
     if isinstance(session_instructions, str) and session_instructions.strip():
         base_instructions = session_instructions.strip()
     effective_instructions = base_instructions
@@ -52,10 +52,10 @@ def build_openai_session_bridge(
         )
     client = OpenAIRealtimeClient(
         api_key=api_key,
-        model=settings.openai_realtime_model,
-        voice=settings.openai_realtime_voice,
+        model=settings.realtime_model,
+        voice=settings.realtime_voice,
         instructions=effective_instructions,
-        include_turn_detection=settings.openai_realtime_include_turn_detection,
+        include_turn_detection=settings.realtime_include_turn_detection,
         trace_events=settings.backend_debug_trace_ws_messages,
     )
     bridge = IOSRealtimeBridge(
@@ -68,9 +68,9 @@ def build_openai_session_bridge(
             fallback_session_id=session_id,
         ),
         send_binary_frame=send_server_audio,
-        server_turn_detection_enabled=settings.openai_realtime_include_turn_detection,
-        manual_turn_fallback_enabled=settings.openai_realtime_enable_manual_turn_fallback,
-        manual_turn_fallback_delay_ms=settings.openai_realtime_manual_turn_fallback_delay_ms,
+        server_turn_detection_enabled=settings.realtime_include_turn_detection,
+        manual_turn_fallback_enabled=settings.realtime_enable_manual_turn_fallback,
+        manual_turn_fallback_delay_ms=settings.realtime_manual_turn_fallback_delay_ms,
         tooling_runtime=realtime_tooling_runtime,
         session_instructions=effective_instructions,
         auto_start_response=auto_start_response,

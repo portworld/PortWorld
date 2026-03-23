@@ -182,11 +182,6 @@ class AWSAppRunnerConfig:
             "subnet_ids": list(self.subnet_ids),
         }
 
-
-# Backward-compatible alias for legacy references.
-AWSECSFargateConfig = AWSAppRunnerConfig
-
-
 @dataclass(frozen=True, slots=True)
 class AzureContainerAppsConfig:
     subscription_id: str | None = None

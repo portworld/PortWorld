@@ -8,19 +8,10 @@ from collections.abc import AsyncIterator, Sequence
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-import websockets
-from websockets import exceptions as ws_exceptions
-
 from backend.core.settings import Settings
 from backend.realtime.bridge import IOSRealtimeBridge
 from backend.realtime.client import (
     INPUT_AUDIO_SAMPLE_RATE,
-    RealtimeClientError,
-    RealtimeClosedError,
-    RealtimeConnectionError,
-    RealtimeProtocolError,
-    RealtimeReceiveError,
-    RealtimeSendError,
 )
 from backend.realtime.contracts import (
     NormalizedRealtimeEvent,
@@ -33,6 +24,7 @@ from backend.realtime.factory import (
     BridgeBindingContext,
     ControlSender,
 )
+from backend.realtime.websocket_client import BaseRealtimeWebsocketClient
 from backend.tools.contracts import ToolDefinition
 from backend.tools.runtime import RealtimeToolingRuntime
 from backend.ws.protocol.contracts import now_ms
@@ -95,11 +87,11 @@ def build_gemini_live_session_bridge(
 ) -> BridgeBinding:
     context = BridgeBindingContext()
     api_key = settings.require_realtime_api_key(provider="gemini_live")
-    if not settings.openai_realtime_enable_manual_turn_fallback:
+    if not settings.realtime_enable_manual_turn_fallback:
         logger.warning(
-            "Gemini Live requires manual turn finalization; ignoring openai_realtime_enable_manual_turn_fallback=false"
+            "Gemini Live requires manual turn finalization; ignoring realtime_enable_manual_turn_fallback=false"
         )
-    base_instructions = settings.openai_realtime_instructions
+    base_instructions = settings.realtime_instructions
     if isinstance(session_instructions, str) and session_instructions.strip():
         base_instructions = session_instructions.strip()
     effective_instructions = base_instructions
@@ -129,7 +121,7 @@ def build_gemini_live_session_bridge(
         send_binary_frame=send_server_audio,
         server_turn_detection_enabled=False,
         manual_turn_fallback_enabled=True,
-        manual_turn_fallback_delay_ms=settings.openai_realtime_manual_turn_fallback_delay_ms,
+        manual_turn_fallback_delay_ms=settings.realtime_manual_turn_fallback_delay_ms,
         tooling_runtime=realtime_tooling_runtime,
         session_instructions=effective_instructions,
         auto_start_response=auto_start_response,
@@ -138,7 +130,7 @@ def build_gemini_live_session_bridge(
     return BridgeBinding(bridge=bridge, context=context)
 
 
-class GeminiLiveRealtimeClient:
+class GeminiLiveRealtimeClient(BaseRealtimeWebsocketClient):
     """Native websocket adapter for Gemini Live API.
 
     Protocol assumptions are intentionally explicit and conservative:
@@ -166,15 +158,14 @@ class GeminiLiveRealtimeClient:
         if not resolved_model:
             raise ValueError("model must be non-empty")
 
+        super().__init__(trace_events=trace_events)
         self._api_key = resolved_api_key
         self._model = resolved_model
         self._instructions = instructions
-        self._trace_events = trace_events
 
         self._base_url = self._normalize_base_url(base_url)
         self._endpoint = self._normalize_endpoint(endpoint)
 
-        self._ws: Any | None = None
         self._registered_tools: tuple[ToolDefinition, ...] = ()
         self._session_initialized = False
         self._input_audio_append_count = 0
@@ -186,13 +177,6 @@ class GeminiLiveRealtimeClient:
         self._cancelled_tool_call_ids: set[str] = set()
 
     @property
-    def is_connected(self) -> bool:
-        ws = self._ws
-        if ws is None:
-            return False
-        return not getattr(ws, "closed", False)
-
-    @property
     def websocket_url(self) -> str:
         query = urlencode({"key": self._api_key})
         return f"{self._base_url}{self._endpoint}?{query}"
@@ -201,25 +185,19 @@ class GeminiLiveRealtimeClient:
     def redacted_websocket_url(self) -> str:
         return self._redact_sensitive_url(self.websocket_url)
 
-    async def connect(self) -> None:
-        if self.is_connected:
-            return
+    def _connection_error_endpoint(self) -> str:
+        return self.redacted_websocket_url
 
-        try:
-            self._ws = await websockets.connect(self.websocket_url)
-        except Exception as exc:
-            safe_endpoint = self.redacted_websocket_url
-            safe_detail = self._redact_sensitive_text(str(exc))
-            logger.warning(
-                "Gemini Live websocket connect failed type=%s detail=%s endpoint=%s",
-                type(exc).__name__,
-                safe_detail,
-                safe_endpoint,
-            )
-            raise RealtimeConnectionError(
-                f"Failed to connect to realtime endpoint: {safe_endpoint}"
-            ) from exc
+    def _log_connect_failure(self, exc: Exception) -> None:
+        safe_detail = self._redact_sensitive_text(str(exc))
+        logger.warning(
+            "Gemini Live websocket connect failed type=%s detail=%s endpoint=%s",
+            type(exc).__name__,
+            safe_detail,
+            self.redacted_websocket_url,
+        )
 
+    def _on_connected(self) -> None:
         if self._trace_events:
             logger.info(
                 "Gemini Live websocket connected endpoint=%s model=%s",
@@ -227,18 +205,23 @@ class GeminiLiveRealtimeClient:
                 self._model,
             )
 
+    def _on_send_trace(self, event: dict[str, Any]) -> None:
+        realtime_input = event.get("realtimeInput")
+        if isinstance(realtime_input, dict) and "audio" in realtime_input:
+            self._input_audio_append_count += 1
+            if self._input_audio_append_count == 1:
+                logger.debug("Gemini Live send type=realtimeInput.audio count=1")
+        elif "setup" in event:
+            logger.debug("Gemini Live send type=setup")
+        elif "toolResponse" in event:
+            logger.debug("Gemini Live send type=toolResponse")
+        else:
+            logger.debug("Gemini Live send keys=%s", sorted(event.keys()))
+
     async def close(self) -> None:
-        ws = self._ws
-        self._ws = None
         self._session_initialized = False
         self._active_response_id = None
-        if ws is None:
-            return
-
-        try:
-            await ws.close()
-        except Exception as exc:
-            raise RealtimeClientError("Failed to close websocket cleanly") from exc
+        await super().close()
 
     async def initialize_session(
         self,
@@ -348,74 +331,6 @@ class GeminiLiveRealtimeClient:
     ) -> bool:
         _ = (code, message, tools, instructions)
         return False
-
-    async def send_json(self, event: dict[str, Any]) -> None:
-        ws = self._ws
-        if ws is None or getattr(ws, "closed", False):
-            raise RealtimeClosedError("Websocket is not connected")
-
-        try:
-            payload = json.dumps(event)
-        except (TypeError, ValueError) as exc:
-            raise RealtimeProtocolError("Event is not JSON serializable") from exc
-
-        try:
-            await ws.send(payload)
-        except ws_exceptions.ConnectionClosed as exc:
-            raise RealtimeClosedError("Websocket is closed") from exc
-        except Exception as exc:
-            raise RealtimeSendError("Failed to send event") from exc
-
-        if self._trace_events:
-            realtime_input = event.get("realtimeInput")
-            if isinstance(realtime_input, dict) and "audio" in realtime_input:
-                self._input_audio_append_count += 1
-                if self._input_audio_append_count == 1:
-                    logger.debug("Gemini Live send type=realtimeInput.audio count=1")
-            elif "setup" in event:
-                logger.debug("Gemini Live send type=setup")
-            elif "toolResponse" in event:
-                logger.debug("Gemini Live send type=toolResponse")
-            else:
-                logger.debug("Gemini Live send keys=%s", sorted(event.keys()))
-
-    async def recv_json(self) -> dict[str, Any]:
-        ws = self._ws
-        if ws is None or getattr(ws, "closed", False):
-            raise RealtimeClosedError("Websocket is not connected")
-
-        try:
-            raw_message = await ws.recv()
-        except ws_exceptions.ConnectionClosed as exc:
-            raise RealtimeClosedError("Websocket is closed") from exc
-        except Exception as exc:
-            raise RealtimeReceiveError("Failed to receive event") from exc
-
-        if isinstance(raw_message, bytes):
-            try:
-                raw_message = raw_message.decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise RealtimeProtocolError("Received non-UTF8 websocket frame") from exc
-
-        if not isinstance(raw_message, str):
-            raise RealtimeProtocolError("Received unsupported websocket message type")
-
-        try:
-            event = json.loads(raw_message)
-        except json.JSONDecodeError as exc:
-            raise RealtimeProtocolError("Received invalid JSON from realtime API") from exc
-
-        if not isinstance(event, dict):
-            raise RealtimeProtocolError("Realtime event must be a JSON object")
-
-        return event
-
-    async def iter_events(self) -> AsyncIterator[dict[str, Any]]:
-        while True:
-            try:
-                yield await self.recv_json()
-            except RealtimeClosedError:
-                return
 
     async def iter_normalized_events(self) -> AsyncIterator[NormalizedRealtimeEvent]:
         async for event in self.iter_events():

@@ -15,9 +15,6 @@ class ProviderEditOptions:
     realtime_api_key: str | None
     vision_api_key: str | None
     search_api_key: str | None
-    openai_api_key: str | None
-    vision_provider_api_key: str | None
-    tavily_api_key: str | None
 
 
 @dataclass(frozen=True, slots=True)

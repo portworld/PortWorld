@@ -14,7 +14,6 @@ from dotenv import dotenv_values
 
 ENV_ASSIGNMENT_RE = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 CUSTOM_OVERRIDES_HEADER = "# Custom overrides"
-LEGACY_ALIAS_TO_CANONICAL_KEY: dict[str, str] = {}
 
 
 class EnvTemplateError(RuntimeError):
@@ -75,7 +74,6 @@ class EnvTemplate:
 class ParsedEnvFile:
     path: Path
     known_values: OrderedDict[str, str]
-    legacy_alias_values: OrderedDict[str, str]
     custom_overrides: OrderedDict[str, str]
     preserved_overrides: OrderedDict[str, str]
 
@@ -133,14 +131,12 @@ def parse_env_file(path: Path, *, template: EnvTemplate) -> ParsedEnvFile:
         return ParsedEnvFile(
             path=path,
             known_values=OrderedDict(),
-            legacy_alias_values=OrderedDict(),
             custom_overrides=OrderedDict(),
             preserved_overrides=OrderedDict(),
         )
 
     parsed_items = dotenv_values(path)
     known_values: OrderedDict[str, str] = OrderedDict()
-    legacy_alias_values: OrderedDict[str, str] = OrderedDict()
     custom_overrides: OrderedDict[str, str] = OrderedDict()
     preserved_overrides: OrderedDict[str, str] = OrderedDict()
 
@@ -151,23 +147,12 @@ def parse_env_file(path: Path, *, template: EnvTemplate) -> ParsedEnvFile:
         if key in template.default_values:
             known_values[key] = value
             continue
-        if key in LEGACY_ALIAS_TO_CANONICAL_KEY:
-            legacy_alias_values[key] = value
-            preserved_overrides[key] = value
-            continue
         custom_overrides[key] = value
         preserved_overrides[key] = value
-
-    for alias_key, canonical_key in LEGACY_ALIAS_TO_CANONICAL_KEY.items():
-        if canonical_key in known_values:
-            continue
-        if alias_key in legacy_alias_values:
-            known_values[canonical_key] = legacy_alias_values[alias_key]
 
     return ParsedEnvFile(
         path=path,
         known_values=known_values,
-        legacy_alias_values=legacy_alias_values,
         custom_overrides=custom_overrides,
         preserved_overrides=preserved_overrides,
     )
