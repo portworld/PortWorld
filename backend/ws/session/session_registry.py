@@ -50,11 +50,11 @@ class SessionRegistry:
     async def register(
         self,
         *,
-        session_id: str,
-        websocket: "WebSocket",
-        bridge: SessionBridge,
-        record: SessionRecord | None = None,
+        record: SessionRecord,
     ) -> SessionRecord:
+        session_id = record.session_id
+        websocket = record.websocket
+        bridge = record.bridge
         prior_to_close: SessionBridge | None = None
         async with self._lock:
             prior = self._sessions.get(session_id)
@@ -62,17 +62,6 @@ class SessionRegistry:
                 raise SessionAlreadyActiveError(
                     f"session_id={session_id!r} is already active on another websocket"
                 )
-            record = record or SessionRecord(
-                session_id=session_id,
-                websocket=websocket,
-                bridge=bridge,
-            )
-            if record.session_id != session_id:
-                raise ValueError("record.session_id must match session_id")
-            if record.websocket is not websocket:
-                raise ValueError("record.websocket must match websocket")
-            if record.bridge is not bridge:
-                raise ValueError("record.bridge must match bridge")
             self._sessions[session_id] = record
             if prior is not None and prior.bridge is not bridge:
                 prior_to_close = prior.bridge

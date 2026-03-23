@@ -3,34 +3,24 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-from fastapi import WebSocket
 from pydantic import ValidationError
 
-from backend.core.settings import Settings
-from backend.core.storage import BackendStorage
-from backend.memory.consolidation import DurableMemoryConsolidationRuntime
 from backend.realtime.client import RealtimeClientError
-from backend.realtime.factory import BridgeBinding
-from backend.vision.runtime import VisionMemoryRuntime
+from backend.ws.protocol.audio_format import as_integral_int
 from backend.ws.protocol.contracts import IOSEnvelope
+from backend.ws.protocol.error_utils import send_error
 from backend.ws.session.session_activation import activate_session
+from backend.ws.session.session_context import SessionConnectionContext
 from backend.ws.session.session_registry import ClientEndTurnPolicyBridge, SessionRecord
 from backend.ws.session.session_runtime import (
-    as_integral_int,
     deactivate_and_unregister_session,
     sanitize_text_preview,
 )
+from backend.ws.session.transport_contracts import SendBinary, SendControl
 from backend.ws.telemetry import SessionTelemetry
 
-if TYPE_CHECKING:
-    from typing import Any
-
 logger = logging.getLogger(__name__)
-
-SendControl = Callable[..., Awaitable[None]]
-SendBinary = Callable[[int, int, bytes], Awaitable[None]]
 
 
 @dataclass(slots=True)
@@ -43,15 +33,10 @@ class ControlDispatchResult:
 class DispatchContext:
     envelope: IOSEnvelope
     active_session: SessionRecord | None
-    websocket: WebSocket
+    connection_context: SessionConnectionContext
     send_control: SendControl
     send_server_audio: SendBinary
     telemetry: SessionTelemetry
-    settings: Settings
-    build_session_bridge: Callable[..., BridgeBinding]
-    storage: BackendStorage
-    vision_memory_runtime: VisionMemoryRuntime | None
-    durable_memory_runtime: DurableMemoryConsolidationRuntime | None
 
 
 async def parse_control_envelope(
@@ -68,13 +53,11 @@ async def parse_control_envelope(
             active_session.session_id if active_session is not None else "unknown",
             sanitize_text_preview(raw_text),
         )
-        await send_control(
-            "error",
-            {
-                "code": "INVALID_CONTROL_ENVELOPE",
-                "message": "Invalid control envelope",
-                "retriable": False,
-            },
+        await send_error(
+            send_control,
+            code="INVALID_CONTROL_ENVELOPE",
+            message="Invalid control envelope",
+            retriable=False,
         )
         return None
 
@@ -83,14 +66,10 @@ async def _handle_session_activate(ctx: DispatchContext) -> ControlDispatchResul
     next_active_session = await activate_session(
         envelope=ctx.envelope,
         active_session=ctx.active_session,
-        websocket=ctx.websocket,
+        websocket=ctx.connection_context.websocket,
         send_control=ctx.send_control,
         send_server_audio=ctx.send_server_audio,
-        build_session_bridge=ctx.build_session_bridge,
-        storage=ctx.storage,
-        vision_memory_runtime=ctx.vision_memory_runtime,
-        durable_memory_runtime=ctx.durable_memory_runtime,
-        trace_ws_messages_enabled=ctx.settings.backend_debug_trace_ws_messages,
+        deps=ctx.connection_context.activation_deps,
     )
     return ControlDispatchResult(active_session=next_active_session, handled=True)
 
@@ -100,12 +79,11 @@ async def _handle_session_deactivate(ctx: DispatchContext) -> ControlDispatchRes
         return ControlDispatchResult(active_session=ctx.active_session, handled=True)
     await deactivate_and_unregister_session(
         active_session=ctx.active_session,
-        websocket=ctx.websocket,
+        websocket=ctx.connection_context.websocket,
         send_control=ctx.send_control,
-        storage=ctx.storage,
-        vision_memory_runtime=ctx.vision_memory_runtime,
-        durable_memory_runtime=ctx.durable_memory_runtime,
-        trace_ws_messages_enabled=ctx.settings.backend_debug_trace_ws_messages,
+        storage=ctx.connection_context.activation_deps.storage,
+        vision_memory_runtime=ctx.connection_context.activation_deps.vision_memory_runtime,
+        durable_memory_runtime=ctx.connection_context.activation_deps.durable_memory_runtime,
     )
     return ControlDispatchResult(active_session=None, handled=True)
 
@@ -138,13 +116,11 @@ async def _handle_session_end_turn(ctx: DispatchContext) -> ControlDispatchResul
             ctx.active_session.session_id,
             exc,
         )
-        await ctx.send_control(
-            "error",
-            {
-                "code": "UPSTREAM_TURN_FINALIZE_FAILED",
-                "message": "Failed to finalize active turn upstream",
-                "retriable": True,
-            },
+        await send_error(
+            ctx.send_control,
+            code="UPSTREAM_TURN_FINALIZE_FAILED",
+            message="Failed to finalize active turn upstream",
+            retriable=True,
         )
     return ControlDispatchResult(active_session=ctx.active_session, handled=True)
 
@@ -160,13 +136,11 @@ async def _handle_health_ping(ctx: DispatchContext) -> ControlDispatchResult:
 
 
 async def _handle_client_audio(ctx: DispatchContext) -> ControlDispatchResult:
-    await ctx.send_control(
-        "error",
-        {
-            "code": "UNSUPPORTED_CLIENT_AUDIO",
-            "message": "client.audio is not supported; send binary client audio frames",
-            "retriable": False,
-        },
+    await send_error(
+        ctx.send_control,
+        code="UNSUPPORTED_CLIENT_AUDIO",
+        message="client.audio is not supported; send binary client audio frames",
+        retriable=False,
     )
     return ControlDispatchResult(active_session=ctx.active_session, handled=True)
 
@@ -195,15 +169,9 @@ async def dispatch_control_envelope(
     *,
     envelope: IOSEnvelope,
     active_session: SessionRecord | None,
-    websocket: WebSocket,
+    context: SessionConnectionContext,
     send_control: SendControl,
     send_server_audio: SendBinary,
-    telemetry: SessionTelemetry,
-    settings: Settings,
-    build_session_bridge: Callable[..., BridgeBinding],
-    storage: BackendStorage,
-    vision_memory_runtime: VisionMemoryRuntime | None,
-    durable_memory_runtime: DurableMemoryConsolidationRuntime | None,
 ) -> ControlDispatchResult:
     logger.debug(
         "Inbound control type=%s session=%s seq=%s",
@@ -217,15 +185,10 @@ async def dispatch_control_envelope(
         ctx = DispatchContext(
             envelope=envelope,
             active_session=active_session,
-            websocket=websocket,
+            connection_context=context,
             send_control=send_control,
             send_server_audio=send_server_audio,
-            telemetry=telemetry,
-            settings=settings,
-            build_session_bridge=build_session_bridge,
-            storage=storage,
-            vision_memory_runtime=vision_memory_runtime,
-            durable_memory_runtime=durable_memory_runtime,
+            telemetry=context.telemetry,
         )
         return await handler(ctx)
 

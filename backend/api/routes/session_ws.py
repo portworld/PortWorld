@@ -8,6 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from backend.core.auth import reject_ws_if_unauthorized
 from backend.core.http import client_ip_from_connection
 from backend.core.runtime import get_app_runtime
+from backend.ws.session.session_activation import SessionActivationDeps
 from backend.ws.session.session_context import SessionConnectionContext
 from backend.ws.handlers.session_loop import process_next_websocket_message
 from backend.ws.session.session_runtime import deactivate_and_unregister_session
@@ -47,6 +48,12 @@ async def ws_session(websocket: WebSocket) -> None:
             connection_id=connection_id,
             uplink_ack_every_n_frames=runtime.settings.backend_uplink_ack_every_n_frames,
         ),
+        activation_deps=SessionActivationDeps(
+            build_session_bridge=runtime.make_session_bridge,
+            storage=runtime.storage,
+            vision_memory_runtime=runtime.vision_memory_runtime,
+            durable_memory_runtime=runtime.durable_memory_runtime,
+        ),
     )
     send_control = make_send_control(context)
     send_server_audio = make_send_server_audio(context)
@@ -72,5 +79,4 @@ async def ws_session(websocket: WebSocket) -> None:
                 vision_memory_runtime=runtime.vision_memory_runtime,
                 durable_memory_runtime=runtime.durable_memory_runtime,
                 emit_session_state=False,
-                trace_ws_messages_enabled=runtime.settings.backend_debug_trace_ws_messages,
             )
