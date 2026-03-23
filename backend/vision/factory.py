@@ -91,8 +91,7 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
         validate_openai_vision_settings,
     )
 
-    registry = VisionProviderRegistry()
-    registry.register(
+    provider_definitions = [
         VisionProviderDefinition(
             name="mistral",
             build_analyzer=build_mistral_vision_analyzer,
@@ -103,9 +102,7 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
                 retry_hint="provider_managed",
                 rate_limit_hint="provider_managed",
             ),
-        )
-    )
-    registry.register(
+        ),
         VisionProviderDefinition(
             name="nvidia_integrate",
             build_analyzer=build_nvidia_integrate_vision_analyzer,
@@ -116,9 +113,7 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
                 retry_hint="provider_managed",
                 rate_limit_hint="provider_managed",
             ),
-        )
-    )
-    registry.register(
+        ),
         VisionProviderDefinition(
             name="openai",
             build_analyzer=build_openai_vision_analyzer,
@@ -129,9 +124,7 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
                 retry_hint="provider_managed",
                 rate_limit_hint="provider_managed",
             ),
-        )
-    )
-    registry.register(
+        ),
         VisionProviderDefinition(
             name="azure_openai",
             build_analyzer=build_azure_openai_vision_analyzer,
@@ -142,9 +135,7 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
                 retry_hint="provider_managed",
                 rate_limit_hint="provider_managed",
             ),
-        )
-    )
-    registry.register(
+        ),
         VisionProviderDefinition(
             name="gemini",
             build_analyzer=build_gemini_vision_analyzer,
@@ -155,9 +146,7 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
                 retry_hint="provider_managed",
                 rate_limit_hint="provider_managed",
             ),
-        )
-    )
-    registry.register(
+        ),
         VisionProviderDefinition(
             name="claude",
             build_analyzer=build_claude_vision_analyzer,
@@ -168,9 +157,7 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
                 retry_hint="provider_managed",
                 rate_limit_hint="provider_managed",
             ),
-        )
-    )
-    registry.register(
+        ),
         VisionProviderDefinition(
             name="bedrock",
             build_analyzer=build_bedrock_vision_analyzer,
@@ -181,9 +168,7 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
                 retry_hint="aws_sdk_managed",
                 rate_limit_hint="provider_managed",
             ),
-        )
-    )
-    registry.register(
+        ),
         VisionProviderDefinition(
             name="groq",
             build_analyzer=build_groq_vision_analyzer,
@@ -194,8 +179,12 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
                 retry_hint="provider_managed",
                 rate_limit_hint="provider_managed",
             ),
-        )
-    )
+        ),
+    ]
+
+    registry = VisionProviderRegistry()
+    for definition in provider_definitions:
+        registry.register(definition)
     return registry
 
 
