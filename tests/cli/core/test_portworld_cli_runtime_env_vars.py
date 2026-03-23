@@ -8,7 +8,7 @@ from portworld_cli.deploy.stages.runtime import build_runtime_env_vars
 
 
 class RuntimeEnvVarsTests(unittest.TestCase):
-    def test_managed_gcp_env_emits_canonical_and_compatibility_keys(self) -> None:
+    def test_managed_gcp_env_emits_canonical_keys(self) -> None:
         env_values = OrderedDict(
             [
                 ("BACKEND_DATA_DIR", "backend/var"),
@@ -31,7 +31,6 @@ class RuntimeEnvVarsTests(unittest.TestCase):
         self.assertEqual(env_vars["BACKEND_STORAGE_BACKEND"], "managed")
         self.assertEqual(env_vars["BACKEND_OBJECT_STORE_PROVIDER"], "gcs")
         self.assertEqual(env_vars["BACKEND_OBJECT_STORE_NAME"], "gcp-managed-bucket")
-        self.assertEqual(env_vars["BACKEND_OBJECT_STORE_BUCKET"], "gcp-managed-bucket")
         self.assertEqual(env_vars["BACKEND_OBJECT_STORE_PREFIX"], "portworld-api")
         self.assertNotIn("BACKEND_DATA_DIR", env_vars)
         self.assertNotIn("PORT", env_vars)

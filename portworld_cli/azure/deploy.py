@@ -334,7 +334,6 @@ def _resolve_azure_deploy_config(
         value=_first_non_empty(
             options.blob_container,
             env_values.get("BACKEND_OBJECT_STORE_NAME"),
-            env_values.get("BACKEND_OBJECT_STORE_BUCKET"),
             DEFAULT_BLOB_CONTAINER,
         ),
         prompt="Azure blob container name",
@@ -1291,7 +1290,6 @@ def _build_runtime_env_vars(
         "BACKEND_STORAGE_BACKEND",
         "BACKEND_OBJECT_STORE_PROVIDER",
         "BACKEND_OBJECT_STORE_NAME",
-        "BACKEND_OBJECT_STORE_BUCKET",
         "BACKEND_OBJECT_STORE_ENDPOINT",
         "BACKEND_OBJECT_STORE_PREFIX",
         "BACKEND_DATABASE_URL",
@@ -1306,7 +1304,6 @@ def _build_runtime_env_vars(
     final_env["BACKEND_STORAGE_BACKEND"] = "managed"
     final_env["BACKEND_OBJECT_STORE_PROVIDER"] = "azure_blob"
     final_env["BACKEND_OBJECT_STORE_NAME"] = config.blob_container
-    final_env["BACKEND_OBJECT_STORE_BUCKET"] = config.blob_container
     final_env["BACKEND_OBJECT_STORE_ENDPOINT"] = config.blob_endpoint
     final_env["BACKEND_OBJECT_STORE_PREFIX"] = config.app_name
     final_env["BACKEND_DATABASE_URL"] = database_url

@@ -85,7 +85,7 @@ class DeployProviderRuntimeTests(unittest.TestCase):
         self.assertNotIn("MISTRAL_API_KEY", runtime_env)
         self.assertEqual(runtime_env["BACKEND_STORAGE_BACKEND"], "managed")
         self.assertEqual(runtime_env["BACKEND_OBJECT_STORE_NAME"], "managed-bucket")
-        self.assertEqual(runtime_env["BACKEND_OBJECT_STORE_BUCKET"], "managed-bucket")
+        self.assertNotIn("BACKEND_OBJECT_STORE_BUCKET", runtime_env)
 
 
 if __name__ == "__main__":
