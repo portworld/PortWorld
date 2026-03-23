@@ -35,11 +35,7 @@ class ProviderRequirementEntry:
     optional_secret_env_keys: tuple[str, ...] = ()
     required_non_secret_env_keys: tuple[str, ...] = ()
     optional_non_secret_env_keys: tuple[str, ...] = ()
-    legacy_alias_keys: tuple[str, ...] = ()
     capability_tags: tuple[str, ...] = ()
-    alias_precedence_by_key: Mapping[str, tuple[str, ...]] = field(
-        default_factory=lambda: MappingProxyType({})
-    )
     secret_binding: SecretBindingMetadata = field(
         default_factory=lambda: SecretBindingMetadata(eligible=True)
     )
@@ -64,38 +60,6 @@ class SelectedProviderKeySet:
     optional_secret_env_keys: tuple[str, ...]
     required_non_secret_env_keys: tuple[str, ...]
     optional_non_secret_env_keys: tuple[str, ...]
-    legacy_alias_keys: tuple[str, ...]
-    secret_binding_required_env_keys: tuple[str, ...]
-    secret_binding_optional_env_keys: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class MissingSecretDiagnostics:
-    selected: SelectedProviders
-    required_env_keys: tuple[str, ...]
-    optional_env_keys: tuple[str, ...]
-    missing_required_env_keys: tuple[str, ...]
-    key_presence: Mapping[str, bool]
-    resolved_values: Mapping[str, str | None]
-    resolved_sources: Mapping[str, str | None]
-
-    def to_payload(self) -> dict[str, object]:
-        return {
-            "selected": {
-                "realtime_provider": self.selected.realtime_provider,
-                "vision_enabled": self.selected.vision_enabled,
-                "memory_consolidation_enabled": self.selected.memory_consolidation_enabled,
-                "vision_provider": self.selected.vision_provider,
-                "search_enabled": self.selected.search_enabled,
-                "search_provider": self.selected.search_provider,
-            },
-            "required_env_keys": list(self.required_env_keys),
-            "optional_env_keys": list(self.optional_env_keys),
-            "missing_required_env_keys": list(self.missing_required_env_keys),
-            "key_presence": dict(self.key_presence),
-            "resolved_values": dict(self.resolved_values),
-            "resolved_sources": dict(self.resolved_sources),
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -481,9 +445,6 @@ def compute_selected_provider_key_set(selected: SelectedProviders) -> SelectedPr
     optional_secret: list[str] = []
     required_non_secret: list[str] = []
     optional_non_secret: list[str] = []
-    legacy: list[str] = []
-    secret_binding_required: list[str] = []
-    secret_binding_optional: list[str] = []
 
     for entry in entries:
         (
@@ -498,10 +459,6 @@ def compute_selected_provider_key_set(selected: SelectedProviders) -> SelectedPr
         _append_unique(optional_secret, entry_optional_secret)
         _append_unique(required_non_secret, entry_required_non_secret)
         _append_unique(optional_non_secret, entry_optional_non_secret)
-        _append_unique(legacy, entry.legacy_alias_keys)
-        if entry.secret_binding.eligible:
-            _append_unique(secret_binding_required, entry.secret_binding.required_env_keys)
-            _append_unique(secret_binding_optional, entry.secret_binding.optional_env_keys)
 
     return SelectedProviderKeySet(
         entries=tuple(entries),
@@ -511,9 +468,6 @@ def compute_selected_provider_key_set(selected: SelectedProviders) -> SelectedPr
         optional_secret_env_keys=tuple(optional_secret),
         required_non_secret_env_keys=tuple(required_non_secret),
         optional_non_secret_env_keys=tuple(optional_non_secret),
-        legacy_alias_keys=tuple(legacy),
-        secret_binding_required_env_keys=tuple(secret_binding_required),
-        secret_binding_optional_env_keys=tuple(secret_binding_optional),
     )
 
 
@@ -526,24 +480,6 @@ def resolve_effective_env_value(
 ) -> tuple[str | None, str | None]:
     requirement = get_provider_requirement(kind=provider_kind, provider_id=provider_id)
     return _resolve_effective_env_value_for_entry(values=values, entry=requirement, env_key=env_key)
-
-
-def build_missing_secret_diagnostics(
-    source: Mapping[str, Any] | object,
-    *,
-    selected: SelectedProviders | None = None,
-) -> MissingSecretDiagnostics:
-    diagnostics = build_provider_requirement_diagnostics(source, selected=selected)
-    merged_presence = dict(diagnostics.secret_key_presence)
-    return MissingSecretDiagnostics(
-        selected=diagnostics.selected,
-        required_env_keys=diagnostics.required_secret_env_keys,
-        optional_env_keys=diagnostics.optional_secret_env_keys,
-        missing_required_env_keys=diagnostics.missing_required_secret_env_keys,
-        key_presence=MappingProxyType(merged_presence),
-        resolved_values=diagnostics.resolved_values,
-        resolved_sources=diagnostics.resolved_sources,
-    )
 
 
 def build_provider_requirement_diagnostics(

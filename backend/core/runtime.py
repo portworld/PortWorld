@@ -98,22 +98,13 @@ class AppRuntime:
         client_ip: str,
         session_id: str,
     ) -> RateLimitDecision:
-        session_key = _rate_key(session_id)
-        if self.settings.backend_enable_ip_rate_limits:
-            ip_key = _rate_key(client_ip)
-            ip_decision = await self.rate_limiter.allow(
-                key=f"ws_activate:ip:{ip_key}",
-                limit=self.settings.backend_rate_limit_ws_ip_max_attempts,
-                window_seconds=self.settings.backend_rate_limit_ws_window_seconds,
-                scope="ip",
-            )
-            if not ip_decision.allowed:
-                return ip_decision
-        return await self.rate_limiter.allow(
-            key=f"ws_activate:session:{session_key}",
-            limit=self.settings.backend_rate_limit_ws_session_max_attempts,
+        return await self._limit_with_optional_ip_gate(
+            client_ip=client_ip,
+            session_id=session_id,
+            key_prefix="ws_activate",
+            ip_limit=self.settings.backend_rate_limit_ws_ip_max_attempts,
+            session_limit=self.settings.backend_rate_limit_ws_session_max_attempts,
             window_seconds=self.settings.backend_rate_limit_ws_window_seconds,
-            scope="session",
         )
 
     async def limit_vision_frame_ingest(
@@ -122,22 +113,13 @@ class AppRuntime:
         client_ip: str,
         session_id: str,
     ) -> RateLimitDecision:
-        session_key = _rate_key(session_id)
-        if self.settings.backend_enable_ip_rate_limits:
-            ip_key = _rate_key(client_ip)
-            ip_decision = await self.rate_limiter.allow(
-                key=f"vision_ingest:ip:{ip_key}",
-                limit=self.settings.backend_rate_limit_vision_ip_max_requests,
-                window_seconds=self.settings.backend_rate_limit_vision_window_seconds,
-                scope="ip",
-            )
-            if not ip_decision.allowed:
-                return ip_decision
-        return await self.rate_limiter.allow(
-            key=f"vision_ingest:session:{session_key}",
-            limit=self.settings.backend_rate_limit_vision_session_max_requests,
+        return await self._limit_with_optional_ip_gate(
+            client_ip=client_ip,
+            session_id=session_id,
+            key_prefix="vision_ingest",
+            ip_limit=self.settings.backend_rate_limit_vision_ip_max_requests,
+            session_limit=self.settings.backend_rate_limit_vision_session_max_requests,
             window_seconds=self.settings.backend_rate_limit_vision_window_seconds,
-            scope="session",
         )
 
     async def limit_http_request(
@@ -206,6 +188,34 @@ class AppRuntime:
                 len(expired_sessions),
                 [result.session_id for result in expired_sessions],
             )
+
+    async def _limit_with_optional_ip_gate(
+        self,
+        *,
+        client_ip: str,
+        session_id: str,
+        key_prefix: str,
+        ip_limit: int,
+        session_limit: int,
+        window_seconds: int,
+    ) -> RateLimitDecision:
+        session_key = _rate_key(session_id)
+        if self.settings.backend_enable_ip_rate_limits:
+            ip_key = _rate_key(client_ip)
+            ip_decision = await self.rate_limiter.allow(
+                key=f"{key_prefix}:ip:{ip_key}",
+                limit=ip_limit,
+                window_seconds=window_seconds,
+                scope="ip",
+            )
+            if not ip_decision.allowed:
+                return ip_decision
+        return await self.rate_limiter.allow(
+            key=f"{key_prefix}:session:{session_key}",
+            limit=session_limit,
+            window_seconds=window_seconds,
+            scope="session",
+        )
 
 
 def get_app_runtime(app: Any) -> AppRuntime:
