@@ -26,6 +26,33 @@ must mirror the corresponding section in this changelog.
 
 - No user-visible security changes recorded yet.
 
+## [v0.2.0b6] - 2026-03-23
+
+### Added
+
+- Added workspace-managed MCP extension support for contributor and published
+  runtimes, including extension manifest management, extension doctor checks,
+  and Node MCP launcher validation.
+- Added backend extension loading and runtime health reporting for external MCP
+  servers and custom tool contributors.
+
+### Changed
+
+- Reworked the backend memory/runtime model around durable markdown-based user
+  memory, session memory, and updated memory APIs.
+- Consolidated realtime tooling around the new user-memory tool catalog while
+  preserving extension-based tool and MCP integration.
+- Expanded managed deploy/operator flows across GCP, AWS, and Azure with a more
+  consistent CLI surface for doctor, deploy, logs, status, and published
+  workspaces.
+
+### Fixed
+
+- Updated the iOS profile client to read the new `/memory/user` backend route
+  while preserving response decoding compatibility during rollout.
+- Improved backend and CLI release/runtime docs so published workspaces,
+  self-hosting, and extension prerequisites match the current implementation.
+
 ## [v0.2.0b3] - 2026-03-17
 
 ### Added
@@ -71,4 +98,3 @@ must mirror the corresponding section in this changelog.
 
 - First public prerelease baseline for the `portworld` CLI/operator workflow,
   including install/update and tagged release foundations used by later betas.
-
