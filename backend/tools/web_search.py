@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 
 from backend.tools.contracts import ToolCall, ToolResult
+from backend.tools.results import tool_error, tool_ok
 from backend.tools.search import SearchProvider, SearchProviderError, SearchProviderTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -60,10 +61,8 @@ class WebSearchToolExecutor:
                 error_message="Web search provider request failed",
             )
 
-        return ToolResult(
-            ok=True,
-            name=call.name,
-            call_id=call.call_id,
+        return tool_ok(
+            call=call,
             payload={
                 "query": normalized_query,
                 "provider": self.provider_name,
@@ -86,15 +85,13 @@ class WebSearchToolExecutor:
         error_code: str,
         error_message: str,
     ) -> ToolResult:
-        return ToolResult(
-            ok=False,
-            name=call.name,
-            call_id=call.call_id,
+        return tool_error(
+            call=call,
+            error_code=error_code,
+            error_message=error_message,
             payload={
                 "query": query,
                 "provider": self.provider_name,
                 "results": [],
             },
-            error_code=error_code,
-            error_message=error_message,
         )

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from backend.core.storage import BackendStorage
 from backend.memory.candidates import build_memory_candidate
 from backend.tools.contracts import ToolCall, ToolResult
+from backend.tools.results import tool_error, tool_ok
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +26,11 @@ class MemoryCandidateToolExecutor:
             confidence=call.arguments.get("confidence"),
         )
         if candidate is None:
-            return ToolResult(
-                ok=False,
-                name=call.name,
-                call_id=call.call_id,
-                payload={"session_id": call.session_id},
+            return tool_error(
+                call=call,
                 error_code="INVALID_MEMORY_CANDIDATE",
                 error_message="Memory candidate payload is invalid",
+                payload={"session_id": call.session_id},
             )
 
         try:
@@ -47,19 +46,15 @@ class MemoryCandidateToolExecutor:
                 call.call_id,
                 exc_info=exc,
             )
-            return ToolResult(
-                ok=False,
-                name=call.name,
-                call_id=call.call_id,
-                payload={"session_id": call.session_id},
+            return tool_error(
+                call=call,
                 error_code="MEMORY_CANDIDATE_WRITE_FAILED",
                 error_message="Could not persist memory candidate",
+                payload={"session_id": call.session_id},
             )
 
-        return ToolResult(
-            ok=True,
-            name=call.name,
-            call_id=call.call_id,
+        return tool_ok(
+            call=call,
             payload={
                 "session_id": call.session_id,
                 "captured": True,
