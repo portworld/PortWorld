@@ -49,8 +49,7 @@ def validate_nvidia_integrate_vision_settings(settings: Settings) -> None:
     model_name = (settings.resolve_vision_provider_model(provider="nvidia_integrate") or "").strip()
     if not model_name:
         raise RuntimeError(
-            "VISION_NVIDIA_MODEL is required when VISION_MEMORY_PROVIDER=nvidia_integrate "
-            "(legacy fallback: VISION_MEMORY_MODEL)"
+            "VISION_NVIDIA_MODEL is required when VISION_MEMORY_PROVIDER=nvidia_integrate"
         )
 
 

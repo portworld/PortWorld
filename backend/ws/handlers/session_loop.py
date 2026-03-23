@@ -76,6 +76,7 @@ async def process_next_websocket_message(
         build_session_bridge=context.runtime.make_session_bridge,
         storage=context.runtime.storage,
         vision_memory_runtime=context.runtime.vision_memory_runtime,
+        durable_memory_runtime=context.runtime.durable_memory_runtime,
     )
     context.active_session = dispatch_result.active_session
     if not dispatch_result.handled:

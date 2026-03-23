@@ -1,7 +1,7 @@
 from backend.infrastructure.storage.artifacts import ArtifactStorageMixin
 from backend.infrastructure.storage.errors import CorruptStorageArtifactError, SessionNotFoundError
 from backend.infrastructure.storage.paths import StoragePathMixin
-from backend.infrastructure.storage.profile import ProfileStorageMixin
+from backend.infrastructure.storage.user_memory import ProfileStorageMixin, UserMemoryStorageMixin
 from backend.infrastructure.storage.sessions import SessionStorageMixin
 from backend.infrastructure.storage.sqlite import SQLiteStorageMixin
 from backend.infrastructure.storage.types import (
@@ -25,6 +25,7 @@ __all__ = [
     "CorruptStorageArtifactError",
     "MemoryExportArtifact",
     "ProfileStorageMixin",
+    "UserMemoryStorageMixin",
     "RealtimeReadOnlyStorageView",
     "SessionMemoryResetResult",
     "SessionStorageMixin",

@@ -104,6 +104,13 @@ class ArtifactStorageMixin:
             self._append_session_export_artifact(
                 artifacts=artifacts,
                 session_dir=session_dir,
+                file_name="MEMORY_CANDIDATES.ndjson",
+                artifact_kind="memory_candidate_log",
+                content_type="application/x-ndjson",
+            )
+            self._append_session_export_artifact(
+                artifacts=artifacts,
+                session_dir=session_dir,
                 file_name="EVENTS.ndjson",
                 artifact_kind="vision_event_log",
                 content_type="application/x-ndjson",

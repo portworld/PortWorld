@@ -8,16 +8,18 @@ from typing import Protocol
 
 from backend.core.settings import Settings
 from backend.core.storage import BackendStorage, RealtimeReadOnlyStorageView
-from backend.memory.lifecycle import PROFILE_ALLOWLISTED_FIELDS
+from backend.memory.lifecycle import USER_MEMORY_TEMPLATE
 from backend.tools.contracts import ToolCall, ToolDefinition, ToolResult
+from backend.tools.memory_candidates import MemoryCandidateToolExecutor
 from backend.tools.memory import MemoryToolExecutor
-from backend.tools.profile import UserMemoryToolExecutor
+from backend.tools.user_memory import UserMemoryToolExecutor
 from backend.tools.providers.tavily import TavilySearchProvider
 from backend.tools.registry import RealtimeToolRegistry, ToolRegistryError, UnknownToolError
 from backend.tools.search import SearchProvider
 from backend.tools.web_search import WebSearchToolExecutor
 
 logger = logging.getLogger(__name__)
+MAX_USER_MEMORY_INSTRUCTION_CHARS = 700
 
 
 class SearchProviderBuilder(Protocol):
@@ -206,7 +208,7 @@ def _register_web_search_tool(
     )
 
 
-def _register_profile_tools(
+def _register_user_memory_tools(
     *,
     registry: RealtimeToolRegistry,
     context: ToolCatalogContext,
@@ -266,11 +268,53 @@ def _register_profile_tools(
         ),
         executor=UserMemoryToolExecutor(storage=context.user_memory_storage, mode="complete"),
     )
+    registry.register(
+        definition=ToolDefinition(
+            name="capture_memory_candidate",
+            description=(
+                "Capture a concise durable-memory candidate from the current conversation. "
+                "Use this implicitly when the user naturally reveals stable preferences, identity facts, or ongoing threads."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "scope": {
+                        "type": "string",
+                        "enum": ["user", "cross_session"],
+                    },
+                    "section_hint": {
+                        "type": "string",
+                        "enum": [
+                            "identity",
+                            "preferences",
+                            "stable_facts",
+                            "ongoing_threads",
+                            "follow_ups",
+                            "recent_facts",
+                        ],
+                    },
+                    "fact": {"type": "string"},
+                    "stability": {
+                        "type": "string",
+                        "enum": ["stable", "semi_stable"],
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                    },
+                },
+                "required": ["scope", "section_hint", "fact", "stability", "confidence"],
+                "additionalProperties": False,
+            },
+        ),
+        executor=MemoryCandidateToolExecutor(storage=context.user_memory_storage),
+    )
 
 
 DEFAULT_TOOL_CATALOG_CONTRIBUTORS: tuple[ToolCatalogContributor, ...] = (
     _register_memory_tools,
-    _register_profile_tools,
+    _register_user_memory_tools,
     _register_web_search_tool,
 )
 
@@ -423,11 +467,9 @@ class RealtimeToolingRuntime:
             sections.append(tool_usage_block)
 
         try:
-            user_memory = self.storage.read_user_profile()
+            user_memory_markdown = self.storage.read_user_memory()
         except JSONDecodeError:
-            logger.warning(
-                "Failed to parse user memory payload, proceeding without memory context"
-            )
+            logger.warning("Failed to parse user memory markdown, proceeding without memory context")
             return "\n\n".join(section for section in sections if section).strip() + "\n"
         except OSError as exc:
             logger.warning(
@@ -436,15 +478,10 @@ class RealtimeToolingRuntime:
             )
             return "\n\n".join(section for section in sections if section).strip() + "\n"
 
-        user_memory_lines = self._build_profile_lines(user_memory)
-        if user_memory_lines:
+        user_memory_snippet = self._build_user_memory_instruction_snippet(user_memory_markdown)
+        if user_memory_snippet:
             sections.append(
-                "\n".join(
-                    [
-                        "Stable user memory context:",
-                        *user_memory_lines,
-                    ]
-                )
+                "\n".join(["Stable user memory context:", user_memory_snippet])
             )
 
         return "\n\n".join(section for section in sections if section).strip() + "\n"
@@ -463,10 +500,6 @@ class RealtimeToolingRuntime:
             guidance_lines.append(
                 "- Use get_cross_session_memory when the user asks about durable context from prior sessions."
             )
-        if self.registry.has_tool("get_user_memory"):
-            guidance_lines.append(
-                "- Use get_user_memory to inspect the saved user memory before relying on memory about the user."
-            )
         if self.registry.has_tool("update_user_memory"):
             guidance_lines.append(
                 "- Use update_user_memory only for facts the user has clearly confirmed."
@@ -478,6 +511,14 @@ class RealtimeToolingRuntime:
         if self.registry.has_tool("web_search"):
             guidance_lines.append(
                 "- Use web_search only when the user explicitly asks for fresh external facts or documentation."
+            )
+        if self.registry.has_tool("capture_memory_candidate"):
+            guidance_lines.extend(
+                [
+                    "- The saved USER memory is already loaded into your instructions; do not call a tool to reread it in normal conversation.",
+                    "- When the user naturally reveals a stable preference, identity fact, intended use, or durable ongoing thread, capture it with capture_memory_candidate without asking the user to confirm memory behavior.",
+                    "- Only capture concise facts that are likely to matter across sessions.",
+                ]
             )
         if self.registry.has_tool("get_short_term_memory") or self.registry.has_tool(
             "get_long_term_memory"
@@ -498,30 +539,54 @@ class RealtimeToolingRuntime:
         return "\n".join(guidance_lines)
 
     @staticmethod
-    def _build_profile_lines(profile: dict[str, object]) -> list[str]:
-        lines: list[str] = []
-        for field_name in PROFILE_ALLOWLISTED_FIELDS:
-            value = profile.get(field_name)
-            rendered = RealtimeToolingRuntime._render_profile_value(value)
-            if not rendered:
+    def _build_user_memory_instruction_snippet(markdown: str) -> str:
+        candidate = markdown.strip()
+        if not candidate or candidate == USER_MEMORY_TEMPLATE.strip():
+            return ""
+
+        sections: list[str] = []
+        current_header: str | None = None
+        current_lines: list[str] = []
+        for raw_line in candidate.splitlines():
+            line = raw_line.rstrip()
+            if line.startswith("## "):
+                if current_header is not None:
+                    rendered = RealtimeToolingRuntime._render_user_memory_section(
+                        header=current_header,
+                        lines=current_lines,
+                    )
+                    if rendered:
+                        sections.append(rendered)
+                current_header = line
+                current_lines = []
                 continue
-            label = field_name.replace("_", " ").title()
-            lines.append(f"- {label}: {rendered}")
-        return lines
+            if current_header is not None:
+                current_lines.append(line)
+        if current_header is not None:
+            rendered = RealtimeToolingRuntime._render_user_memory_section(
+                header=current_header,
+                lines=current_lines,
+            )
+            if rendered:
+                sections.append(rendered)
+
+        compact = "\n".join(sections).strip()
+        if not compact:
+            return ""
+        if len(compact) <= MAX_USER_MEMORY_INSTRUCTION_CHARS:
+            return compact
+        return compact[: MAX_USER_MEMORY_INSTRUCTION_CHARS - 3].rstrip() + "..."
 
     @staticmethod
-    def _render_profile_value(value: object) -> str:
-        if isinstance(value, str):
-            normalized = value.strip()
-            return normalized
-        if isinstance(value, list):
-            rendered_items = [
-                item.strip()
-                for item in value
-                if isinstance(item, str) and item.strip()
-            ]
-            return ", ".join(rendered_items)
-        return ""
+    def _render_user_memory_section(*, header: str, lines: list[str]) -> str:
+        normalized_lines = [
+            line.strip()
+            for line in lines
+            if line.strip() and line.strip().lower() != "- none"
+        ]
+        if not normalized_lines:
+            return ""
+        return "\n".join([header, *normalized_lines])
 
     async def startup(self) -> None:
         if self.search_provider is not None:

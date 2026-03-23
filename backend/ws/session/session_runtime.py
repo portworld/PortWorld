@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import WebSocket
 
 from backend.core.storage import BackendStorage
+from backend.memory.consolidation import DurableMemoryConsolidationRuntime
 from backend.vision.runtime import VisionMemoryRuntime
 from backend.ws.session.session_registry import SessionRecord, session_registry
 
@@ -84,6 +85,7 @@ async def deactivate_session(
     send_control: Callable[..., Awaitable[None]],
     storage: BackendStorage,
     vision_memory_runtime: VisionMemoryRuntime | None = None,
+    durable_memory_runtime: DurableMemoryConsolidationRuntime | None = None,
     trace_ws_messages_enabled: bool = False,
 ) -> None:
     _ = trace_ws_messages_enabled
@@ -95,6 +97,8 @@ async def deactivate_session(
     await active_session.bridge.close()
     if vision_memory_runtime is not None:
         await vision_memory_runtime.finalize_session(session_id=active_session.session_id)
+    if durable_memory_runtime is not None:
+        await durable_memory_runtime.finalize_session(session_id=active_session.session_id)
     await asyncio.to_thread(
         storage.upsert_session_status,
         session_id=active_session.session_id,
@@ -109,6 +113,7 @@ async def deactivate_and_unregister_session(
     send_control: Callable[..., Awaitable[None]],
     storage: BackendStorage,
     vision_memory_runtime: VisionMemoryRuntime | None = None,
+    durable_memory_runtime: DurableMemoryConsolidationRuntime | None = None,
     emit_session_state: bool = True,
     trace_ws_messages_enabled: bool = False,
 ) -> None:
@@ -119,12 +124,15 @@ async def deactivate_and_unregister_session(
                 send_control=send_control,
                 storage=storage,
                 vision_memory_runtime=vision_memory_runtime,
+                durable_memory_runtime=durable_memory_runtime,
                 trace_ws_messages_enabled=trace_ws_messages_enabled,
             )
         else:
             await active_session.bridge.close()
             if vision_memory_runtime is not None:
                 await vision_memory_runtime.finalize_session(session_id=active_session.session_id)
+            if durable_memory_runtime is not None:
+                await durable_memory_runtime.finalize_session(session_id=active_session.session_id)
             await asyncio.to_thread(
                 storage.upsert_session_status,
                 session_id=active_session.session_id,

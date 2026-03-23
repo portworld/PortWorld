@@ -35,11 +35,7 @@ class ProviderRequirementEntry:
     optional_secret_env_keys: tuple[str, ...] = ()
     required_non_secret_env_keys: tuple[str, ...] = ()
     optional_non_secret_env_keys: tuple[str, ...] = ()
-    legacy_alias_keys: tuple[str, ...] = ()
     capability_tags: tuple[str, ...] = ()
-    alias_precedence_by_key: Mapping[str, tuple[str, ...]] = field(
-        default_factory=lambda: MappingProxyType({})
-    )
     secret_binding: SecretBindingMetadata = field(
         default_factory=lambda: SecretBindingMetadata(eligible=True)
     )
@@ -49,6 +45,7 @@ class ProviderRequirementEntry:
 class SelectedProviders:
     realtime_provider: str
     vision_enabled: bool
+    memory_consolidation_enabled: bool
     vision_provider: str | None
     search_enabled: bool
     search_provider: str | None
@@ -63,37 +60,6 @@ class SelectedProviderKeySet:
     optional_secret_env_keys: tuple[str, ...]
     required_non_secret_env_keys: tuple[str, ...]
     optional_non_secret_env_keys: tuple[str, ...]
-    legacy_alias_keys: tuple[str, ...]
-    secret_binding_required_env_keys: tuple[str, ...]
-    secret_binding_optional_env_keys: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class MissingSecretDiagnostics:
-    selected: SelectedProviders
-    required_env_keys: tuple[str, ...]
-    optional_env_keys: tuple[str, ...]
-    missing_required_env_keys: tuple[str, ...]
-    key_presence: Mapping[str, bool]
-    resolved_values: Mapping[str, str | None]
-    resolved_sources: Mapping[str, str | None]
-
-    def to_payload(self) -> dict[str, object]:
-        return {
-            "selected": {
-                "realtime_provider": self.selected.realtime_provider,
-                "vision_enabled": self.selected.vision_enabled,
-                "vision_provider": self.selected.vision_provider,
-                "search_enabled": self.selected.search_enabled,
-                "search_provider": self.selected.search_provider,
-            },
-            "required_env_keys": list(self.required_env_keys),
-            "optional_env_keys": list(self.optional_env_keys),
-            "missing_required_env_keys": list(self.missing_required_env_keys),
-            "key_presence": dict(self.key_presence),
-            "resolved_values": dict(self.resolved_values),
-            "resolved_sources": dict(self.resolved_sources),
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +81,7 @@ class ProviderRequirementDiagnostics:
             "selected": {
                 "realtime_provider": self.selected.realtime_provider,
                 "vision_enabled": self.selected.vision_enabled,
+                "memory_consolidation_enabled": self.selected.memory_consolidation_enabled,
                 "vision_provider": self.selected.vision_provider,
                 "search_enabled": self.selected.search_enabled,
                 "search_provider": self.selected.search_provider,
@@ -382,6 +349,7 @@ _SETTINGS_ATTR_BY_ENV_KEY: Mapping[str, str] = MappingProxyType(
         "REALTIME_PROVIDER": "realtime_provider",
         "VISION_MEMORY_ENABLED": "vision_memory_enabled",
         "VISION_MEMORY_PROVIDER": "vision_memory_provider",
+        "MEMORY_CONSOLIDATION_ENABLED": "memory_consolidation_enabled",
         "REALTIME_TOOLING_ENABLED": "realtime_tooling_enabled",
         "REALTIME_WEB_SEARCH_PROVIDER": "realtime_web_search_provider",
     }
@@ -418,8 +386,16 @@ def resolve_selected_providers(source: Mapping[str, Any] | object) -> SelectedPr
         _source_value(source, "VISION_MEMORY_ENABLED", fallback_attr="vision_memory_enabled"),
         default=False,
     )
+    memory_consolidation_enabled = _parse_bool(
+        _source_value(
+            source,
+            "MEMORY_CONSOLIDATION_ENABLED",
+            fallback_attr="memory_consolidation_enabled",
+        ),
+        default=vision_enabled,
+    )
     vision_provider = None
-    if vision_enabled:
+    if vision_enabled or memory_consolidation_enabled:
         vision_provider = _normalized_provider(
             _source_value(source, "VISION_MEMORY_PROVIDER", fallback_attr="vision_memory_provider"),
             default="mistral",
@@ -443,6 +419,7 @@ def resolve_selected_providers(source: Mapping[str, Any] | object) -> SelectedPr
     return SelectedProviders(
         realtime_provider=realtime_provider,
         vision_enabled=vision_enabled,
+        memory_consolidation_enabled=memory_consolidation_enabled,
         vision_provider=vision_provider,
         search_enabled=search_enabled,
         search_provider=search_provider,
@@ -453,7 +430,7 @@ def compute_selected_provider_key_set(selected: SelectedProviders) -> SelectedPr
     entries: list[ProviderRequirementEntry] = [
         get_provider_requirement(kind=PROVIDER_KIND_REALTIME, provider_id=selected.realtime_provider)
     ]
-    if selected.vision_enabled and selected.vision_provider is not None:
+    if selected.vision_provider is not None:
         entries.append(
             get_provider_requirement(kind=PROVIDER_KIND_VISION, provider_id=selected.vision_provider)
         )
@@ -468,9 +445,6 @@ def compute_selected_provider_key_set(selected: SelectedProviders) -> SelectedPr
     optional_secret: list[str] = []
     required_non_secret: list[str] = []
     optional_non_secret: list[str] = []
-    legacy: list[str] = []
-    secret_binding_required: list[str] = []
-    secret_binding_optional: list[str] = []
 
     for entry in entries:
         (
@@ -485,10 +459,6 @@ def compute_selected_provider_key_set(selected: SelectedProviders) -> SelectedPr
         _append_unique(optional_secret, entry_optional_secret)
         _append_unique(required_non_secret, entry_required_non_secret)
         _append_unique(optional_non_secret, entry_optional_non_secret)
-        _append_unique(legacy, entry.legacy_alias_keys)
-        if entry.secret_binding.eligible:
-            _append_unique(secret_binding_required, entry.secret_binding.required_env_keys)
-            _append_unique(secret_binding_optional, entry.secret_binding.optional_env_keys)
 
     return SelectedProviderKeySet(
         entries=tuple(entries),
@@ -498,9 +468,6 @@ def compute_selected_provider_key_set(selected: SelectedProviders) -> SelectedPr
         optional_secret_env_keys=tuple(optional_secret),
         required_non_secret_env_keys=tuple(required_non_secret),
         optional_non_secret_env_keys=tuple(optional_non_secret),
-        legacy_alias_keys=tuple(legacy),
-        secret_binding_required_env_keys=tuple(secret_binding_required),
-        secret_binding_optional_env_keys=tuple(secret_binding_optional),
     )
 
 
@@ -513,24 +480,6 @@ def resolve_effective_env_value(
 ) -> tuple[str | None, str | None]:
     requirement = get_provider_requirement(kind=provider_kind, provider_id=provider_id)
     return _resolve_effective_env_value_for_entry(values=values, entry=requirement, env_key=env_key)
-
-
-def build_missing_secret_diagnostics(
-    source: Mapping[str, Any] | object,
-    *,
-    selected: SelectedProviders | None = None,
-) -> MissingSecretDiagnostics:
-    diagnostics = build_provider_requirement_diagnostics(source, selected=selected)
-    merged_presence = dict(diagnostics.secret_key_presence)
-    return MissingSecretDiagnostics(
-        selected=diagnostics.selected,
-        required_env_keys=diagnostics.required_secret_env_keys,
-        optional_env_keys=diagnostics.optional_secret_env_keys,
-        missing_required_env_keys=diagnostics.missing_required_secret_env_keys,
-        key_presence=MappingProxyType(merged_presence),
-        resolved_values=diagnostics.resolved_values,
-        resolved_sources=diagnostics.resolved_sources,
-    )
 
 
 def build_provider_requirement_diagnostics(

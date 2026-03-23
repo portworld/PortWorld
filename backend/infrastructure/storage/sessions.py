@@ -10,8 +10,10 @@ from typing import Any
 
 from backend.infrastructure.storage.errors import SessionNotFoundError
 from backend.infrastructure.storage.types import SessionMemoryResetResult, SessionStorageResult, now_ms
+from backend.memory.candidates import MemoryCandidate, coerce_memory_candidate
 from backend.memory.events import AcceptedVisionEvent, coerce_accepted_vision_event
 from backend.memory.lifecycle import (
+    MEMORY_CANDIDATES_LOG_FILE_NAME,
     SHORT_TERM_MEMORY_TEMPLATE,
     SESSION_MEMORY_TEMPLATE,
     SessionMemoryResetEligibility,
@@ -37,6 +39,9 @@ class SessionStorageMixin:
             session_storage.session_memory_markdown_path,
             SESSION_MEMORY_TEMPLATE,
         ) or created_any
+        created_any = (
+            self._ensure_text_file(session_storage.memory_candidates_log_path, "") or created_any
+        )
         created_any = self._ensure_text_file(session_storage.vision_events_log_path, "") or created_any
         created_any = (
             self._ensure_text_file(session_storage.vision_routing_events_log_path, "") or created_any
@@ -71,6 +76,14 @@ class SessionStorageMixin:
             artifact_kind="session_memory_markdown",
             artifact_path=session_storage.session_memory_markdown_path,
             content_type="text/markdown",
+            metadata=artifact_metadata,
+        )
+        self.register_artifact(
+            artifact_id=f"{session_id}:memory_candidate_log",
+            session_id=session_id,
+            artifact_kind="memory_candidate_log",
+            artifact_path=session_storage.memory_candidates_log_path,
+            content_type="application/x-ndjson",
             metadata=artifact_metadata,
         )
         self.register_artifact(
@@ -250,6 +263,51 @@ class SessionStorageMixin:
         self._require_session_persisted(session_id=session_id)
         session_storage = self.get_session_storage_paths(session_id=session_id)
         return self._read_memory_markdown_payload(path=session_storage.short_term_memory_markdown_path)
+
+    def read_session_memory_markdown(self, *, session_id: str) -> str:
+        self._require_session_persisted(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        if not session_storage.session_memory_markdown_path.exists():
+            return ""
+        return session_storage.session_memory_markdown_path.read_text(encoding="utf-8")
+
+    def read_short_term_memory_markdown(self, *, session_id: str) -> str:
+        self._require_session_persisted(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        if not session_storage.short_term_memory_markdown_path.exists():
+            return ""
+        return session_storage.short_term_memory_markdown_path.read_text(encoding="utf-8")
+
+    def append_memory_candidate(self, *, session_id: str, candidate: dict[str, Any]) -> None:
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        if not session_storage.session_dir.exists():
+            session_storage = self.bootstrap_session_storage(session_id=session_id)
+        with session_storage.memory_candidates_log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(candidate, ensure_ascii=True, sort_keys=True) + "\n")
+
+    def read_memory_candidates(self, *, session_id: str) -> list[dict[str, Any]]:
+        self._require_session_persisted(session_id=session_id)
+        session_storage = self.get_session_storage_paths(session_id=session_id)
+        if not session_storage.memory_candidates_log_path.exists():
+            return []
+        try:
+            lines = session_storage.memory_candidates_log_path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            return []
+        candidates: list[dict[str, Any]] = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except JSONDecodeError:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            candidate, _ = coerce_memory_candidate(payload)
+            if candidate is not None:
+                candidates.append(dict(candidate))
+        return candidates
 
     def get_session_memory_reset_eligibility(
         self,
