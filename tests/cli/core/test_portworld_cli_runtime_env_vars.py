@@ -35,6 +35,35 @@ class RuntimeEnvVarsTests(unittest.TestCase):
         self.assertNotIn("BACKEND_DATA_DIR", env_vars)
         self.assertNotIn("PORT", env_vars)
 
+    def test_managed_gcp_env_preserves_extension_env_values(self) -> None:
+        env_values = OrderedDict(
+            [
+                ("PORTWORLD_EXTENSIONS_MANIFEST", "/app/.portworld/extensions.json"),
+                ("PORTWORLD_EXTENSIONS_PYTHON_PATH", "/app/.portworld/extensions/python"),
+                ("BACKEND_DATA_DIR", "backend/var"),
+            ]
+        )
+        config = SimpleNamespace(
+            service_name="portworld-api",
+            cors_origins="https://app.example.com",
+            allowed_hosts="api.example.com",
+        )
+
+        env_vars = build_runtime_env_vars(
+            env_values=env_values,
+            config=config,
+            bucket_name="gcp-managed-bucket",
+        )
+
+        self.assertEqual(
+            env_vars["PORTWORLD_EXTENSIONS_MANIFEST"],
+            "/app/.portworld/extensions.json",
+        )
+        self.assertEqual(
+            env_vars["PORTWORLD_EXTENSIONS_PYTHON_PATH"],
+            "/app/.portworld/extensions/python",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

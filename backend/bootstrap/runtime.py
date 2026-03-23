@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 from backend.core.settings import Settings
@@ -34,6 +35,7 @@ class ConfigCheckResult:
     vision_provider: str | None
     realtime_tooling_enabled: bool
     web_search_provider: str | None
+    extension_health: dict[str, object] | None
     check_mode: str
     storage_bootstrap_probe: bool | None
     warnings: tuple[str, ...]
@@ -47,6 +49,7 @@ class ConfigCheckResult:
             "vision_provider": self.vision_provider,
             "realtime_tooling_enabled": self.realtime_tooling_enabled,
             "web_search_provider": self.web_search_provider,
+            "extension_health": self.extension_health,
             "check_mode": self.check_mode,
             "storage_bootstrap_probe": self.storage_bootstrap_probe,
             "warnings": list(self.warnings),
@@ -66,6 +69,7 @@ class DoctorRuntimeDetails:
     realtime_tooling_enabled: bool
     web_search_provider: str | None
     web_search_enabled: bool
+    extension_health: dict[str, object] | None
     storage_bootstrap_probe: bool | None
 
     def to_dict(self) -> dict[str, object]:
@@ -77,6 +81,7 @@ class DoctorRuntimeDetails:
             "realtime_tooling_enabled": self.realtime_tooling_enabled,
             "web_search_provider": self.web_search_provider,
             "web_search_enabled": self.web_search_enabled,
+            "extension_health": self.extension_health,
             "storage_bootstrap_probe": self.storage_bootstrap_probe,
         }
         if self.storage_paths is not None:
@@ -188,6 +193,8 @@ def check_runtime_configuration(
     if full_readiness:
         dependencies.storage.bootstrap()
         storage_bootstrap_probe = True
+        if dependencies.realtime_tooling_runtime is not None:
+            _probe_tooling_runtime_extensions(dependencies.realtime_tooling_runtime)
 
     dependencies.realtime_provider_factory.validate_configuration()
 
@@ -198,21 +205,36 @@ def check_runtime_configuration(
         vision_provider = vision_factory.provider_name
 
     web_search_provider = None
+    extension_health: dict[str, object] | None = None
     if settings.realtime_tooling_enabled:
         tooling_runtime = dependencies.realtime_tooling_runtime
         assert tooling_runtime is not None
         web_search_provider = tooling_runtime.web_search_provider
+        extension_health = tooling_runtime.extension_health.to_dict()
         if not tooling_runtime.web_search_enabled:
             warnings.append(
                 "REALTIME_TOOLING_ENABLED is true but web_search is disabled because the configured search provider is not enabled by current credentials."
+            )
+        runtime_prerequisites = tooling_runtime.extension_health.runtime_prerequisites
+        if not runtime_prerequisites.ok and runtime_prerequisites.node_launcher_enabled_count > 0:
+            warnings.append(
+                "Enabled Node MCP extensions require node/npm/npx in the backend runtime environment."
+            )
+        if not tooling_runtime.extension_health.ok:
+            warnings.append(
+                "One or more enabled extensions failed to load. See extension_health.records for details."
             )
 
     storage_paths = None
     if dependencies.storage.is_local_backend:
         storage_paths = dependencies.storage.local_storage_paths().to_dict()
 
+    extensions_ok = True
+    if extension_health is not None:
+        extensions_ok = bool(extension_health.get("ok"))
+
     return ConfigCheckResult(
-        ok=True,
+        ok=extensions_ok,
         storage_backend=dependencies.storage_info.backend,
         storage_details=dict(dependencies.storage_info.details),
         storage_paths=storage_paths,
@@ -220,6 +242,7 @@ def check_runtime_configuration(
         vision_provider=vision_provider,
         realtime_tooling_enabled=settings.realtime_tooling_enabled,
         web_search_provider=web_search_provider,
+        extension_health=extension_health,
         check_mode=check_mode,
         storage_bootstrap_probe=storage_bootstrap_probe,
         warnings=tuple(warnings),
@@ -245,13 +268,17 @@ def collect_doctor_runtime_details(
 
     web_search_provider = None
     web_search_enabled = False
+    extension_health: dict[str, object] | None = None
     if settings.realtime_tooling_enabled:
         tooling_runtime = RealtimeToolingRuntime.from_settings(
             settings,
             storage=storage,
         )
+        if full_readiness:
+            _probe_tooling_runtime_extensions(tooling_runtime)
         web_search_provider = settings.realtime_web_search_provider
         web_search_enabled = tooling_runtime.web_search_enabled
+        extension_health = tooling_runtime.extension_health.to_dict()
 
     storage_bootstrap_probe: bool | None = None
     if full_readiness:
@@ -271,5 +298,21 @@ def collect_doctor_runtime_details(
         realtime_tooling_enabled=settings.realtime_tooling_enabled,
         web_search_provider=web_search_provider,
         web_search_enabled=web_search_enabled,
+        extension_health=extension_health,
         storage_bootstrap_probe=storage_bootstrap_probe,
     )
+
+
+def _probe_tooling_runtime_extensions(tooling_runtime: RealtimeToolingRuntime) -> None:
+    async def _probe() -> None:
+        await tooling_runtime.startup()
+        await tooling_runtime.shutdown()
+
+    try:
+        asyncio.run(_probe())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(_probe())
+        finally:
+            loop.close()

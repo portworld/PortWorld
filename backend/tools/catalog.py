@@ -120,6 +120,10 @@ class ToolCatalogContext:
     web_search_provider: str | None
     web_search_max_results: int
 
+    @property
+    def profile_storage(self) -> BackendStorage:
+        return self.user_memory_storage
+
 
 @dataclass(frozen=True, slots=True)
 class ToolSpec:

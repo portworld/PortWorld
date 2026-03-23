@@ -30,9 +30,12 @@ Public install path:
 curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash
 ```
 
-The bootstrap installs `uv` automatically and downloads Python 3.11+ when the machine does not
-already provide a suitable interpreter. On a fresh machine, `portworld init` defaults to the
-operator-friendly zero-clone workspace flow and can be run from any directory.
+The bootstrap installs `uv` automatically, downloads Python 3.11+ when the machine does not
+already provide a suitable interpreter, and bootstraps Node.js/npm/npx in user space when those
+tools are missing for Node-based MCP launchers. The published/container runtime path does not rely
+on the host PATH for those tools; the backend image now includes its own Node runtime. On a fresh
+machine, `portworld init` defaults to the operator-friendly zero-clone workspace flow and can be
+run from any directory.
 
 Default operator path after install:
 
@@ -43,6 +46,11 @@ docker compose up -d
 portworld doctor --target local
 portworld status
 ```
+
+Example filesystem MCP manifests:
+
+- local/source runtime: [mcp-filesystem-local.extensions.json](/Users/pierrehaas/.codex/worktrees/30fa/PortWorld/docs/operations/examples/mcp-filesystem-local.extensions.json)
+- published/container runtime: [mcp-filesystem-published.extensions.json](/Users/pierrehaas/.codex/worktrees/30fa/PortWorld/docs/operations/examples/mcp-filesystem-published.extensions.json)
 
 Manual install fallback for a pinned release version:
 

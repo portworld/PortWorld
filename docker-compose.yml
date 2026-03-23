@@ -15,6 +15,8 @@ services:
       # Single HTTP entrypoint for health, REST routes, and websocket sessions.
       - "8080:8080"
     volumes:
+      # Expose workspace extension manifest/install artifacts to the container.
+      - ./.portworld:/app/.portworld:ro
       # Persist SQLite and filesystem-backed memory artifacts across restarts.
       - portworld_backend_var:/app/backend/var
     healthcheck:

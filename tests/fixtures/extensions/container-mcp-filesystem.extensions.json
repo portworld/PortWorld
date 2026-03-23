@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "installed": [
+    {
+      "enabled": true,
+      "id": "mcp-filesystem-node",
+      "kind": "mcp_server",
+      "mcp_server": {
+        "args": [
+          "/workspace"
+        ],
+        "launcher": "npx",
+        "package": "@modelcontextprotocol/server-filesystem",
+        "package_version": "2026.1.14",
+        "transport": "stdio"
+      },
+      "source": "catalog",
+      "summary": "Filesystem MCP server for backend image smoke."
+    }
+  ],
+  "local_definitions": []
+}

@@ -43,6 +43,7 @@ dependencies = [
   "httptools==0.7.1",
   "httpx==0.28.1",
   "idna==3.11",
+  "mcp==1.12.4",
   "azure-identity==1.25.1",
   "azure-storage-blob==12.27.1",
   "google-cloud-storage==2.19.0",

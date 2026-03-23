@@ -162,6 +162,17 @@ def coerce_backend_cli_payload(
         }
 
 
+def collect_published_backend_check_config_payload(workspace_root: Path) -> dict[str, Any]:
+    completed = run_backend_compose_cli(
+        workspace_root,
+        backend_args=["check-config"],
+    )
+    return coerce_backend_cli_payload(
+        completed,
+        default_message="Containerized backend config check did not return structured JSON output.",
+    )
+
+
 def run_local_doctor_published(
     config_session,
     *,

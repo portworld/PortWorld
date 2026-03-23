@@ -56,6 +56,22 @@ class ProviderCLISurfaceTests(unittest.TestCase):
         self.assertNotEqual(search_result.exit_code, 0)
         self.assertIn("Use --search-api-key instead.", search_result.output)
 
+    def test_extensions_group_is_exposed(self) -> None:
+        result = self.runner.invoke(cli, ["--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("extensions", result.output)
+
+    def test_extensions_help_exposes_expected_subcommands(self) -> None:
+        result = self.runner.invoke(cli, ["extensions", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("list", result.output)
+        self.assertIn("show", result.output)
+        self.assertIn("add", result.output)
+        self.assertIn("remove", result.output)
+        self.assertIn("enable", result.output)
+        self.assertIn("disable", result.output)
+        self.assertIn("doctor", result.output)
+
 
 if __name__ == "__main__":
     unittest.main()

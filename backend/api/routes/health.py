@@ -84,6 +84,55 @@ def _readiness_checks(request: Request, *, redact_details: bool) -> list[dict[st
                 "detail": detail,
             }
         )
+    if runtime.settings.realtime_tooling_enabled:
+        tooling_runtime = runtime.realtime_tooling_runtime
+        if tooling_runtime is None:
+            checks.append(
+                {
+                    "name": "realtime_tooling_extensions",
+                    "ok": False,
+                    "detail": "tooling runtime is not initialized",
+                }
+            )
+        else:
+            extension_health = tooling_runtime.extension_health
+            runtime_prerequisites = extension_health.runtime_prerequisites
+            if runtime_prerequisites.node_launcher_enabled_count > 0:
+                checks.append(
+                    {
+                        "name": "realtime_tooling_mcp_runtime_prerequisites",
+                        "ok": runtime_prerequisites.ok,
+                        "detail": (
+                            "node/npm/npx available in backend runtime"
+                            if runtime_prerequisites.ok
+                            else (
+                                "check_failed"
+                                if redact_details
+                                else (
+                                    "missing backend runtime binaries: "
+                                    + ", ".join(runtime_prerequisites.missing_binaries)
+                                )
+                            )
+                        ),
+                        "runtime_prerequisites": runtime_prerequisites.to_dict(),
+                    }
+                )
+            checks.append(
+                {
+                    "name": "realtime_tooling_extensions",
+                    "ok": extension_health.ok,
+                    "detail": (
+                        "extensions ok"
+                        if extension_health.ok
+                        else (
+                            "check_failed"
+                            if redact_details
+                            else f"{extension_health.failed} extension(s) failed"
+                        )
+                    ),
+                    "extension_health": extension_health.to_dict(),
+                }
+            )
     checks.append(
         {
             "name": "production_profile_posture",

@@ -11,6 +11,7 @@ services:
     ports:
       - "{host_port}:8080"
     volumes:
+      - ./.portworld:/app/.portworld:ro
       - portworld_backend_var:/app/backend/var
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz').read()"]

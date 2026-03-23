@@ -7,7 +7,7 @@ import unittest
 from unittest import mock
 
 from portworld_cli.context import CLIContext
-from portworld_cli.runtime.reporting import HealthSummary, LiveServiceStatus
+from portworld_cli.runtime.reporting import HealthSummary, LiveServiceStatus, LocalRuntimeStatus
 from portworld_cli.services.status import run_status
 from portworld_cli.targets import (
     TARGET_AWS_ECS_FARGATE,
@@ -21,7 +21,13 @@ class StatusCrossTargetTests(unittest.TestCase):
     def _write_project_config(self, workspace_root: Path) -> None:
         self._write_project_config_for_target(workspace_root, TARGET_GCP_CLOUD_RUN)
 
-    def _write_project_config_for_target(self, workspace_root: Path, target: str) -> None:
+    def _write_project_config_for_target(
+        self,
+        workspace_root: Path,
+        target: str,
+        *,
+        runtime_source: str = "source",
+    ) -> None:
         provider = "gcp"
         if target == TARGET_AWS_ECS_FARGATE:
             provider = "aws"
@@ -32,7 +38,7 @@ class StatusCrossTargetTests(unittest.TestCase):
         payload = {
             "schema_version": SCHEMA_VERSION,
             "project_mode": "managed",
-            "runtime_source": "source",
+            "runtime_source": runtime_source,
             "cloud_provider": provider,
             "providers": {},
             "security": {},
@@ -121,6 +127,72 @@ class StatusCrossTargetTests(unittest.TestCase):
                 result.data["state_paths"].keys(),
                 ("gcp_cloud_run", "aws_ecs_fargate", "azure_container_apps"),
             )
+
+    @mock.patch("portworld_cli.services.status.service.collect_published_backend_check_config_payload")
+    @mock.patch("portworld_cli.services.status.service.build_health_summary")
+    @mock.patch("portworld_cli.services.status.service.collect_local_runtime_status")
+    @mock.patch("portworld_cli.services.status.service.collect_live_service_status")
+    def test_status_prefers_backend_node_runtime_view_for_published_workspaces(
+        self,
+        collect_live_status: mock.Mock,
+        collect_local_runtime: mock.Mock,
+        build_health_summary: mock.Mock,
+        collect_published_backend_check_config_payload: mock.Mock,
+    ) -> None:
+        collect_live_status.return_value = LiveServiceStatus(
+            attempted=False,
+            status="skipped",
+            warning_code=None,
+            warning_message=None,
+            service_exists=None,
+            service_ref=None,
+        )
+        collect_local_runtime.return_value = LocalRuntimeStatus(
+            available=True,
+            running=False,
+            container_name="portworld-backend",
+            state="exited",
+            health=None,
+            warning=None,
+        )
+        build_health_summary.return_value = HealthSummary(
+            source="none",
+            livez="unknown",
+            readyz="unknown",
+        )
+        collect_published_backend_check_config_payload.return_value = {
+            "ok": False,
+            "extension_health": {
+                "runtime_prerequisites": {
+                    "node_launcher_enabled_count": 1,
+                    "required_binaries": ["node", "npm", "npx"],
+                    "missing_binaries": ["npx"],
+                    "ok": False,
+                }
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            self._write_project_config_for_target(
+                workspace_root,
+                TARGET_GCP_CLOUD_RUN,
+                runtime_source="published",
+            )
+
+            result = run_status(
+                CLIContext(
+                    project_root_override=workspace_root,
+                    verbose=False,
+                    json_output=False,
+                    non_interactive=True,
+                    yes=False,
+                )
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.data["node_mcp"]["backend"]["missing_binaries"], ["npx"])
+        self.assertIn("backend_node_mcp_missing_binaries: npx", result.message)
 
     @mock.patch("portworld_cli.services.status.service.build_health_summary")
     @mock.patch("portworld_cli.services.status.service.collect_local_runtime_status", return_value=None)

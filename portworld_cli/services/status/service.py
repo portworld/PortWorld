@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 from portworld_cli.context import CLIContext
+from portworld_cli.extensions import (
+    collect_backend_node_launcher_readiness,
+    collect_extensions_summary,
+    collect_node_launcher_readiness,
+)
 from portworld_cli.output import CommandResult
-from portworld_cli.runtime.published import collect_local_runtime_status
+from portworld_cli.runtime.published import (
+    collect_local_runtime_status,
+    collect_published_backend_check_config_payload,
+)
 from portworld_cli.runtime.reporting import (
     build_health_summary,
     build_status_message,
@@ -34,20 +42,85 @@ def run_status(cli_context: CLIContext) -> CommandResult:
         if session.config_session.effective_runtime_source == "published"
         else None
     )
+    extensions_summary = collect_extensions_summary(session.config_session)
+    host_node_launcher_readiness = collect_node_launcher_readiness(
+        session.config_session.workspace_paths.extensions_manifest_file
+    )
+    backend_node_launcher_readiness = None
+    if session.config_session.effective_runtime_source == "published":
+        backend_payload = collect_published_backend_check_config_payload(
+            session.config_session.workspace_root
+        )
+        backend_node_launcher_readiness = collect_backend_node_launcher_readiness(
+            backend_payload.get("extension_health")
+        )
+    message = build_status_message(
+        session=session,
+        active_target=active_target,
+        last_known_payload=last_known_payload,
+        deploy_by_target=deploy_by_target,
+        live_status=live_status,
+        local_runtime=local_runtime,
+        health=health,
+        secret_readiness=secret_readiness,
+    )
+    extension_lines = [
+        message,
+        "",
+        "Extensions",
+        f"manifest_path: {extensions_summary.manifest_path}",
+        f"python_install_dir: {extensions_summary.python_install_dir}",
+        f"installed_count: {extensions_summary.installed_count}",
+        f"enabled_count: {extensions_summary.enabled_count}",
+        f"error: {extensions_summary.error or 'none'}",
+        (
+            f"host_node_mcp_enabled_count: {host_node_launcher_readiness.enabled_count}"
+            if host_node_launcher_readiness.error is None
+            else f"host_node_mcp_error: {host_node_launcher_readiness.error}"
+        ),
+        (
+            "host_node_mcp_missing_binaries: none"
+            if host_node_launcher_readiness.error is not None
+            or not host_node_launcher_readiness.missing_binaries
+            else (
+                "host_node_mcp_missing_binaries: "
+                f"{', '.join(host_node_launcher_readiness.missing_binaries)}"
+            )
+        ),
+        (
+            "host_node_mcp_next_step: none"
+            if not host_node_launcher_readiness.bootstrap_required
+            else (
+                "host_node_mcp_next_step: run `bash install.sh --no-init --non-interactive`, "
+                "then rerun `portworld extensions doctor`"
+            )
+        ),
+    ]
+    if backend_node_launcher_readiness is not None:
+        extension_lines.extend(
+            [
+                (
+                    f"backend_node_mcp_enabled_count: {backend_node_launcher_readiness.enabled_count}"
+                    if backend_node_launcher_readiness.error is None
+                    else f"backend_node_mcp_error: {backend_node_launcher_readiness.error}"
+                ),
+                (
+                    "backend_node_mcp_missing_binaries: none"
+                    if backend_node_launcher_readiness.error is not None
+                    or not backend_node_launcher_readiness.missing_binaries
+                    else (
+                        "backend_node_mcp_missing_binaries: "
+                        f"{', '.join(backend_node_launcher_readiness.missing_binaries)}"
+                    )
+                ),
+            ]
+        )
+    message = "\n".join(extension_lines)
 
     return CommandResult(
         ok=True,
         command=COMMAND_NAME,
-        message=build_status_message(
-            session=session,
-            active_target=active_target,
-            last_known_payload=last_known_payload,
-            deploy_by_target=deploy_by_target,
-            live_status=live_status,
-            local_runtime=local_runtime,
-            health=health,
-            secret_readiness=secret_readiness,
-        ),
+        message=message,
         data={
             "workspace_root": str(session.config_session.workspace_root),
             "project_root": (
@@ -76,6 +149,15 @@ def run_status(cli_context: CLIContext) -> CommandResult:
             "active_target": active_target,
             "derived_from_legacy": session.derived_from_legacy,
             "secret_readiness": secret_readiness.to_dict(),
+            "extensions": extensions_summary.to_payload(),
+            "node_mcp": {
+                "host": host_node_launcher_readiness.to_payload(),
+                "backend": (
+                    None
+                    if backend_node_launcher_readiness is None
+                    else backend_node_launcher_readiness.to_payload()
+                ),
+            },
             "published_runtime": published_runtime,
             "local_runtime": None if local_runtime is None else local_runtime.to_payload(),
             "deploy": {

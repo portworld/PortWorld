@@ -45,7 +45,7 @@ This documents the tagged release flow for the public `portworld` CLI.
    - `python -m portworld_cli.main update cli --json`
 3. Verify installer syntax and non-interactive path
    - `bash -n install.sh`
-   - if needed, use `PORTWORLD_INSTALL_SOURCE_URL=. PORTWORLD_NO_INIT=1 PORTWORLD_NON_INTERACTIVE=1 bash install.sh`
+   - if needed, use `PORTWORLD_INSTALL_SOURCE_URL=. PORTWORLD_NO_INIT=1 PORTWORLD_NON_INTERACTIVE=1 PORTWORLD_NODE_BOOTSTRAP=require bash install.sh`
 4. Update `CHANGELOG.md`
    - ensure `## [Unreleased]` contains all relevant user-visible changes
    - create/update `## [vX.Y.Z] - YYYY-MM-DD` with behavior-focused notes
@@ -102,10 +102,10 @@ uv tool install --default-index https://test.pypi.org/simple --index https://pyp
 
 - Source-checkout developer installs remain `pipx install . --force`.
 - `cli-smoke` continues to run on branch pushes and pull requests only; tag pushes are owned by `cli-release`.
-- `cli-smoke` also builds `backend/Dockerfile` and probes `/livez` on the container with a placeholder `OPENAI_API_KEY`.
+- `cli-smoke` also builds `backend/Dockerfile`, probes `/livez`, verifies `node`/`npm`/`npx` inside the image, and runs a containerized `check-config --full-readiness` smoke with the pinned filesystem Node MCP extension.
 - `publish_pypi` depends on a successful TestPyPI publish, TestPyPI smoke pass, and backend image publication/security pass.
 - The release workflow never rebuilds after validation; PyPI and GitHub Release both reuse the `build` job artifacts.
-- The public bootstrap installs `uv` automatically and downloads Python 3.11+ when needed.
+- The public bootstrap installs `uv` automatically, downloads Python 3.11+ when needed, and bootstraps Node.js/npm/npx in user space for Node MCP launchers.
 - Release images are immutable and use only `vX.Y.Z` tags in H+1; no `latest` or `stable` image tags are published yet.
 - GitHub Release notes are part of the supported release surface and should stay
   synchronized with `CHANGELOG.md`.

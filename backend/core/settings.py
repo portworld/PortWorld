@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Mapping
 
 from dotenv import load_dotenv
+from dotenv import find_dotenv
 
 from backend.memory.lifecycle import DEFAULT_SESSION_MEMORY_RETENTION_DAYS
 
@@ -102,8 +103,22 @@ class MissingOpenAIAPIKeyError(MissingRealtimeProviderAPIKeyError):
 
 
 def load_environment_files(backend_env_path: Path | None = None) -> None:
-    load_dotenv(dotenv_path=backend_env_path or _BACKEND_ENV_PATH)
-    load_dotenv()
+    primary_env_path = (backend_env_path or _BACKEND_ENV_PATH).resolve()
+    load_dotenv(dotenv_path=primary_env_path)
+
+    secondary_env_path: Path | None = None
+    discovered = find_dotenv(usecwd=True)
+    if discovered:
+        secondary_env_path = Path(discovered).resolve()
+        load_dotenv(dotenv_path=secondary_env_path)
+    else:
+        load_dotenv()
+
+    # Keep an internal hint for resolving relative extension paths from env.
+    if secondary_env_path is not None and secondary_env_path.is_file():
+        os.environ["PORTWORLD_INTERNAL_ENV_BASE_DIR"] = str(secondary_env_path.parent)
+    else:
+        os.environ["PORTWORLD_INTERNAL_ENV_BASE_DIR"] = str(primary_env_path.parent)
 
 
 def _get_env(*names: str) -> str | None:
@@ -154,6 +169,22 @@ def _parse_csv_env(*names: str, default: str) -> list[str]:
     if values:
         return values
     return [default]
+
+
+def _parse_optional_path_env(*names: str) -> Path | None:
+    raw = _get_env(*names)
+    if raw is None:
+        return None
+    candidate = raw.strip()
+    if not candidate:
+        return None
+    parsed = Path(candidate).expanduser()
+    if parsed.is_absolute():
+        return parsed.resolve()
+    base_dir = os.getenv("PORTWORLD_INTERNAL_ENV_BASE_DIR")
+    if base_dir:
+        return (Path(base_dir).expanduser() / parsed).resolve()
+    return (Path.cwd() / parsed).resolve()
 
 
 @dataclass(frozen=True)
@@ -233,6 +264,8 @@ class Settings:
     realtime_web_search_max_results: int
     memory_consolidation_enabled: bool
     memory_consolidation_timeout_ms: int
+    portworld_extensions_manifest: Path | None
+    portworld_extensions_python_path: Path | None
     backend_profile: str
     backend_allowed_hosts: list[str]
     backend_forwarded_allow_ips: list[str]
@@ -790,7 +823,7 @@ def _looks_like_nvidia_integrate_model(model_name: str) -> bool:
 def _load_tooling_settings(
     *,
     vision_memory_enabled: bool,
-) -> dict[str, str | int | bool]:
+) -> dict[str, str | int | bool | Path | None]:
     return {
         "realtime_tooling_enabled": _parse_bool_env(
             "REALTIME_TOOLING_ENABLED",
@@ -818,6 +851,12 @@ def _load_tooling_settings(
             "MEMORY_CONSOLIDATION_TIMEOUT_MS",
             default=12000,
             minimum=1000,
+        ),
+        "portworld_extensions_manifest": _parse_optional_path_env(
+            "PORTWORLD_EXTENSIONS_MANIFEST",
+        ),
+        "portworld_extensions_python_path": _parse_optional_path_env(
+            "PORTWORLD_EXTENSIONS_PYTHON_PATH",
         ),
     }
 

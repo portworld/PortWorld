@@ -54,8 +54,12 @@ jobs:
           PORTWORLD_INSTALL_SOURCE_URL="$GITHUB_WORKSPACE" \
           PORTWORLD_NO_INIT=1 \
           PORTWORLD_NON_INTERACTIVE=1 \
+          PORTWORLD_NODE_BOOTSTRAP=require \
           bash install.sh --no-init --non-interactive
           portworld --help
+          command -v node >/dev/null 2>&1 || test -x "$HOME/.local/bin/node"
+          command -v npm >/dev/null 2>&1 || test -x "$HOME/.local/bin/npm"
+          command -v npx >/dev/null 2>&1 || test -x "$HOME/.local/bin/npx"
 
       - name: Package build smoke
         run: |
@@ -92,10 +96,46 @@ jobs:
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:18080/livez >/tmp/portworld-backend-smoke.json; then
               cat /tmp/portworld-backend-smoke.json
-              exit 0
+              break
             fi
             sleep 2
           done
 
-          echo "Backend image did not become healthy in time." >&2
-          exit 1
+          if ! test -s /tmp/portworld-backend-smoke.json; then
+            echo "Backend image did not become healthy in time." >&2
+            exit 1
+          fi
+
+          docker exec portworld-backend-smoke node --version
+          docker exec portworld-backend-smoke npm --version
+          docker exec portworld-backend-smoke npx --version
+
+          docker run --rm \
+            -e OPENAI_API_KEY=test-key \
+            -e REALTIME_TOOLING_ENABLED=true \
+            -e PORTWORLD_EXTENSIONS_MANIFEST=/app/.portworld/container-mcp-filesystem.extensions.json \
+            -v "$GITHUB_WORKSPACE/tests/fixtures/extensions:/app/.portworld:ro" \
+            -v "$GITHUB_WORKSPACE:/workspace:ro" \
+            "$TEST_IMAGE" \
+            python -m backend.cli check-config --full-readiness >/tmp/portworld-backend-check-config.json
+
+          cat /tmp/portworld-backend-check-config.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/portworld-backend-check-config.json").read_text(encoding="utf-8"))
+          if not payload.get("ok"):
+              raise SystemExit("backend check-config did not report ok=true")
+          extension_health = payload.get("extension_health") or {}
+          runtime_prerequisites = extension_health.get("runtime_prerequisites") or {}
+          if runtime_prerequisites.get("missing_binaries"):
+              raise SystemExit(f"missing backend runtime binaries: {runtime_prerequisites.get('missing_binaries')}")
+          records = extension_health.get("records") or []
+          if not any(
+              record.get("extension_id") == "mcp-filesystem-node" and record.get("ok") is True
+              for record in records
+          ):
+              raise SystemExit("mcp-filesystem-node did not report an active extension record")
+          PY

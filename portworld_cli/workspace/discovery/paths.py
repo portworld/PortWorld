@@ -22,6 +22,9 @@ class WorkspacePaths:
     workspace_root: Path
     cli_dir: Path
     project_config_file: Path
+    extensions_manifest_file: Path
+    extensions_dir: Path
+    extensions_python_dir: Path
     cli_state_dir: Path
     gcp_cloud_run_state_file: Path
     workspace_env_file: Path
@@ -39,6 +42,9 @@ class WorkspacePaths:
             workspace_root=root,
             cli_dir=root / ".portworld",
             project_config_file=root / ".portworld" / "project.json",
+            extensions_manifest_file=root / ".portworld" / "extensions.json",
+            extensions_dir=root / ".portworld" / "extensions",
+            extensions_python_dir=root / ".portworld" / "extensions" / "python",
             cli_state_dir=root / ".portworld" / "state",
             gcp_cloud_run_state_file=ManagedTargetStatePaths(
                 root / ".portworld" / "state"
@@ -82,6 +88,9 @@ class ProjectPaths:
     compose_file: Path
     cli_dir: Path
     project_config_file: Path
+    extensions_manifest_file: Path
+    extensions_dir: Path
+    extensions_python_dir: Path
     cli_state_dir: Path
     gcp_cloud_run_state_file: Path
 
@@ -97,6 +106,9 @@ class ProjectPaths:
             compose_file=root / "docker-compose.yml",
             cli_dir=root / ".portworld",
             project_config_file=root / ".portworld" / "project.json",
+            extensions_manifest_file=root / ".portworld" / "extensions.json",
+            extensions_dir=root / ".portworld" / "extensions",
+            extensions_python_dir=root / ".portworld" / "extensions" / "python",
             cli_state_dir=root / ".portworld" / "state",
             gcp_cloud_run_state_file=ManagedTargetStatePaths(
                 root / ".portworld" / "state"
@@ -132,6 +144,9 @@ class ProjectPaths:
             "compose_file": str(self.compose_file),
             "cli_dir": str(self.cli_dir),
             "project_config_file": str(self.project_config_file),
+            "extensions_manifest_file": str(self.extensions_manifest_file),
+            "extensions_dir": str(self.extensions_dir),
+            "extensions_python_dir": str(self.extensions_python_dir),
             "cli_state_dir": str(self.cli_state_dir),
             "gcp_cloud_run_state_file": str(self.gcp_cloud_run_state_file),
         }

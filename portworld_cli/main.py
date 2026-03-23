@@ -8,6 +8,7 @@ from backend import __version__
 from portworld_cli.commands.config import config_group
 from portworld_cli.commands.deploy import deploy_group
 from portworld_cli.commands.doctor import doctor_command
+from portworld_cli.commands.extensions import extensions_group
 from portworld_cli.commands.init import init_command
 from portworld_cli.commands.logs import logs_group
 from portworld_cli.commands.ops import ops_group
@@ -67,6 +68,7 @@ cli.add_command(config_group)
 cli.add_command(providers_group)
 cli.add_command(update_group)
 cli.add_command(ops_group)
+cli.add_command(extensions_group)
 
 
 def main() -> None:
