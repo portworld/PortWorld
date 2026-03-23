@@ -19,6 +19,7 @@ from backend.infrastructure.storage import (
 )
 from backend.memory.lifecycle import (
     ProfileRecord,
+    UserMemoryRecord,
     SessionMemoryResetEligibility,
     SessionMemoryRetentionEligibility,
 )
@@ -77,6 +78,12 @@ class BackendStorage:
         raise NotImplementedError
 
     def read_short_term_memory(self, *, session_id: str) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def read_session_memory_markdown(self, *, session_id: str) -> str:
+        raise NotImplementedError
+
+    def read_short_term_memory_markdown(self, *, session_id: str) -> str:
         raise NotImplementedError
 
     def get_session_memory_reset_eligibility(
@@ -141,16 +148,19 @@ class BackendStorage:
     def list_memory_export_artifacts(self) -> list[MemoryExportArtifact]:
         raise NotImplementedError
 
+    def read_user_memory(self) -> str:
+        return self.read_user_memory_markdown()
+
     def read_cross_session_memory(self) -> str:
         raise NotImplementedError
 
-    def read_user_profile(self) -> dict[str, object]:
+    def read_user_memory_payload(self) -> dict[str, object]:
         raise NotImplementedError
 
-    def read_user_profile_markdown(self) -> str:
+    def read_user_memory_markdown(self) -> str:
         raise NotImplementedError
 
-    def write_user_profile(
+    def write_user_memory_payload(
         self,
         *,
         payload: Mapping[str, object],
@@ -159,10 +169,41 @@ class BackendStorage:
     ) -> dict[str, object]:
         raise NotImplementedError
 
+    def reset_user_memory_payload(self) -> dict[str, object]:
+        raise NotImplementedError
+
+    def read_user_profile(self) -> dict[str, object]:
+        return self.read_user_memory_payload()
+
+    def read_user_profile_markdown(self) -> str:
+        return self.read_user_memory_markdown()
+
+    def write_user_profile(
+        self,
+        *,
+        payload: Mapping[str, object],
+        source: str | None = None,
+        updated_at_ms: int | None = None,
+    ) -> dict[str, object]:
+        return self.write_user_memory_payload(
+            payload=payload,
+            source=source,
+            updated_at_ms=updated_at_ms,
+        )
+
     def reset_user_profile(self) -> dict[str, object]:
+        return self.reset_user_memory_payload()
+
+    def write_user_memory(self, *, markdown: str) -> None:
         raise NotImplementedError
 
     def write_cross_session_memory(self, *, markdown: str) -> None:
+        raise NotImplementedError
+
+    def append_memory_candidate(self, *, session_id: str, candidate: dict[str, Any]) -> None:
+        raise NotImplementedError
+
+    def read_memory_candidates(self, *, session_id: str) -> list[dict[str, Any]]:
         raise NotImplementedError
 
     def store_vision_frame_ingest(
@@ -213,16 +254,13 @@ class BackendStorage:
     ) -> VisionFrameIndexRecord | None:
         raise NotImplementedError
 
-    def migrate_legacy_storage_layout(self) -> dict[str, Any]:
-        raise NotImplementedError
-
-
 __all__ = [
     "ArtifactRecord",
     "BackendStorage",
     "CorruptStorageArtifactError",
     "MemoryExportArtifact",
     "ProfileRecord",
+    "UserMemoryRecord",
     "RealtimeReadOnlyStorageView",
     "SessionMemoryResetEligibility",
     "SessionMemoryResetResult",

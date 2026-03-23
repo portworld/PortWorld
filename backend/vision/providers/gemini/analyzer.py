@@ -40,8 +40,7 @@ def _normalize_gemini_model_name(model_name: str) -> str:
 
     if not normalized:
         raise RuntimeError(
-            "VISION_GEMINI_MODEL is required when VISION_MEMORY_PROVIDER=gemini "
-            "(legacy fallback: VISION_MEMORY_MODEL)"
+            "VISION_GEMINI_MODEL is required when VISION_MEMORY_PROVIDER=gemini"
         )
     if any(character.isspace() for character in normalized):
         raise RuntimeError(

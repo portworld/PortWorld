@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from backend.core.settings import Settings
 from backend.core.storage import BackendStorage
+from backend.memory.consolidation import DurableMemoryConsolidationRuntime
 from backend.realtime.client import RealtimeClientError
 from backend.realtime.factory import BridgeBinding
 from backend.vision.runtime import VisionMemoryRuntime
@@ -50,6 +51,7 @@ class DispatchContext:
     build_session_bridge: Callable[..., BridgeBinding]
     storage: BackendStorage
     vision_memory_runtime: VisionMemoryRuntime | None
+    durable_memory_runtime: DurableMemoryConsolidationRuntime | None
 
 
 async def parse_control_envelope(
@@ -87,6 +89,7 @@ async def _handle_session_activate(ctx: DispatchContext) -> ControlDispatchResul
         build_session_bridge=ctx.build_session_bridge,
         storage=ctx.storage,
         vision_memory_runtime=ctx.vision_memory_runtime,
+        durable_memory_runtime=ctx.durable_memory_runtime,
         trace_ws_messages_enabled=ctx.settings.backend_debug_trace_ws_messages,
     )
     return ControlDispatchResult(active_session=next_active_session, handled=True)
@@ -101,6 +104,7 @@ async def _handle_session_deactivate(ctx: DispatchContext) -> ControlDispatchRes
         send_control=ctx.send_control,
         storage=ctx.storage,
         vision_memory_runtime=ctx.vision_memory_runtime,
+        durable_memory_runtime=ctx.durable_memory_runtime,
         trace_ws_messages_enabled=ctx.settings.backend_debug_trace_ws_messages,
     )
     return ControlDispatchResult(active_session=None, handled=True)
@@ -199,6 +203,7 @@ async def dispatch_control_envelope(
     build_session_bridge: Callable[..., BridgeBinding],
     storage: BackendStorage,
     vision_memory_runtime: VisionMemoryRuntime | None,
+    durable_memory_runtime: DurableMemoryConsolidationRuntime | None,
 ) -> ControlDispatchResult:
     logger.debug(
         "Inbound control type=%s session=%s seq=%s",
@@ -220,6 +225,7 @@ async def dispatch_control_envelope(
             build_session_bridge=build_session_bridge,
             storage=storage,
             vision_memory_runtime=vision_memory_runtime,
+            durable_memory_runtime=durable_memory_runtime,
         )
         return await handler(ctx)
 

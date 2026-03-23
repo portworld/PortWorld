@@ -50,7 +50,6 @@ class AzureRuntimeEnvVarsTests(unittest.TestCase):
         self.assertEqual(env["BACKEND_STORAGE_BACKEND"], "managed")
         self.assertEqual(env["BACKEND_OBJECT_STORE_PROVIDER"], "azure_blob")
         self.assertEqual(env["BACKEND_OBJECT_STORE_NAME"], "pw-artifacts")
-        self.assertEqual(env["BACKEND_OBJECT_STORE_BUCKET"], "pw-artifacts")
         self.assertEqual(env["BACKEND_OBJECT_STORE_ENDPOINT"], "https://pwstorage123.blob.core.windows.net")
         self.assertEqual(env["BACKEND_OBJECT_STORE_PREFIX"], "pw-api")
         self.assertEqual(env["BACKEND_DATABASE_URL"], "postgresql://user:pass@db.example:5432/app")

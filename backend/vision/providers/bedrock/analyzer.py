@@ -41,8 +41,7 @@ def validate_bedrock_vision_settings(settings: Settings) -> None:
     model_name = (settings.resolve_vision_provider_model(provider="bedrock") or "").strip()
     if not model_name:
         raise RuntimeError(
-            "VISION_BEDROCK_MODEL is required when VISION_MEMORY_PROVIDER=bedrock "
-            "(legacy fallback: VISION_MEMORY_MODEL)"
+            "VISION_BEDROCK_MODEL is required when VISION_MEMORY_PROVIDER=bedrock"
         )
 
 

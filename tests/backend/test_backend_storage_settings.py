@@ -12,33 +12,18 @@ class BackendStorageSettingsTests(unittest.TestCase):
         with mock.patch.dict(os.environ, extra_env, clear=True):
             return Settings.from_env()
 
-    def test_legacy_managed_alias_and_bucket_alias_are_normalized(self) -> None:
+    def test_legacy_managed_alias_is_rejected(self) -> None:
         settings = self._settings(
             {
                 "BACKEND_STORAGE_BACKEND": "postgres_gcs",
                 "BACKEND_DATABASE_URL": "postgresql://user:pass@localhost:5432/db",
                 "BACKEND_OBJECT_STORE_PROVIDER": "gcs",
-                "BACKEND_OBJECT_STORE_BUCKET": "legacy-bucket",
+                "BACKEND_OBJECT_STORE_NAME": "bucket",
                 "BACKEND_OBJECT_STORE_PREFIX": "svc",
             }
         )
-        self.assertEqual(settings.backend_storage_backend, "managed")
-        self.assertEqual(settings.backend_object_store_name, "legacy-bucket")
-        settings.validate_storage_contract()
-
-    def test_canonical_name_wins_over_bucket_alias(self) -> None:
-        settings = self._settings(
-            {
-                "BACKEND_STORAGE_BACKEND": "managed",
-                "BACKEND_DATABASE_URL": "postgresql://user:pass@localhost:5432/db",
-                "BACKEND_OBJECT_STORE_PROVIDER": "gcs",
-                "BACKEND_OBJECT_STORE_NAME": "canonical-bucket",
-                "BACKEND_OBJECT_STORE_BUCKET": "legacy-bucket",
-                "BACKEND_OBJECT_STORE_PREFIX": "svc",
-            }
-        )
-        self.assertEqual(settings.backend_object_store_name, "canonical-bucket")
-        settings.validate_storage_contract()
+        with self.assertRaisesRegex(RuntimeError, "must be one of local, managed"):
+            settings.validate_storage_contract()
 
     def test_managed_rejects_missing_object_store_name(self) -> None:
         settings = self._settings(
@@ -97,7 +82,7 @@ class BackendStorageSettingsTests(unittest.TestCase):
                 settings = self._settings(env)
                 settings.validate_storage_contract()
 
-    def test_managed_bucket_alias_works_across_supported_providers(self) -> None:
+    def test_managed_rejects_bucket_alias_without_canonical_name(self) -> None:
         for provider, endpoint in (
             ("gcs", None),
             ("s3", None),
@@ -114,8 +99,8 @@ class BackendStorageSettingsTests(unittest.TestCase):
                 if endpoint is not None:
                     env["BACKEND_OBJECT_STORE_ENDPOINT"] = endpoint
                 settings = self._settings(env)
-                self.assertEqual(settings.backend_object_store_name, "legacy-store-name")
-                settings.validate_storage_contract()
+                with self.assertRaisesRegex(RuntimeError, "BACKEND_OBJECT_STORE_NAME must be set"):
+                    settings.validate_storage_contract()
 
     def test_local_requires_filesystem_provider(self) -> None:
         settings = self._settings(

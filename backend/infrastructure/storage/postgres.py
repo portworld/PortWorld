@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-import json
-import logging
 from typing import Any, Iterator
 
-from backend.memory.events import AcceptedVisionEvent, coerce_accepted_vision_event
-from backend.memory.profile import empty_profile_markdown, empty_profile_payload
 from backend.infrastructure.storage.sqlite import SCHEMA_VERSION
 from backend.infrastructure.storage.types import ArtifactRecord, VisionFrameIndexRecord, now_ms
 
@@ -16,10 +12,6 @@ try:
 except ImportError:  # pragma: no cover - exercised only when dependency is missing at runtime.
     psycopg = None
     dict_row = None
-
-
-logger = logging.getLogger(__name__)
-
 
 class PostgresMetadataStore:
     def __init__(self, *, database_url: str) -> None:
@@ -124,37 +116,6 @@ class PostgresMetadataStore:
             CREATE INDEX IF NOT EXISTS vision_frame_index_session_capture_idx
             ON vision_frame_index(session_id, capture_ts_ms DESC)
             """,
-            """
-            CREATE TABLE IF NOT EXISTS profile_document (
-                profile_key TEXT PRIMARY KEY,
-                json_text TEXT NOT NULL,
-                markdown_text TEXT NOT NULL,
-                updated_at_ms BIGINT NOT NULL
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS session_memory_document (
-                session_id TEXT NOT NULL,
-                memory_scope TEXT NOT NULL,
-                json_text TEXT NOT NULL,
-                markdown_text TEXT NOT NULL,
-                updated_at_ms BIGINT NOT NULL,
-                PRIMARY KEY(session_id, memory_scope)
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS session_event_log (
-                event_id BIGSERIAL PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                log_kind TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
-                created_at_ms BIGINT NOT NULL
-            )
-            """,
-            """
-            CREATE INDEX IF NOT EXISTS session_event_log_session_kind_idx
-            ON session_event_log(session_id, log_kind, event_id)
-            """,
         )
         with self.connect() as connection:
             for statement in statements:
@@ -168,7 +129,6 @@ class PostgresMetadataStore:
                 ("schema_version", SCHEMA_VERSION),
             )
             connection.commit()
-        self.ensure_profile_document_defaults()
 
     @contextmanager
     def connect(self) -> Iterator[Any]:
@@ -236,28 +196,10 @@ class PostgresMetadataStore:
                 """,
                 (session_id,),
             ).fetchone()
-            session_document_count_row = connection.execute(
-                """
-                SELECT COUNT(*) AS count
-                FROM session_memory_document
-                WHERE session_id = %s
-                """,
-                (session_id,),
-            ).fetchone()
-            session_event_count_row = connection.execute(
-                """
-                SELECT COUNT(*) AS count
-                FROM session_event_log
-                WHERE session_id = %s
-                """,
-                (session_id,),
-            ).fetchone()
         return {
             "session_row_present": session_row is not None,
             "artifact_count": int((artifact_count_row or {}).get("count", 0)),
             "vision_frame_count": int((vision_frame_count_row or {}).get("count", 0)),
-            "session_document_count": int((session_document_count_row or {}).get("count", 0)),
-            "session_event_count": int((session_event_count_row or {}).get("count", 0)),
         }
 
     def list_session_rows_for_retention(self) -> list[dict[str, Any]]:
@@ -273,20 +215,6 @@ class PostgresMetadataStore:
 
     def delete_session_metadata(self, *, session_id: str) -> dict[str, int]:
         with self.connect() as connection:
-            connection.execute(
-                """
-                DELETE FROM session_memory_document
-                WHERE session_id = %s
-                """,
-                (session_id,),
-            )
-            connection.execute(
-                """
-                DELETE FROM session_event_log
-                WHERE session_id = %s
-                """,
-                (session_id,),
-            )
             artifact_delete = connection.execute(
                 """
                 DELETE FROM artifact_index
@@ -314,206 +242,6 @@ class PostgresMetadataStore:
             "deleted_vision_frame_rows": max(vision_delete.rowcount, 0),
             "deleted_session_rows": max(session_delete.rowcount, 0),
         }
-
-    def ensure_profile_document_defaults(self) -> None:
-        json_text = json.dumps(empty_profile_payload(), ensure_ascii=True, indent=2) + "\n"
-        with self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO profile_document(profile_key, json_text, markdown_text, updated_at_ms)
-                VALUES(%s, %s, %s, %s)
-                ON CONFLICT(profile_key) DO NOTHING
-                """,
-                ("default", json_text, empty_profile_markdown(), now_ms()),
-            )
-            connection.commit()
-
-    def read_profile_document(self) -> dict[str, Any]:
-        self.ensure_profile_document_defaults()
-        with self.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT json_text, markdown_text, updated_at_ms
-                FROM profile_document
-                WHERE profile_key = %s
-                """,
-                ("default",),
-            ).fetchone()
-        assert row is not None
-        return dict(row)
-
-    def upsert_profile_document(
-        self,
-        *,
-        json_text: str,
-        markdown_text: str,
-        updated_at_ms: int,
-    ) -> None:
-        with self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO profile_document(profile_key, json_text, markdown_text, updated_at_ms)
-                VALUES(%s, %s, %s, %s)
-                ON CONFLICT(profile_key) DO UPDATE SET
-                    json_text=EXCLUDED.json_text,
-                    markdown_text=EXCLUDED.markdown_text,
-                    updated_at_ms=EXCLUDED.updated_at_ms
-                """,
-                ("default", json_text, markdown_text, updated_at_ms),
-            )
-            connection.commit()
-
-    def ensure_session_memory_documents(self, *, session_id: str) -> None:
-        timestamp_ms = now_ms()
-        empty_json_text = json.dumps({}, ensure_ascii=True, indent=2) + "\n"
-        with self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO session_memory_document(
-                    session_id,
-                    memory_scope,
-                    json_text,
-                    markdown_text,
-                    updated_at_ms
-                )
-                VALUES(%s, %s, %s, %s, %s)
-                ON CONFLICT(session_id, memory_scope) DO NOTHING
-                """,
-                (
-                    session_id,
-                    "short_term",
-                    empty_json_text,
-                    "# Short-Term Visual Memory\n\n",
-                    timestamp_ms,
-                ),
-            )
-            connection.execute(
-                """
-                INSERT INTO session_memory_document(
-                    session_id,
-                    memory_scope,
-                    json_text,
-                    markdown_text,
-                    updated_at_ms
-                )
-                VALUES(%s, %s, %s, %s, %s)
-                ON CONFLICT(session_id, memory_scope) DO NOTHING
-                """,
-                (
-                    session_id,
-                    "session",
-                    empty_json_text,
-                    "# Session Memory\n\n",
-                    timestamp_ms,
-                ),
-            )
-            connection.commit()
-
-    def read_session_memory_document(
-        self,
-        *,
-        session_id: str,
-        memory_scope: str,
-    ) -> dict[str, Any] | None:
-        with self.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT json_text, markdown_text, updated_at_ms
-                FROM session_memory_document
-                WHERE session_id = %s AND memory_scope = %s
-                """,
-                (session_id, memory_scope),
-            ).fetchone()
-        return dict(row) if row is not None else None
-
-    def upsert_session_memory_document(
-        self,
-        *,
-        session_id: str,
-        memory_scope: str,
-        json_text: str,
-        markdown_text: str,
-        updated_at_ms: int,
-    ) -> None:
-        with self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO session_memory_document(
-                    session_id,
-                    memory_scope,
-                    json_text,
-                    markdown_text,
-                    updated_at_ms
-                )
-                VALUES(%s, %s, %s, %s, %s)
-                ON CONFLICT(session_id, memory_scope) DO UPDATE SET
-                    json_text=EXCLUDED.json_text,
-                    markdown_text=EXCLUDED.markdown_text,
-                    updated_at_ms=EXCLUDED.updated_at_ms
-                """,
-                (session_id, memory_scope, json_text, markdown_text, updated_at_ms),
-            )
-            connection.commit()
-
-    def append_session_event(
-        self,
-        *,
-        session_id: str,
-        log_kind: str,
-        payload_json: str,
-        created_at_ms: int,
-    ) -> None:
-        with self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO session_event_log(session_id, log_kind, payload_json, created_at_ms)
-                VALUES(%s, %s, %s, %s)
-                """,
-                (session_id, log_kind, payload_json, created_at_ms),
-            )
-            connection.commit()
-
-    def list_session_events(
-        self,
-        *,
-        session_id: str,
-        log_kind: str,
-    ) -> list[dict[str, Any]]:
-        with self.connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT payload_json
-                FROM session_event_log
-                WHERE session_id = %s AND log_kind = %s
-                ORDER BY event_id ASC
-                """,
-                (session_id, log_kind),
-            ).fetchall()
-        payloads: list[dict[str, Any]] = []
-        for row in rows:
-            try:
-                payload = json.loads(str(row["payload_json"]))
-            except json.JSONDecodeError:
-                logger.warning(
-                    "Skipping corrupt managed event log record session=%s log_kind=%s",
-                    session_id,
-                    log_kind,
-                )
-                continue
-            if isinstance(payload, dict):
-                payloads.append(payload)
-        return payloads
-
-    def list_accepted_vision_events(self, *, session_id: str) -> list[AcceptedVisionEvent]:
-        valid_events: list[AcceptedVisionEvent] = []
-        for payload in self.list_session_events(
-            session_id=session_id,
-            log_kind="vision_events",
-        ):
-            event, _ = coerce_accepted_vision_event(payload)
-            if event is not None:
-                valid_events.append(event)
-        return valid_events
 
     def register_artifact_record(
         self,

@@ -45,6 +45,7 @@ class ProviderRequirementEntry:
 class SelectedProviders:
     realtime_provider: str
     vision_enabled: bool
+    memory_consolidation_enabled: bool
     vision_provider: str | None
     search_enabled: bool
     search_provider: str | None
@@ -80,6 +81,7 @@ class ProviderRequirementDiagnostics:
             "selected": {
                 "realtime_provider": self.selected.realtime_provider,
                 "vision_enabled": self.selected.vision_enabled,
+                "memory_consolidation_enabled": self.selected.memory_consolidation_enabled,
                 "vision_provider": self.selected.vision_provider,
                 "search_enabled": self.selected.search_enabled,
                 "search_provider": self.selected.search_provider,
@@ -347,6 +349,7 @@ _SETTINGS_ATTR_BY_ENV_KEY: Mapping[str, str] = MappingProxyType(
         "REALTIME_PROVIDER": "realtime_provider",
         "VISION_MEMORY_ENABLED": "vision_memory_enabled",
         "VISION_MEMORY_PROVIDER": "vision_memory_provider",
+        "MEMORY_CONSOLIDATION_ENABLED": "memory_consolidation_enabled",
         "REALTIME_TOOLING_ENABLED": "realtime_tooling_enabled",
         "REALTIME_WEB_SEARCH_PROVIDER": "realtime_web_search_provider",
     }
@@ -383,8 +386,16 @@ def resolve_selected_providers(source: Mapping[str, Any] | object) -> SelectedPr
         _source_value(source, "VISION_MEMORY_ENABLED", fallback_attr="vision_memory_enabled"),
         default=False,
     )
+    memory_consolidation_enabled = _parse_bool(
+        _source_value(
+            source,
+            "MEMORY_CONSOLIDATION_ENABLED",
+            fallback_attr="memory_consolidation_enabled",
+        ),
+        default=vision_enabled,
+    )
     vision_provider = None
-    if vision_enabled:
+    if vision_enabled or memory_consolidation_enabled:
         vision_provider = _normalized_provider(
             _source_value(source, "VISION_MEMORY_PROVIDER", fallback_attr="vision_memory_provider"),
             default="mistral",
@@ -408,6 +419,7 @@ def resolve_selected_providers(source: Mapping[str, Any] | object) -> SelectedPr
     return SelectedProviders(
         realtime_provider=realtime_provider,
         vision_enabled=vision_enabled,
+        memory_consolidation_enabled=memory_consolidation_enabled,
         vision_provider=vision_provider,
         search_enabled=search_enabled,
         search_provider=search_provider,
@@ -418,7 +430,7 @@ def compute_selected_provider_key_set(selected: SelectedProviders) -> SelectedPr
     entries: list[ProviderRequirementEntry] = [
         get_provider_requirement(kind=PROVIDER_KIND_REALTIME, provider_id=selected.realtime_provider)
     ]
-    if selected.vision_enabled and selected.vision_provider is not None:
+    if selected.vision_provider is not None:
         entries.append(
             get_provider_requirement(kind=PROVIDER_KIND_VISION, provider_id=selected.vision_provider)
         )
