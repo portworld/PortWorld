@@ -78,6 +78,8 @@ class SessionStorageResult:
     session_dir: Path
     short_term_memory_markdown_path: Path
     session_memory_markdown_path: Path
+    session_memory_json_path: Path
+    memory_candidates_log_path: Path
     vision_events_log_path: Path
     vision_routing_events_log_path: Path
 
@@ -157,8 +159,20 @@ class RealtimeReadOnlyStorageView:
     def read_session_memory(self, *, session_id: str) -> dict[str, Any]:
         return self._storage.read_session_memory(session_id=session_id)
 
+    def read_short_term_memory_markdown(self, *, session_id: str) -> str:
+        return self._storage.read_short_term_memory_markdown(session_id=session_id)
+
+    def read_session_memory_markdown(self, *, session_id: str) -> str:
+        return self._storage.read_session_memory_markdown(session_id=session_id)
+
+    def read_user_memory_payload(self) -> dict[str, Any]:
+        return self._storage.read_user_memory_payload()
+
+    def read_user_memory(self) -> str:
+        return self._storage.read_user_memory()
+
     def read_user_profile(self) -> dict[str, Any]:
-        return self._storage.read_user_profile()
+        return self._storage.read_user_memory_payload()
 
     def read_cross_session_memory(self) -> Any:
         return self._storage.read_cross_session_memory()

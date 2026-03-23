@@ -4,12 +4,12 @@ from dataclasses import dataclass, field
 from typing import Final
 
 
-PROFILE_SCHEMA_VERSION: Final[str] = "2"
+USER_MEMORY_SCHEMA_VERSION: Final[str] = "2"
 MEMORY_EXPORT_SCHEMA_VERSION: Final[str] = "1"
 DEFAULT_SESSION_MEMORY_RETENTION_DAYS: Final[int] = 30
-PROFILE_METADATA_KEY: Final[str] = "profile_metadata"
+USER_MEMORY_METADATA_KEY: Final[str] = "user_memory_metadata"
 
-PROFILE_ALLOWLISTED_FIELDS: Final[tuple[str, ...]] = (
+USER_MEMORY_ALLOWLISTED_FIELDS: Final[tuple[str, ...]] = (
     "name",
     "job",
     "company",
@@ -23,16 +23,19 @@ USER_MEMORY_FILE_NAME: Final[str] = "USER.md"
 CROSS_SESSION_MEMORY_FILE_NAME: Final[str] = "CROSS_SESSION.md"
 SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME: Final[str] = "SHORT_TERM.md"
 SESSION_MEMORY_MARKDOWN_FILE_NAME: Final[str] = "LONG_TERM.md"
+MEMORY_CANDIDATES_LOG_FILE_NAME: Final[str] = "MEMORY_CANDIDATES.ndjson"
 VISION_EVENTS_LOG_FILE_NAME: Final[str] = "EVENTS.ndjson"
 VISION_ROUTING_EVENTS_LOG_FILE_NAME: Final[str] = "ROUTING_EVENTS.ndjson"
 SESSION_MEMORY_ARTIFACT_FILE_NAMES: Final[tuple[str, ...]] = (
     SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME,
     SESSION_MEMORY_MARKDOWN_FILE_NAME,
+    MEMORY_CANDIDATES_LOG_FILE_NAME,
     VISION_EVENTS_LOG_FILE_NAME,
 )
 EXPORTABLE_SESSION_ARTIFACT_KINDS: Final[tuple[str, ...]] = (
     "short_term_memory_markdown",
     "session_memory_markdown",
+    "memory_candidate_log",
     "vision_event_log",
 )
 
@@ -87,14 +90,14 @@ SESSION_MEMORY_TEMPLATE: Final[str] = """# Session Memory
 """
 
 @dataclass(frozen=True, slots=True)
-class ProfileLifecycleMetadata:
-    schema_version: str = PROFILE_SCHEMA_VERSION
+class UserMemoryLifecycleMetadata:
+    schema_version: str = USER_MEMORY_SCHEMA_VERSION
     updated_at_ms: int | None = None
     source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class ProfileRecord:
+class UserMemoryRecord:
     name: str | None = None
     job: str | None = None
     company: str | None = None
@@ -103,7 +106,7 @@ class ProfileRecord:
     intended_use: str | None = None
     preferences: list[str] = field(default_factory=list)
     projects: list[str] = field(default_factory=list)
-    metadata: ProfileLifecycleMetadata = field(default_factory=ProfileLifecycleMetadata)
+    metadata: UserMemoryLifecycleMetadata = field(default_factory=UserMemoryLifecycleMetadata)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,8 +137,21 @@ class SessionMemoryRetentionEligibility:
     reason: str
 
 
+def allowed_user_memory_fields() -> tuple[str, ...]:
+    return USER_MEMORY_ALLOWLISTED_FIELDS
+
+
+# Compatibility aliases while callers migrate from profile naming.
+PROFILE_SCHEMA_VERSION: Final[str] = USER_MEMORY_SCHEMA_VERSION
+PROFILE_METADATA_KEY: Final[str] = USER_MEMORY_METADATA_KEY
+PROFILE_ALLOWLISTED_FIELDS: Final[tuple[str, ...]] = USER_MEMORY_ALLOWLISTED_FIELDS
+PROFILE_ARTIFACT_FILE_NAMES: Final[tuple[str, ...]] = USER_MEMORY_ARTIFACT_FILE_NAMES
+ProfileLifecycleMetadata = UserMemoryLifecycleMetadata
+ProfileRecord = UserMemoryRecord
+
+
 def allowed_profile_fields() -> tuple[str, ...]:
-    return PROFILE_ALLOWLISTED_FIELDS
+    return allowed_user_memory_fields()
 
 
 __all__ = [
@@ -143,7 +159,12 @@ __all__ = [
     "CROSS_SESSION_MEMORY_TEMPLATE",
     "DEFAULT_SESSION_MEMORY_RETENTION_DAYS",
     "EXPORTABLE_SESSION_ARTIFACT_KINDS",
+    "MEMORY_CANDIDATES_LOG_FILE_NAME",
     "MEMORY_EXPORT_SCHEMA_VERSION",
+    "USER_MEMORY_ALLOWLISTED_FIELDS",
+    "USER_MEMORY_ARTIFACT_FILE_NAMES",
+    "USER_MEMORY_METADATA_KEY",
+    "USER_MEMORY_SCHEMA_VERSION",
     "PROFILE_ALLOWLISTED_FIELDS",
     "PROFILE_METADATA_KEY",
     "PROFILE_SCHEMA_VERSION",
@@ -157,9 +178,12 @@ __all__ = [
     "VISION_EVENTS_LOG_FILE_NAME",
     "VISION_ROUTING_EVENTS_LOG_FILE_NAME",
     "MemoryExportManifest",
+    "UserMemoryLifecycleMetadata",
+    "UserMemoryRecord",
     "ProfileLifecycleMetadata",
     "ProfileRecord",
     "SessionMemoryResetEligibility",
     "SessionMemoryRetentionEligibility",
+    "allowed_user_memory_fields",
     "allowed_profile_fields",
 ]

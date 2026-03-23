@@ -184,6 +184,8 @@ class Settings:
     realtime_tool_timeout_ms: int
     realtime_web_search_provider: str
     realtime_web_search_max_results: int
+    memory_consolidation_enabled: bool
+    memory_consolidation_timeout_ms: int
     backend_profile: str
     backend_allowed_hosts: list[str]
     backend_forwarded_allow_ips: list[str]
@@ -204,12 +206,15 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         backend_profile = (_get_env("BACKEND_PROFILE") or "development").strip().lower()
+        vision_settings = _load_vision_settings()
         return cls(
             **_load_credentials_settings(),
             **_load_realtime_settings(),
             **_load_storage_settings(),
-            **_load_vision_settings(),
-            **_load_tooling_settings(),
+            **vision_settings,
+            **_load_tooling_settings(
+                vision_memory_enabled=bool(vision_settings["vision_memory_enabled"])
+            ),
             **_load_server_settings(backend_profile=backend_profile),
             **_load_rate_limit_settings(backend_profile=backend_profile),
         )
@@ -515,17 +520,27 @@ class Settings:
         if provider_name == "mistral":
             raise RuntimeError(
                 "VISION_MISTRAL_API_KEY "
-                "is required when VISION_MEMORY_ENABLED=true and VISION_MEMORY_PROVIDER=mistral"
+                "is required when VISION_MEMORY_PROVIDER=mistral and either "
+                "VISION_MEMORY_ENABLED=true or MEMORY_CONSOLIDATION_ENABLED=true"
             )
         if provider_name == "nvidia_integrate":
             raise RuntimeError(
                 "VISION_NVIDIA_API_KEY "
-                "is required when VISION_MEMORY_ENABLED=true and "
-                "VISION_MEMORY_PROVIDER=nvidia_integrate"
+                "is required when VISION_MEMORY_PROVIDER=nvidia_integrate and either "
+                "VISION_MEMORY_ENABLED=true or MEMORY_CONSOLIDATION_ENABLED=true"
             )
         raise RuntimeError(
             f"Missing vision provider API key for provider={provider_name!r}. "
             f"Set VISION_{provider_name.upper()}_API_KEY."
+        )
+
+    def resolve_memory_consolidation_provider(self) -> str:
+        provider_name = self.vision_memory_provider.strip().lower()
+        return provider_name or "mistral"
+
+    def resolve_memory_consolidation_model(self) -> str | None:
+        return self.resolve_vision_provider_model(
+            provider=self.resolve_memory_consolidation_provider()
         )
 
     def validate_vision_provider_credentials(self, *, provider: str | None = None) -> None:
@@ -757,7 +772,10 @@ def _looks_like_nvidia_integrate_model(model_name: str) -> bool:
     return "/" in candidate
 
 
-def _load_tooling_settings() -> dict[str, str | int | bool]:
+def _load_tooling_settings(
+    *,
+    vision_memory_enabled: bool,
+) -> dict[str, str | int | bool]:
     return {
         "realtime_tooling_enabled": _parse_bool_env(
             "REALTIME_TOOLING_ENABLED",
@@ -776,6 +794,15 @@ def _load_tooling_settings() -> dict[str, str | int | bool]:
             default=3,
             minimum=1,
             maximum=5,
+        ),
+        "memory_consolidation_enabled": _parse_bool_env(
+            "MEMORY_CONSOLIDATION_ENABLED",
+            default=vision_memory_enabled,
+        ),
+        "memory_consolidation_timeout_ms": _parse_int_env(
+            "MEMORY_CONSOLIDATION_TIMEOUT_MS",
+            default=12000,
+            minimum=1000,
         ),
     }
 

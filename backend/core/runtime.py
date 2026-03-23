@@ -9,6 +9,7 @@ from backend.bootstrap.runtime import build_runtime_dependencies
 from backend.core.rate_limit import RateLimitDecision, SlidingWindowRateLimiter
 from backend.core.settings import Settings
 from backend.core.storage import BackendStorage, StorageBootstrapResult, StorageInfo
+from backend.memory.consolidation import DurableMemoryConsolidationRuntime
 from backend.realtime.factory import RealtimeProviderFactory
 from backend.realtime.session_modes import build_default_realtime_session_mode_registry
 from backend.tools.runtime import RealtimeToolingRuntime
@@ -29,6 +30,7 @@ class AppRuntime:
     realtime_provider: RealtimeProviderFactory
     vision_memory_runtime: VisionMemoryRuntime | None
     realtime_tooling_runtime: RealtimeToolingRuntime | None
+    durable_memory_runtime: DurableMemoryConsolidationRuntime | None
     rate_limiter: SlidingWindowRateLimiter
     storage_bootstrap_result: StorageBootstrapResult | None = field(
         default=None,
@@ -47,6 +49,7 @@ class AppRuntime:
             realtime_provider=dependencies.realtime_provider_factory,
             vision_memory_runtime=dependencies.vision_memory_runtime,
             realtime_tooling_runtime=dependencies.realtime_tooling_runtime,
+            durable_memory_runtime=dependencies.durable_memory_runtime,
             rate_limiter=SlidingWindowRateLimiter(
                 num_shards=64,
                 max_keys=50_000,
@@ -67,8 +70,12 @@ class AppRuntime:
             await self.vision_memory_runtime.startup()
         if self.realtime_tooling_runtime is not None:
             await self.realtime_tooling_runtime.startup()
+        if self.durable_memory_runtime is not None:
+            await self.durable_memory_runtime.startup()
 
     async def shutdown(self) -> None:
+        if self.durable_memory_runtime is not None:
+            await self.durable_memory_runtime.shutdown()
         if self.realtime_tooling_runtime is not None:
             await self.realtime_tooling_runtime.shutdown()
         if self.vision_memory_runtime is not None:
