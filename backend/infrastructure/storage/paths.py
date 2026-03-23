@@ -8,6 +8,7 @@ from typing import Any
 
 from backend.infrastructure.storage.types import now_ms
 from backend.memory.lifecycle import (
+    MEMORY_CANDIDATES_LOG_FILE_NAME,
     SESSION_MEMORY_JSON_FILE_NAME,
     SESSION_MEMORY_MARKDOWN_FILE_NAME,
     SHORT_TERM_MEMORY_JSON_FILE_NAME,
@@ -82,6 +83,7 @@ class StoragePathMixin:
             short_term_memory_json_path=session_dir / SHORT_TERM_MEMORY_JSON_FILE_NAME,
             session_memory_markdown_path=session_dir / SESSION_MEMORY_MARKDOWN_FILE_NAME,
             session_memory_json_path=session_dir / SESSION_MEMORY_JSON_FILE_NAME,
+            memory_candidates_log_path=session_dir / MEMORY_CANDIDATES_LOG_FILE_NAME,
             vision_events_log_path=session_dir / VISION_EVENTS_LOG_FILE_NAME,
             vision_routing_events_log_path=session_dir / VISION_ROUTING_EVENTS_LOG_FILE_NAME,
         )

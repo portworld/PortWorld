@@ -184,6 +184,14 @@ def build_local_canonical_memory_artifacts(*, data_root: Path) -> list[MemoryExp
             artifacts.extend(
                 _canonical_memory_artifact_records(
                     data_root=data_root,
+                    artifact_kind="memory_candidate_log",
+                    session_id=session_id,
+                    paths=(session_dir / "MEMORY_CANDIDATES.ndjson",),
+                )
+            )
+            artifacts.extend(
+                _canonical_memory_artifact_records(
+                    data_root=data_root,
                     artifact_kind="vision_event_log",
                     session_id=session_id,
                     paths=(session_dir / "EVENTS.ndjson",),

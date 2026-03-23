@@ -53,7 +53,7 @@ class ArtifactStorageMixin:
         artifacts: list[MemoryExportArtifact] = []
         profile_artifacts = (
             (
-                "user_profile_markdown",
+                "user_memory_markdown",
                 self.paths.user_memory_path,
                 "text/markdown",
             ),
@@ -100,6 +100,13 @@ class ArtifactStorageMixin:
                 file_name="LONG_TERM.md",
                 artifact_kind="session_memory_markdown",
                 content_type="text/markdown",
+            )
+            self._append_session_export_artifact(
+                artifacts=artifacts,
+                session_dir=session_dir,
+                file_name="MEMORY_CANDIDATES.ndjson",
+                artifact_kind="memory_candidate_log",
+                content_type="application/x-ndjson",
             )
             self._append_session_export_artifact(
                 artifacts=artifacts,
