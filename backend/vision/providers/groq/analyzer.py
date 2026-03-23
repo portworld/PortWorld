@@ -43,8 +43,7 @@ def validate_groq_vision_settings(settings: Settings) -> None:
     model_name = (settings.resolve_vision_provider_model(provider="groq") or "").strip()
     if not model_name:
         raise RuntimeError(
-            "VISION_GROQ_MODEL is required when VISION_MEMORY_PROVIDER=groq "
-            "(legacy fallback: VISION_MEMORY_MODEL)"
+            "VISION_GROQ_MODEL is required when VISION_MEMORY_PROVIDER=groq"
         )
 
 

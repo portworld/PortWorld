@@ -14,8 +14,7 @@ _BACKEND_ENV_PATH = _BACKEND_ROOT / ".env"
 
 DEFAULT_INSTRUCTIONS = "You are a concise assistant. Keep answers short, clear, and practical."
 STORAGE_BACKEND_MANAGED = "managed"
-LEGACY_STORAGE_BACKEND_POSTGRES_GCS = "postgres_gcs"
-SUPPORTED_STORAGE_BACKENDS = {"local", STORAGE_BACKEND_MANAGED, LEGACY_STORAGE_BACKEND_POSTGRES_GCS}
+SUPPORTED_STORAGE_BACKENDS = {"local", STORAGE_BACKEND_MANAGED}
 SUPPORTED_OBJECT_STORE_PROVIDERS = {"filesystem", "gcs", "s3", "azure_blob"}
 DEFAULT_VISION_MODELS_BY_PROVIDER: dict[str, str] = {
     "mistral": "ministral-3b-2512",
@@ -163,7 +162,6 @@ class Settings:
     backend_object_store_provider: str
     backend_object_store_name: str | None
     backend_object_store_endpoint: str | None
-    backend_object_store_bucket: str | None
     backend_object_store_prefix: str | None
     backend_debug_trace_ws_messages: bool
     backend_max_vision_request_bytes: int
@@ -171,7 +169,6 @@ class Settings:
     backend_session_memory_retention_days: int
     vision_memory_enabled: bool
     vision_memory_provider: str
-    vision_memory_model: str
     vision_short_term_window_seconds: int
     vision_min_analysis_gap_seconds: int
     vision_scene_change_hamming_threshold: int
@@ -446,11 +443,7 @@ class Settings:
             deployment = (self.vision_azure_openai_deployment or "").strip()
             if deployment:
                 return deployment
-            model_name = self._resolve_vision_provider_scoped_model(provider=provider_name)
-            if model_name:
-                return model_name
-            legacy_model_name = (self.vision_memory_model or "").strip()
-            return legacy_model_name or None
+            return self._resolve_vision_provider_scoped_model(provider=provider_name)
         return None
 
     def resolve_vision_provider_model(self, *, provider: str | None = None) -> str | None:
@@ -458,9 +451,6 @@ class Settings:
         model_name = self._resolve_vision_provider_scoped_model(provider=provider_name)
         if model_name:
             return model_name
-        legacy_model_name = (self.vision_memory_model or "").strip()
-        if legacy_model_name:
-            return legacy_model_name
         default_model_name = DEFAULT_VISION_MODELS_BY_PROVIDER.get(provider_name, "").strip()
         return default_model_name or None
 
@@ -666,17 +656,12 @@ def _load_storage_settings() -> dict[str, str | int | bool | Path]:
         _get_env("BACKEND_SQLITE_PATH") or str(backend_data_dir / "portworld.db")
     )
     backend_storage_backend = (_get_env("BACKEND_STORAGE_BACKEND") or "local").strip().lower()
-    if backend_storage_backend == LEGACY_STORAGE_BACKEND_POSTGRES_GCS:
-        backend_storage_backend = STORAGE_BACKEND_MANAGED
     backend_database_url = (_get_env("BACKEND_DATABASE_URL") or "").strip() or None
     backend_object_store_provider = (
         _get_env("BACKEND_OBJECT_STORE_PROVIDER") or "filesystem"
     ).strip().lower()
     backend_object_store_name = (_get_env("BACKEND_OBJECT_STORE_NAME") or "").strip() or None
     backend_object_store_endpoint = (_get_env("BACKEND_OBJECT_STORE_ENDPOINT") or "").strip() or None
-    backend_object_store_bucket = (_get_env("BACKEND_OBJECT_STORE_BUCKET") or "").strip() or None
-    if backend_object_store_name is None:
-        backend_object_store_name = backend_object_store_bucket
     backend_object_store_prefix = (_get_env("BACKEND_OBJECT_STORE_PREFIX") or "").strip() or None
     return {
         "backend_data_dir": backend_data_dir,
@@ -686,7 +671,6 @@ def _load_storage_settings() -> dict[str, str | int | bool | Path]:
         "backend_object_store_provider": backend_object_store_provider,
         "backend_object_store_name": backend_object_store_name,
         "backend_object_store_endpoint": backend_object_store_endpoint,
-        "backend_object_store_bucket": backend_object_store_bucket,
         "backend_object_store_prefix": backend_object_store_prefix,
         "backend_debug_trace_ws_messages": _parse_bool_env(
             "BACKEND_DEBUG_TRACE_WS_MESSAGES",
@@ -717,7 +701,6 @@ def _load_vision_settings() -> dict[str, str | int | bool]:
             default=False,
         ),
         "vision_memory_provider": (_get_env("VISION_MEMORY_PROVIDER") or "mistral").strip().lower(),
-        "vision_memory_model": (_get_env("VISION_MEMORY_MODEL") or "").strip(),
         "vision_short_term_window_seconds": _parse_int_env(
             "VISION_SHORT_TERM_WINDOW_SECONDS",
             default=30,

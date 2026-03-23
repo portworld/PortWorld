@@ -209,7 +209,6 @@ Set `BACKEND_PROFILE=production` to enforce the following at startup:
 
 - `local` for SQLite + filesystem (default)
 - `managed` for object-store-backed memory plus Postgres operational metadata
-- `postgres_gcs` as a compatibility alias that is normalized to `managed`
 
 Managed storage uses these canonical object-store variables for memory files:
 
@@ -219,10 +218,6 @@ Managed storage uses these canonical object-store variables for memory files:
 | `BACKEND_OBJECT_STORE_NAME` | Bucket/container name for the managed object store |
 | `BACKEND_OBJECT_STORE_ENDPOINT` | Optional custom endpoint (required for `azure_blob`) |
 | `BACKEND_OBJECT_STORE_PREFIX` | Prefix used for artifact paths |
-
-Compatibility alias:
-
-- `BACKEND_OBJECT_STORE_BUCKET` is still accepted when `BACKEND_OBJECT_STORE_NAME` is unset.
 
 **Rate limiting**
 

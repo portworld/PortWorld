@@ -1,25 +1,22 @@
 from __future__ import annotations
 
-import json
 import re
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from backend.infrastructure.storage.types import now_ms
 from backend.memory.lifecycle import (
+    CROSS_SESSION_MEMORY_TEMPLATE,
     MEMORY_CANDIDATES_LOG_FILE_NAME,
     SESSION_MEMORY_JSON_FILE_NAME,
     SESSION_MEMORY_MARKDOWN_FILE_NAME,
     SHORT_TERM_MEMORY_MARKDOWN_FILE_NAME,
     USER_MEMORY_TEMPLATE,
-    CROSS_SESSION_MEMORY_TEMPLATE,
     VISION_EVENTS_LOG_FILE_NAME,
     VISION_ROUTING_EVENTS_LOG_FILE_NAME,
 )
 
 _STORAGE_ID_PREFIX_MAX_LENGTH = 24
-_HASHED_DIR_PATTERN = re.compile(r".+--[0-9a-f]{64}$")
 
 
 class StoragePathMixin:
@@ -87,67 +84,5 @@ class StoragePathMixin:
         digest = sha256(raw_id.encode("utf-8")).hexdigest()
         return f"{prefix}--{digest}"
 
-    def _legacy_storage_component_for_id(self, raw_id: str) -> str:
-        return "".join(
-            char if char.isalnum() or char in "._-" else "_"
-            for char in raw_id.strip()
-        ) or "unknown"
-
     def _resolved_storage_dir(self, *, root: Path, raw_id: str) -> Path:
         return root / self._storage_component_for_id(raw_id)
-
-    def migrate_legacy_storage_layout(self) -> dict[str, Any]:
-        self._ensure_directories()
-        session_ids: set[str] = set()
-        with self.connect() as connection:
-            for row in connection.execute(
-                """
-                SELECT session_id FROM session_index
-                UNION
-                SELECT session_id FROM artifact_index WHERE session_id IS NOT NULL
-                UNION
-                SELECT session_id FROM vision_frame_index
-                """
-            ).fetchall():
-                session_ids.add(str(row["session_id"]))
-
-        orphan_root = self.paths.data_root / "orphaned_legacy" / str(now_ms())
-        migrated_count = 0
-        orphaned_count = 0
-
-        def _orphan_path(path: Path) -> None:
-            nonlocal orphaned_count
-            target_parent = orphan_root / path.parent.name
-            target_parent.mkdir(parents=True, exist_ok=True)
-            target = target_parent / path.name
-            suffix = 1
-            while target.exists():
-                target = target_parent / f"{path.name}-{suffix}"
-                suffix += 1
-            path.rename(target)
-            orphaned_count += 1
-
-        for session_id in sorted(session_ids):
-            for root in (self.paths.session_root, self.paths.vision_frames_root):
-                legacy_dir = root / self._legacy_storage_component_for_id(session_id)
-                hashed_dir = root / self._storage_component_for_id(session_id)
-                if not legacy_dir.exists():
-                    continue
-                if hashed_dir.exists():
-                    _orphan_path(legacy_dir)
-                    continue
-                legacy_dir.rename(hashed_dir)
-                migrated_count += 1
-
-        for root in (self.paths.session_root, self.paths.vision_frames_root):
-            for candidate in root.iterdir():
-                if _HASHED_DIR_PATTERN.fullmatch(candidate.name):
-                    continue
-                _orphan_path(candidate)
-
-        return {
-            "migrated_count": migrated_count,
-            "orphaned_count": orphaned_count,
-            "orphan_root": str(orphan_root),
-            "session_ids_scanned": len(session_ids),
-        }

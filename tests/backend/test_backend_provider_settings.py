@@ -90,12 +90,11 @@ class BackendProviderSettingsTests(unittest.TestCase):
         self.assertEqual(analyzer.model_name, "pixtral-large-latest")
         self.assertEqual(analyzer.base_url, "https://mistral.example.test")
 
-    def test_provider_scoped_vision_models_override_legacy_shared_model(self) -> None:
+    def test_provider_scoped_vision_models_are_resolved_independently(self) -> None:
         settings = self._settings(
             {
                 "VISION_MEMORY_ENABLED": "true",
                 "VISION_MEMORY_PROVIDER": "openai",
-                "VISION_MEMORY_MODEL": "legacy-shared-model",
                 "VISION_OPENAI_MODEL": "gpt-4.1-mini",
                 "VISION_GEMINI_MODEL": "gemini-2.0-flash",
             }

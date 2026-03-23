@@ -254,10 +254,6 @@ class BackendStorage:
     ) -> VisionFrameIndexRecord | None:
         raise NotImplementedError
 
-    def migrate_legacy_storage_layout(self) -> dict[str, Any]:
-        raise NotImplementedError
-
-
 __all__ = [
     "ArtifactRecord",
     "BackendStorage",

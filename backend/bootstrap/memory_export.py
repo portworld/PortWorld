@@ -6,7 +6,6 @@ import tempfile
 import zipfile
 from dataclasses import asdict
 from pathlib import Path
-from typing import Iterable
 
 from backend.core.storage import MemoryExportArtifact, now_ms
 from backend.memory.lifecycle import MemoryExportManifest
@@ -136,96 +135,3 @@ def cleanup_export_file(path: str | Path) -> None:
         os.unlink(path)
     except FileNotFoundError:
         return
-
-
-def build_local_canonical_memory_artifacts(*, data_root: Path) -> list[MemoryExportArtifact]:
-    memory_root = data_root / "memory"
-    if not memory_root.exists():
-        return []
-
-    artifacts: list[MemoryExportArtifact] = []
-    artifacts.extend(
-        _canonical_memory_artifact_records(
-            data_root=data_root,
-            artifact_kind="user_memory_markdown",
-            session_id=None,
-            paths=(memory_root / "USER.md",),
-        )
-    )
-    artifacts.extend(
-        _canonical_memory_artifact_records(
-            data_root=data_root,
-            artifact_kind="cross_session_memory_markdown",
-            session_id=None,
-            paths=(memory_root / "CROSS_SESSION.md",),
-        )
-    )
-
-    sessions_root = memory_root / "sessions"
-    if sessions_root.exists():
-        for session_dir in sorted(path for path in sessions_root.iterdir() if path.is_dir()):
-            session_id = session_dir.name
-            artifacts.extend(
-                _canonical_memory_artifact_records(
-                    data_root=data_root,
-                    artifact_kind="short_term_memory_markdown",
-                    session_id=session_id,
-                    paths=(session_dir / "SHORT_TERM.md",),
-                )
-            )
-            artifacts.extend(
-                _canonical_memory_artifact_records(
-                    data_root=data_root,
-                    artifact_kind="session_memory_markdown",
-                    session_id=session_id,
-                    paths=(session_dir / "LONG_TERM.md",),
-                )
-            )
-            artifacts.extend(
-                _canonical_memory_artifact_records(
-                    data_root=data_root,
-                    artifact_kind="memory_candidate_log",
-                    session_id=session_id,
-                    paths=(session_dir / "MEMORY_CANDIDATES.ndjson",),
-                )
-            )
-            artifacts.extend(
-                _canonical_memory_artifact_records(
-                    data_root=data_root,
-                    artifact_kind="vision_event_log",
-                    session_id=session_id,
-                    paths=(session_dir / "EVENTS.ndjson",),
-                )
-            )
-    return artifacts
-
-
-def _canonical_memory_artifact_records(
-    *,
-    data_root: Path,
-    artifact_kind: str,
-    session_id: str | None,
-    paths: Iterable[Path],
-) -> list[MemoryExportArtifact]:
-    records: list[MemoryExportArtifact] = []
-    for path in paths:
-        if not path.exists() or not path.is_file():
-            continue
-        if path.suffix.lower() == ".md":
-            content_type = "text/markdown"
-        elif path.suffix.lower() == ".ndjson":
-            content_type = "application/x-ndjson"
-        else:
-            content_type = "text/plain"
-        records.append(
-            MemoryExportArtifact(
-                artifact_id=None,
-                session_id=session_id,
-                artifact_kind=artifact_kind,
-                relative_path=str(path.relative_to(data_root)),
-                content_type=content_type,
-                created_at_ms=None,
-                read_bytes=lambda path=path: path.read_bytes(),
-            )
-        )
-    return records

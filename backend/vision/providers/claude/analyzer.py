@@ -35,8 +35,7 @@ def validate_claude_vision_settings(settings: Settings) -> None:
     model_name = (settings.resolve_vision_provider_model(provider="claude") or "").strip()
     if not model_name:
         raise RuntimeError(
-            "VISION_CLAUDE_MODEL is required when VISION_MEMORY_PROVIDER=claude "
-            "(legacy fallback: VISION_MEMORY_MODEL)"
+            "VISION_CLAUDE_MODEL is required when VISION_MEMORY_PROVIDER=claude"
         )
 
 
