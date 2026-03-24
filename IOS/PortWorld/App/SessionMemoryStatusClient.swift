@@ -70,7 +70,7 @@ struct SessionMemoryStatusClient {
     endpointURL: URL,
     headers: [String: String]
   ) async throws -> SessionMemoryStatus {
-    guard let url = statusURL(sessionID: sessionID, from: endpointURL) else {
+    guard let url = BackendEndpoints.sessionMemoryStatusURL(sessionID: sessionID, from: endpointURL) else {
       throw ClientError.invalidEndpoint
     }
 
@@ -102,28 +102,5 @@ struct SessionMemoryStatusClient {
     } catch {
       throw ClientError.invalidPayload
     }
-  }
-
-  private func statusURL(sessionID: String, from endpointURL: URL) -> URL? {
-    guard var components = URLComponents(url: endpointURL, resolvingAgainstBaseURL: false) else {
-      return nil
-    }
-
-    let cleanPath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    let pathSegments = cleanPath.split(separator: "/")
-    let baseSegments = pathSegments.count >= 2 ? Array(pathSegments.dropLast(2)) : []
-    let encodedSessionID = sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
-    guard let encodedSessionID else {
-      return nil
-    }
-
-    let rebuiltSegments = baseSegments + [
-      Substring("memory"),
-      Substring("session"),
-      Substring(encodedSessionID),
-      Substring("status")
-    ]
-    components.path = "/" + rebuiltSegments.joined(separator: "/")
-    return components.url
   }
 }

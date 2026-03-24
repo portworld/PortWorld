@@ -164,7 +164,7 @@ struct ProfileAPIClient {
   func getProfile(settings: AppSettingsStore.Settings) async throws -> Response {
     let request = try makeRequest(
       baseURLString: settings.backendBaseURL,
-      path: "/memory/user",
+      path: BackendEndpoints.userMemoryPath,
       bearerToken: settings.bearerToken,
       method: "GET"
     )
@@ -185,7 +185,7 @@ struct ProfileAPIClient {
   func putProfile(settings: AppSettingsStore.Settings, draft: ProfileDraft) async throws -> Response {
     var request = try makeRequest(
       baseURLString: settings.backendBaseURL,
-      path: "/memory/user",
+      path: BackendEndpoints.userMemoryPath,
       bearerToken: settings.bearerToken,
       method: "PUT"
     )
@@ -227,7 +227,7 @@ struct ProfileAPIClient {
       throw ClientError.invalidBaseURL
     }
 
-    var request = URLRequest(url: appendPath(path, to: baseURL))
+    var request = URLRequest(url: BackendEndpoints.appendPath(path, to: baseURL))
     request.httpMethod = method
     request.timeoutInterval = 15
 
@@ -237,22 +237,5 @@ struct ProfileAPIClient {
     }
 
     return request
-  }
-
-  private func appendPath(_ path: String, to baseURL: URL) -> URL {
-    guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-      return URL(string: baseURL.absoluteString + path) ?? baseURL
-    }
-
-    let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-
-    if basePath.isEmpty {
-      components.path = "/\(cleanPath)"
-    } else {
-      components.path = "/\(basePath)/\(cleanPath)"
-    }
-
-    return components.url ?? baseURL
   }
 }

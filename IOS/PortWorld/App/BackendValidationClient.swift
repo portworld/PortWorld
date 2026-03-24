@@ -5,7 +5,10 @@ struct BackendValidationClient {
     case invalidBaseURL
     case unreachable
     case unexpectedResponse
-    case healthCheckFailed(statusCode: Int)
+    case endpointNotFound(path: String)
+    case livenessCheckFailed(statusCode: Int)
+    case unauthorized
+    case backendNotReady
     case readinessFailed(statusCode: Int)
 
     var errorDescription: String? {
@@ -16,8 +19,14 @@ struct BackendValidationClient {
         return "The backend could not be reached."
       case .unexpectedResponse:
         return "The backend returned an unexpected response."
-      case .healthCheckFailed(let statusCode):
-        return "Health check failed with status \(statusCode)."
+      case .endpointNotFound(let path):
+        return "The backend is reachable, but \(path) was not found. Check that the iOS app is using the current backend routes."
+      case .livenessCheckFailed(let statusCode):
+        return "Liveness check failed with status \(statusCode)."
+      case .unauthorized:
+        return "The backend requires a valid bearer token."
+      case .backendNotReady:
+        return "The backend is reachable but not ready."
       case .readinessFailed(let statusCode):
         return "Readiness check failed with status \(statusCode)."
       }
@@ -39,12 +48,21 @@ struct BackendValidationClient {
       throw ValidationError.invalidBaseURL
     }
 
-    try await performRequest(path: "/healthz", baseURL: baseURL, bearerToken: nil, endpoint: .health)
-
     let trimmedToken = bearerToken.trimmingCharacters(in: .whitespacesAndNewlines)
-    if trimmedToken.isEmpty == false {
-      try await performRequest(path: "/readyz", baseURL: baseURL, bearerToken: trimmedToken, endpoint: .ready)
-    }
+    let authorizationToken = trimmedToken.isEmpty ? nil : trimmedToken
+
+    try await performRequest(
+      path: BackendEndpoints.livezPath,
+      baseURL: baseURL,
+      bearerToken: nil,
+      endpoint: .livez
+    )
+    try await performRequest(
+      path: BackendEndpoints.readyzPath,
+      baseURL: baseURL,
+      bearerToken: authorizationToken,
+      endpoint: .readyz
+    )
   }
 
   private func performRequest(
@@ -53,7 +71,7 @@ struct BackendValidationClient {
     bearerToken: String?,
     endpoint: ValidationEndpoint
   ) async throws {
-    var request = URLRequest(url: appendPath(path, to: baseURL))
+    var request = URLRequest(url: BackendEndpoints.appendPath(path, to: baseURL))
     request.httpMethod = "GET"
     request.timeoutInterval = 10
 
@@ -73,36 +91,39 @@ struct BackendValidationClient {
     }
 
     guard (200...299).contains(httpResponse.statusCode) else {
-      switch endpoint {
-      case .health:
-        throw ValidationError.healthCheckFailed(statusCode: httpResponse.statusCode)
-      case .ready:
-        throw ValidationError.readinessFailed(statusCode: httpResponse.statusCode)
-      }
+      throw mapValidationError(for: endpoint, path: path, statusCode: httpResponse.statusCode)
     }
   }
 
-  private func appendPath(_ path: String, to baseURL: URL) -> URL {
-    guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-      return URL(string: baseURL.absoluteString + path) ?? baseURL
+  private func mapValidationError(
+    for endpoint: ValidationEndpoint,
+    path: String,
+    statusCode: Int
+  ) -> ValidationError {
+    switch endpoint {
+    case .livez:
+      if statusCode == 404 {
+        return .endpointNotFound(path: path)
+      }
+      return .livenessCheckFailed(statusCode: statusCode)
+    case .readyz:
+      switch statusCode {
+      case 401:
+        return .unauthorized
+      case 404:
+        return .endpointNotFound(path: path)
+      case 503:
+        return .backendNotReady
+      default:
+        return .readinessFailed(statusCode: statusCode)
+      }
     }
-
-    let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-
-    if basePath.isEmpty {
-      components.path = "/\(cleanPath)"
-    } else {
-      components.path = "/\(basePath)/\(cleanPath)"
-    }
-
-    return components.url ?? baseURL
   }
 }
 
 private extension BackendValidationClient {
   enum ValidationEndpoint {
-    case health
-    case ready
+    case livez
+    case readyz
   }
 }
