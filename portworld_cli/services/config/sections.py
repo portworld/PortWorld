@@ -12,7 +12,7 @@ from portworld_cli.targets import (
     normalize_managed_target,
 )
 from portworld_cli.workspace.project_config import (
-    AWSAppRunnerConfig,
+    AWSECSFargateConfig,
     AzureContainerAppsConfig,
     GCP_CLOUD_RUN_TARGET,
     PROJECT_MODE_LOCAL,
@@ -135,7 +135,7 @@ def collect_cloud_section(
         )
 
     current_gcp = session.project_config.deploy.gcp_cloud_run
-    current_aws = session.project_config.deploy.aws_app_runner
+    current_aws = session.project_config.deploy.aws_ecs_fargate
     current_azure = session.project_config.deploy.azure_container_apps
     explicit_cloud_change = any(
         value is not None
@@ -153,7 +153,6 @@ def collect_cloud_section(
             options.cpu,
             options.memory,
             options.aws_region,
-            options.aws_cluster,
             options.aws_service,
             options.aws_vpc_id,
             options.aws_subnet_ids,
@@ -171,7 +170,7 @@ def collect_cloud_section(
     )
 
     gcp_cloud_run = current_gcp
-    aws_app_runner = current_aws
+    aws_ecs_fargate = current_aws
     azure_container_apps = current_azure
     if collect_defaults and cloud_provider == CLOUD_PROVIDER_GCP:
         project_id = resolve_optional_text_value(
@@ -274,22 +273,12 @@ def collect_cloud_section(
             if options.aws_subnet_ids is not None
             else current_aws.subnet_ids
         )
-        aws_app_runner = AWSAppRunnerConfig(
+        aws_ecs_fargate = AWSECSFargateConfig(
             region=resolve_optional_text_value(
                 session.cli_context,
                 prompt="AWS region",
                 current_value=current_aws.region,
                 explicit_value=options.aws_region,
-            ),
-            cluster_name=(
-                resolve_optional_text_value(
-                    session.cli_context,
-                    prompt="Legacy AWS service alias",
-                    current_value=current_aws.cluster_name,
-                    explicit_value=options.aws_cluster,
-                )
-                if options.aws_cluster is not None
-                else current_aws.cluster_name
             ),
             service_name=resolve_optional_text_value(
                 session.cli_context,
@@ -353,7 +342,7 @@ def collect_cloud_section(
         cloud_provider=cloud_provider,
         preferred_target=preferred_target,
         gcp_cloud_run=gcp_cloud_run,
-        aws_app_runner=aws_app_runner,
+        aws_ecs_fargate=aws_ecs_fargate,
         azure_container_apps=azure_container_apps,
     )
 
@@ -392,7 +381,7 @@ def apply_cloud_section(
         deploy=type(project_config.deploy)(
             preferred_target=result.preferred_target,
             gcp_cloud_run=result.gcp_cloud_run,
-            aws_app_runner=result.aws_app_runner,
+            aws_ecs_fargate=result.aws_ecs_fargate,
             azure_container_apps=result.azure_container_apps,
             published_runtime=project_config.deploy.published_runtime,
         ),

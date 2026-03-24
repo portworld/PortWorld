@@ -38,7 +38,6 @@ def update_cli_command(cli_context: CLIContext, json_output: bool) -> None:
 @click.option("--memory", default=None, help="Cloud Run memory setting, for example 1Gi.")
 @click.option("--aws-region", default=None, help="Target AWS region.")
 @click.option("--aws-service", default=None, help="AWS ECS service name.")
-@click.option("--aws-cluster", default=None, help="Legacy AWS service alias.", hidden=True)
 @click.option("--aws-vpc-id", default=None, help="Override VPC id for RDS provisioning.", hidden=True)
 @click.option("--aws-subnet-ids", default=None, help="Override subnet ids for RDS provisioning.", hidden=True)
 @click.option("--aws-database-url", default=None, help="Existing managed PostgreSQL URL.")
@@ -75,7 +74,6 @@ def update_deploy_command(
     memory: str | None,
     aws_region: str | None,
     aws_service: str | None,
-    aws_cluster: str | None,
     aws_vpc_id: str | None,
     aws_subnet_ids: str | None,
     aws_database_url: str | None,
@@ -119,7 +117,6 @@ def update_deploy_command(
                 memory=memory,
                 aws_region=aws_region,
                 aws_service=aws_service,
-                aws_cluster=aws_cluster,
                 aws_vpc_id=aws_vpc_id,
                 aws_subnet_ids=aws_subnet_ids,
                 aws_database_url=aws_database_url,

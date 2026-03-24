@@ -198,7 +198,6 @@ def config_edit_security_command(
 @click.option("--memory", default=None, help="Default Cloud Run memory.")
 @click.option("--aws-region", default=None, help="Default AWS region.")
 @click.option("--aws-service", default=None, help="Default AWS ECS service name.")
-@click.option("--aws-cluster", default=None, help="Legacy AWS service alias.", hidden=True)
 @click.option("--aws-vpc-id", default=None, help="Default VPC id.", hidden=True)
 @click.option("--aws-subnet-ids", default=None, help="Default subnet ids (comma-separated).", hidden=True)
 @click.option("--azure-subscription", default=None, help="Default Azure subscription id.")
@@ -226,7 +225,6 @@ def config_edit_cloud_command(
     cpu: str | None,
     memory: str | None,
     aws_region: str | None,
-    aws_cluster: str | None,
     aws_service: str | None,
     aws_vpc_id: str | None,
     aws_subnet_ids: str | None,
@@ -259,7 +257,6 @@ def config_edit_cloud_command(
                 cpu=cpu,
                 memory=memory,
                 aws_region=aws_region,
-                aws_cluster=aws_cluster,
                 aws_service=aws_service,
                 aws_vpc_id=aws_vpc_id,
                 aws_subnet_ids=aws_subnet_ids,

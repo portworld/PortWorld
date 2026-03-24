@@ -380,8 +380,7 @@ def resolve_aws_inspection_target(
         region=_strip(region) or aws_state.region or _strip(aws_config.region),
         service_name=_strip(service_name)
         or aws_state.service_name
-        or _strip(aws_config.service_name)
-        or _strip(aws_config.cluster_name),
+        or _strip(aws_config.service_name),
     )
 
 

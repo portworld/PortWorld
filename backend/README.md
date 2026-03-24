@@ -12,7 +12,7 @@ FastAPI + Uvicorn backend that relays realtime voice sessions through selectable
 - **Bearer token auth** — all non-health endpoints can require `Authorization: Bearer <token>`; production mode enforces this at startup
 - **Rate limiting** — sliding-window limits on WebSocket setup, session activation, vision ingest, and protected profile/memory-admin HTTP routes
 - **Memory export** — `GET /memory/export` streams a ZIP of all session and profile memory
-- **Operator CLI** — `portworld` for init, doctor, deploy, and `ops` workflows; `python -m backend.cli` remains available as a compatibility path for serving and legacy operator commands
+- **Operator CLI** — `portworld` for init, doctor, deploy, and `ops` workflows
 
 ## Requirements
 
@@ -145,7 +145,7 @@ cd backend
 pip install -r requirements.txt
 cp .env.example .env
 # Open .env and set the credentials required by your selected providers
-python -m backend.cli serve
+uvicorn backend.api.app:create_app --factory --host 127.0.0.1 --port 8080
 ```
 
 ### Verify
@@ -155,7 +155,7 @@ curl http://127.0.0.1:8080/livez
 # → {"status":"ok","service":"portworld-backend"}
 ```
 
-Use `/livez` for public and Cloud Run liveness checks. `/healthz` remains available as a compatibility alias for older local tooling.
+Use `/livez` for public and Cloud Run liveness checks.
 
 ## Configuration
 
@@ -247,7 +247,6 @@ openssl rand -hex 32
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/livez` | None | Public liveness probe |
-| `GET` | `/healthz` | None | Compatibility liveness alias |
 | `GET` | `/readyz` | Bearer | Readiness probe — checks storage and provider config |
 | `WS` | `/ws/session` | Bearer | Realtime voice session |
 | `POST` | `/vision/frame` | Bearer | Ingest a base64-encoded JPEG frame |
@@ -294,23 +293,11 @@ portworld logs azure-container-apps --since 24h --limit 50
 # Redeploy the active managed target
 portworld update deploy --tag <image-tag>
 
-# Wrap legacy operator actions through the public CLI
+# Operator actions through the public CLI
 portworld ops check-config
 portworld ops check-config --full-readiness
 portworld ops bootstrap-storage
 portworld ops export-memory --output /tmp/portworld-memory-export.zip
-```
-
-Legacy compatibility path:
-
-```bash
-# Start the server
-python -m backend.cli serve
-
-# Legacy operator entrypoints still work during migration
-python -m backend.cli check-config
-python -m backend.cli bootstrap-storage
-python -m backend.cli export-memory --output /tmp/portworld-memory-export.zip
 ```
 
 ## Storage

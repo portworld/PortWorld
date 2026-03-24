@@ -642,7 +642,6 @@ def _load_credentials_settings() -> dict[str, str | None]:
 
 
 def _load_realtime_settings() -> dict[str, str | int | bool | None]:
-    _raise_if_removed_realtime_env_keys_set()
     return {
         "backend_bearer_token": (_get_env("BACKEND_BEARER_TOKEN") or "").strip() or None,
         "realtime_provider": (_get_env("REALTIME_PROVIDER") or "openai").strip().lower(),
@@ -677,25 +676,6 @@ def _load_realtime_settings() -> dict[str, str | int | bool | None]:
             minimum=1,
         ),
 }
-
-
-def _raise_if_removed_realtime_env_keys_set() -> None:
-    removed_keys = (
-        ("OPENAI_REALTIME_MODEL", "REALTIME_MODEL"),
-        ("OPENAI_REALTIME_VOICE", "REALTIME_VOICE"),
-        ("OPENAI_REALTIME_INSTRUCTIONS", "REALTIME_INSTRUCTIONS"),
-        ("OPENAI_REALTIME_INCLUDE_TURN_DETECTION", "REALTIME_INCLUDE_TURN_DETECTION"),
-        ("OPENAI_REALTIME_ENABLE_MANUAL_TURN_FALLBACK", "REALTIME_ENABLE_MANUAL_TURN_FALLBACK"),
-        ("OPENAI_REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS", "REALTIME_MANUAL_TURN_FALLBACK_DELAY_MS"),
-    )
-    used_removed_keys = [old for old, _ in removed_keys if os.getenv(old) is not None]
-    if not used_removed_keys:
-        return
-    replacements = ", ".join(f"{old}->{new}" for old, new in removed_keys if old in used_removed_keys)
-    raise RuntimeError(
-        "Removed realtime environment variables are set. "
-        f"Use the new keys instead: {replacements}"
-    )
 
 
 def _load_storage_settings() -> dict[str, str | int | bool | Path]:

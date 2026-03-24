@@ -166,9 +166,8 @@ class GCPCloudRunConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class AWSAppRunnerConfig:
+class AWSECSFargateConfig:
     region: str | None = None
-    cluster_name: str | None = None
     service_name: str | None = None
     vpc_id: str | None = None
     subnet_ids: tuple[str, ...] = ()
@@ -176,7 +175,6 @@ class AWSAppRunnerConfig:
     def to_payload(self) -> dict[str, Any]:
         return {
             "region": self.region,
-            "cluster_name": self.cluster_name,
             "service_name": self.service_name,
             "vpc_id": self.vpc_id,
             "subnet_ids": list(self.subnet_ids),
@@ -218,21 +216,15 @@ class PublishedRuntimeConfig:
 class DeployConfig:
     preferred_target: str | None = None
     gcp_cloud_run: GCPCloudRunConfig = field(default_factory=GCPCloudRunConfig)
-    aws_app_runner: AWSAppRunnerConfig = field(default_factory=AWSAppRunnerConfig)
+    aws_ecs_fargate: AWSECSFargateConfig = field(default_factory=AWSECSFargateConfig)
     azure_container_apps: AzureContainerAppsConfig = field(default_factory=AzureContainerAppsConfig)
     published_runtime: PublishedRuntimeConfig = field(default_factory=PublishedRuntimeConfig)
 
-    @property
-    def aws_ecs_fargate(self) -> AWSAppRunnerConfig:
-        return self.aws_app_runner
-
     def to_payload(self) -> dict[str, Any]:
-        aws_payload = self.aws_app_runner.to_payload()
         return {
             "preferred_target": self.preferred_target,
             "gcp_cloud_run": self.gcp_cloud_run.to_payload(),
-            "aws_app_runner": aws_payload,
-            "aws_ecs_fargate": aws_payload,
+            "aws_ecs_fargate": self.aws_ecs_fargate.to_payload(),
             "azure_container_apps": self.azure_container_apps.to_payload(),
             "published_runtime": self.published_runtime.to_payload(),
         }
@@ -282,11 +274,7 @@ class ProjectConfig:
         security_payload = _read_object(payload, "security", default={})
         deploy_payload = _read_object(payload, "deploy", default={})
         gcp_payload = _read_object(deploy_payload, "gcp_cloud_run", default={})
-        aws_payload = _read_object(
-            deploy_payload,
-            "aws_app_runner",
-            default=_read_object(deploy_payload, "aws_ecs_fargate", default={}),
-        )
+        aws_payload = _read_object(deploy_payload, "aws_ecs_fargate", default={})
         azure_payload = _read_object(deploy_payload, "azure_container_apps", default={})
         published_runtime_payload = _read_object(
             deploy_payload,
@@ -414,9 +402,8 @@ class ProjectConfig:
                         default=DEFAULT_GCP_MEMORY,
                     ),
                 ),
-                aws_app_runner=AWSAppRunnerConfig(
+                aws_ecs_fargate=AWSECSFargateConfig(
                     region=_read_optional_string(aws_payload, "region"),
-                    cluster_name=_read_optional_string(aws_payload, "cluster_name"),
                     service_name=_read_optional_string(aws_payload, "service_name"),
                     vpc_id=_read_optional_string(aws_payload, "vpc_id"),
                     subnet_ids=_read_string_list(

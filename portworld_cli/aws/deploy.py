@@ -53,7 +53,6 @@ MANAGED_ORIGIN_REQUEST_POLICY_ALL_VIEWER = "216adef6-5c7f-47e4-b989-5492eafa07d3
 @dataclass(frozen=True, slots=True)
 class DeployAWSECSFargateOptions:
     region: str | None
-    cluster: str | None
     service: str | None
     vpc_id: str | None
     subnet_ids: str | None
@@ -310,11 +309,9 @@ def _resolve_aws_deploy_config(
         value=_first_non_empty(
             options.service,
             aws_defaults.service_name,
-            options.cluster,
-            aws_defaults.cluster_name,
         ),
         prompt="AWS ECS service name",
-        error="AWS service name is required (--service or --cluster).",
+        error="AWS service name is required (--service).",
     )
 
     requested_vpc_id = _first_non_empty(options.vpc_id, aws_defaults.vpc_id)

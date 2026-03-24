@@ -91,33 +91,3 @@ class UserMemoryStorageMixin:
 
     def write_cross_session_memory(self, *, markdown: str) -> None:
         self.paths.cross_session_memory_path.write_text(markdown, encoding="utf-8")
-
-    # Compatibility aliases while call sites migrate away from profile naming.
-    def _ensure_user_profile_files(self) -> None:
-        self._ensure_user_memory_files()
-
-    def read_user_profile(self) -> dict[str, object]:
-        return self.read_user_memory_payload()
-
-    def read_user_profile_markdown(self) -> str:
-        return self.read_user_memory_markdown()
-
-    def write_user_profile(
-        self,
-        *,
-        payload: Mapping[str, object],
-        source: str | None = None,
-        updated_at_ms: int | None = None,
-    ) -> dict[str, object]:
-        return self.write_user_memory_payload(
-            payload=payload,
-            source=source,
-            updated_at_ms=updated_at_ms,
-        )
-
-    def reset_user_profile(self) -> dict[str, object]:
-        return self.reset_user_memory_payload()
-
-
-ProfileStorageMixin = UserMemoryStorageMixin
-

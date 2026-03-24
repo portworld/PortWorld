@@ -65,7 +65,6 @@ def evaluate_aws_ecs_fargate_readiness(
     *,
     runtime_source: str | None,
     explicit_region: str | None,
-    explicit_cluster: str | None,
     explicit_service: str | None,
     explicit_vpc_id: str | None,
     explicit_subnet_ids: str | None,
@@ -86,8 +85,6 @@ def evaluate_aws_ecs_fargate_readiness(
     service_name = _first_non_empty(
         explicit_service,
         None if aws_defaults is None else aws_defaults.service_name,
-        explicit_cluster,
-        None if aws_defaults is None else aws_defaults.cluster_name,
     )
     cluster_name = None if service_name is None else f"{service_name}-cluster"
     vpc_id = _first_non_empty(
@@ -302,10 +299,6 @@ def evaluate_aws_ecs_fargate_readiness(
         checks=tuple(checks),
         details=details,
     )
-
-
-def evaluate_aws_app_runner_readiness(**kwargs) -> AWSDoctorEvaluation:
-    return evaluate_aws_ecs_fargate_readiness(**kwargs)
 
 
 def _s3_bucket_ready_check(*, region: str, bucket_name: str) -> DiagnosticCheck:

@@ -410,15 +410,6 @@ class IOSRealtimeBridge:
             )
             return
 
-        if await self._maybe_retry_legacy_session_init(code=code, message=message):
-            logger.info(
-                "Realtime session init schema mismatch recovered via legacy retry session=%s code=%s message=%s",
-                self._session_id,
-                code,
-                message,
-            )
-            return
-
         lower_code = code.lower()
         lower_message = message.lower()
         if (
@@ -465,60 +456,6 @@ class IOSRealtimeBridge:
             return
         self._session_ready_error = (code, message)
         self._session_ready_event.set()
-
-    async def _maybe_retry_legacy_session_init(self, *, code: str, message: str) -> bool:
-        if not self._is_session_init_schema_error(code=code, message=message):
-            return False
-
-        retry_method = getattr(
-            self._upstream_client,
-            "retry_initialize_session_with_legacy_schema",
-            None,
-        )
-        if retry_method is None:
-            return False
-
-        try:
-            tools = None
-            if self._tooling_runtime is not None:
-                tools = self._tooling_runtime.list_tool_definitions()
-            did_retry = await self._upstream_client.maybe_recover_session_init_error(
-                code=code,
-                message=message,
-                tools=tools,
-                instructions=self._session_instructions,
-            )
-        except RealtimeClientError:
-            return False
-        except Exception:  # pragma: no cover - defensive fallback
-            logger.exception("Unexpected failure retrying legacy session init schema fallback")
-            return False
-        return bool(did_retry)
-
-    @staticmethod
-    def _is_session_init_schema_error(*, code: str, message: str) -> bool:
-        lower_code = code.strip().lower()
-        lower_message = message.strip().lower()
-
-        is_parameter_error = (
-            "unknown_parameter" in lower_code
-            or "invalid_parameter" in lower_code
-            or "unknown parameter" in lower_message
-            or "invalid parameter" in lower_message
-        )
-        if not is_parameter_error:
-            return False
-
-        schema_markers = (
-            "session.",
-            "input_audio_format",
-            "output_audio_format",
-            "turn_detection",
-            "audio.input",
-            "audio.output",
-            "output_modalities",
-        )
-        return any(marker in lower_message for marker in schema_markers)
 
     def client_end_turn_ignore_reason(self) -> str | None:
         return self._turn_manager.client_end_turn_ignore_reason()

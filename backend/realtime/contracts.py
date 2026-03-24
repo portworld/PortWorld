@@ -71,16 +71,6 @@ class RealtimeLifecycleAdapter(Protocol):
         output: str,
     ) -> None: ...
 
-    async def maybe_recover_session_init_error(
-        self,
-        *,
-        code: str,
-        message: str,
-        tools: Sequence[ToolDefinition] | None = None,
-        instructions: str | None = None,
-    ) -> bool: ...
-
-
 class RealtimeAdapterContract(RealtimeLifecycleAdapter, RealtimeEventIterator, Protocol):
     pass
 

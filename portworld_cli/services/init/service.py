@@ -96,7 +96,6 @@ class InitOptions:
     cpu: str | None
     memory: str | None
     aws_region: str | None
-    aws_cluster: str | None
     aws_service: str | None
     aws_vpc_id: str | None
     aws_subnet_ids: str | None
@@ -476,7 +475,6 @@ def _collect_init_sections(
             cpu=options.cpu,
             memory=options.memory,
             aws_region=options.aws_region,
-            aws_cluster=options.aws_cluster,
             aws_service=options.aws_service,
             aws_vpc_id=options.aws_vpc_id,
             aws_subnet_ids=options.aws_subnet_ids,

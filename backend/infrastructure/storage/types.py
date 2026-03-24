@@ -171,8 +171,5 @@ class RealtimeReadOnlyStorageView:
     def read_user_memory(self) -> str:
         return self._storage.read_user_memory()
 
-    def read_user_profile(self) -> dict[str, Any]:
-        return self._storage.read_user_memory_payload()
-
     def read_cross_session_memory(self) -> str:
         return self._storage.read_cross_session_memory()

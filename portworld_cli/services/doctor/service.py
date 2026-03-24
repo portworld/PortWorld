@@ -28,7 +28,6 @@ class DoctorOptions:
     project: str | None
     region: str | None
     aws_region: str | None
-    aws_cluster: str | None
     aws_service: str | None
     aws_vpc_id: str | None
     aws_subnet_ids: str | None
@@ -50,7 +49,6 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
     if options.target == "gcp-cloud-run":
         if (
             options.aws_region is not None
-            or options.aws_cluster is not None
             or options.aws_service is not None
             or options.aws_vpc_id is not None
             or options.aws_subnet_ids is not None
@@ -93,7 +91,6 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
             options.project is not None
             or options.region is not None
             or options.aws_region is not None
-            or options.aws_cluster is not None
             or options.aws_service is not None
             or options.aws_vpc_id is not None
             or options.aws_subnet_ids is not None
@@ -108,7 +105,6 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
         options.project is not None
         or options.region is not None
         or options.aws_region is not None
-        or options.aws_cluster is not None
         or options.aws_service is not None
         or options.aws_vpc_id is not None
         or options.aws_subnet_ids is not None
@@ -374,7 +370,6 @@ def _run_aws_ecs_fargate_doctor(
     evaluation = evaluate_aws_ecs_fargate_readiness(
         runtime_source=session.effective_runtime_source,
         explicit_region=options.aws_region,
-        explicit_cluster=options.aws_cluster,
         explicit_service=options.aws_service,
         explicit_vpc_id=options.aws_vpc_id,
         explicit_subnet_ids=options.aws_subnet_ids,

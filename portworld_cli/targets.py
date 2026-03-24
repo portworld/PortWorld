@@ -6,8 +6,6 @@ from pathlib import Path
 
 TARGET_GCP_CLOUD_RUN = "gcp-cloud-run"
 TARGET_AWS_ECS_FARGATE = "aws-ecs-fargate"
-# Deprecated alias retained for backward compatibility.
-TARGET_AWS_APP_RUNNER = "aws-app-runner"
 TARGET_AZURE_CONTAINER_APPS = "azure-container-apps"
 
 CLOUD_PROVIDER_GCP = "gcp"
@@ -38,19 +36,12 @@ MANAGED_TARGETS_BY_PROVIDER: dict[str, tuple[str, ...]] = {
     CLOUD_PROVIDER_AZURE: (TARGET_AZURE_CONTAINER_APPS,),
 }
 
-
-MANAGED_TARGET_ALIASES: dict[str, str] = {
-    TARGET_AWS_APP_RUNNER: TARGET_AWS_ECS_FARGATE,
-}
-
-
 def normalize_managed_target(target: str | None) -> str | None:
     if target is None:
         return None
     normalized = target.strip().lower()
     if not normalized:
         return None
-    normalized = MANAGED_TARGET_ALIASES.get(normalized, normalized)
     if normalized in MANAGED_TARGETS:
         return normalized
     return None

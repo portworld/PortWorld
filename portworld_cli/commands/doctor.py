@@ -24,7 +24,6 @@ from portworld_cli.services.doctor import DoctorOptions, run_doctor
 @click.option("--project", default=None, help="Target GCP project id for future gcp-cloud-run checks.")
 @click.option("--region", default=None, help="Target GCP region for future gcp-cloud-run checks.")
 @click.option("--aws-region", default=None, help="Target AWS region for aws-ecs-fargate checks.")
-@click.option("--aws-cluster", default=None, help="Legacy alias for AWS service name.", hidden=True)
 @click.option("--aws-service", default=None, help="Target ECS service name.")
 @click.option("--aws-vpc-id", default=None, help="Override VPC id for one-click RDS provisioning.", hidden=True)
 @click.option("--aws-subnet-ids", default=None, help="Override subnet ids for one-click RDS provisioning.", hidden=True)
@@ -47,7 +46,6 @@ def doctor_command(
     project: str | None,
     region: str | None,
     aws_region: str | None,
-    aws_cluster: str | None,
     aws_service: str | None,
     aws_vpc_id: str | None,
     aws_subnet_ids: str | None,
@@ -74,7 +72,6 @@ def doctor_command(
                 project=project,
                 region=region,
                 aws_region=aws_region,
-                aws_cluster=aws_cluster,
                 aws_service=aws_service,
                 aws_vpc_id=aws_vpc_id,
                 aws_subnet_ids=aws_subnet_ids,

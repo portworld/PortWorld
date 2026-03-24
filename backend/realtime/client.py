@@ -62,8 +62,6 @@ class OpenAIRealtimeClient(BaseRealtimeWebsocketClient):
         self._base_url = base_url
 
         self.audio_event_names = RealtimeAudioEventNames()
-        self._session_init_schema_mode = "current"
-        self._legacy_schema_retry_attempted = False
         self._input_audio_append_count = 0
         self._output_audio_delta_count = 0
 
@@ -166,29 +164,8 @@ class OpenAIRealtimeClient(BaseRealtimeWebsocketClient):
             instructions=instructions,
             voice=voice,
             tools=self._normalize_tools(tools),
-            schema_mode=self._session_init_schema_mode,
         )
         await self.send_json(event)
-
-    async def retry_initialize_session_with_legacy_schema(
-        self,
-        *,
-        instructions: Optional[str] = None,
-        voice: Optional[str] = None,
-        tools: Optional[Sequence[ToolDefinition | dict[str, Any]]] = None,
-    ) -> bool:
-        """Retry session initialization once with legacy session schema."""
-        if self._legacy_schema_retry_attempted:
-            return False
-
-        self._legacy_schema_retry_attempted = True
-        self._session_init_schema_mode = "legacy"
-        await self.initialize_session(
-            instructions=instructions,
-            voice=voice,
-            tools=tools,
-        )
-        return True
 
     async def update_session(self, payload: dict[str, Any]) -> None:
         await self.send_json(payload)
@@ -233,20 +210,6 @@ class OpenAIRealtimeClient(BaseRealtimeWebsocketClient):
                     "output": output,
                 },
             }
-        )
-
-    async def maybe_recover_session_init_error(
-        self,
-        *,
-        code: str,
-        message: str,
-        tools: Sequence[ToolDefinition] | None = None,
-        instructions: str | None = None,
-    ) -> bool:
-        _ = (code, message)
-        return await self.retry_initialize_session_with_legacy_schema(
-            instructions=instructions,
-            tools=tools,
         )
 
     async def iter_normalized_events(self) -> AsyncIterator[NormalizedRealtimeEvent]:
@@ -340,27 +303,11 @@ class OpenAIRealtimeClient(BaseRealtimeWebsocketClient):
         instructions: Optional[str],
         voice: Optional[str],
         tools: Optional[list[dict[str, Any]]],
-        schema_mode: str,
     ) -> dict[str, Any]:
         resolved_instructions = (
             self._instructions if instructions is None else instructions
         )
         resolved_voice = self._voice if voice is None else voice
-
-        if schema_mode == "legacy":
-            session: dict[str, Any] = {
-                "type": "realtime",
-                "input_audio_format": "pcm16",
-                "output_audio_format": "pcm16",
-                "instructions": resolved_instructions,
-                "voice": resolved_voice,
-            }
-            if self._include_turn_detection:
-                session["turn_detection"] = {"type": "server_vad"}
-            return {
-                "type": "session.update",
-                "session": session,
-            }
 
         session = {
             "type": "realtime",

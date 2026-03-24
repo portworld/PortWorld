@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from portworld_cli.envfile import EnvWriteResult
 from portworld_cli.workspace.project_config import (
-    AWSAppRunnerConfig,
+    AWSECSFargateConfig,
     AzureContainerAppsConfig,
     GCPCloudRunConfig,
     ProjectConfig,
@@ -40,7 +40,6 @@ class CloudEditOptions:
     cpu: str | None
     memory: str | None
     aws_region: str | None
-    aws_cluster: str | None
     aws_service: str | None
     aws_vpc_id: str | None
     aws_subnet_ids: str | None
@@ -66,7 +65,7 @@ class CloudSectionResult:
     cloud_provider: str | None
     preferred_target: str | None
     gcp_cloud_run: GCPCloudRunConfig
-    aws_app_runner: AWSAppRunnerConfig
+    aws_ecs_fargate: AWSECSFargateConfig
     azure_container_apps: AzureContainerAppsConfig
 
 

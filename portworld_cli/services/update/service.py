@@ -78,7 +78,6 @@ class UpdateDeployOptions:
     memory: str | None
     aws_region: str | None
     aws_service: str | None
-    aws_cluster: str | None
     aws_vpc_id: str | None
     aws_subnet_ids: str | None
     aws_database_url: str | None
@@ -219,7 +218,6 @@ def _dispatch_update_deploy(
             cli_context,
             DeployAWSECSFargateOptions(
                 region=options.aws_region,
-                cluster=options.aws_cluster,
                 service=options.aws_service,
                 vpc_id=options.aws_vpc_id,
                 subnet_ids=options.aws_subnet_ids,
@@ -302,7 +300,6 @@ def _has_aws_flags(options: UpdateDeployOptions) -> bool:
         for value in (
             options.aws_region,
             options.aws_service,
-            options.aws_cluster,
             options.aws_vpc_id,
             options.aws_subnet_ids,
             options.aws_database_url,

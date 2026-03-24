@@ -241,18 +241,6 @@ def _coerce_optional_int(value: object) -> int | None:
         return int(value)
     return None
 
-
-# Compatibility exports while imports migrate from profile naming.
-PROFILE_MARKDOWN_HEADER = USER_MEMORY_MARKDOWN_HEADER
-parse_profile_record = parse_user_memory_record
-build_profile_payload = build_user_memory_payload
-render_profile_markdown = render_user_memory_markdown
-build_profile_record = build_user_memory_record
-empty_profile_payload = empty_user_memory_payload
-empty_profile_markdown = empty_user_memory_markdown
-parse_profile_markdown = parse_user_memory_markdown
-
-
 __all__ = [
     "USER_MEMORY_MARKDOWN_HEADER",
     "USER_MEMORY_ALLOWLISTED_FIELDS",
@@ -263,12 +251,4 @@ __all__ = [
     "parse_user_memory_markdown",
     "parse_user_memory_record",
     "render_user_memory_markdown",
-    "PROFILE_MARKDOWN_HEADER",
-    "build_profile_payload",
-    "build_profile_record",
-    "empty_profile_markdown",
-    "empty_profile_payload",
-    "parse_profile_markdown",
-    "parse_profile_record",
-    "render_profile_markdown",
 ]

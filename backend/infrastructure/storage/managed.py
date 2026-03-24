@@ -178,9 +178,6 @@ class ManagedBackendStorage(BackendStorage):
             default_text=empty_user_memory_markdown(),
         )
 
-    def read_user_profile_markdown(self) -> str:
-        return self.read_user_memory_markdown()
-
     def read_cross_session_memory(self) -> str:
         return self._read_or_initialize_markdown_artifact(
             relative_path=_CANONICAL_CROSS_SESSION_MEMORY_RELATIVE_PATH,

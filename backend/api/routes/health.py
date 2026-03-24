@@ -25,12 +25,6 @@ class HealthStatusResponse(BaseModel):
 async def _health_status() -> HealthStatusResponse:
     return HealthStatusResponse(status="ok", service=SERVICE_NAME)
 
-
-@router.get("/healthz", response_model=HealthStatusResponse)
-async def healthz(request: Request) -> HealthStatusResponse:
-    return await _health_status()
-
-
 @router.get("/livez", response_model=HealthStatusResponse)
 async def livez(request: Request) -> HealthStatusResponse:
     return await _health_status()

@@ -321,17 +321,6 @@ class GeminiLiveRealtimeClient(BaseRealtimeWebsocketClient):
             }
         )
 
-    async def maybe_recover_session_init_error(
-        self,
-        *,
-        code: str,
-        message: str,
-        tools: Sequence[ToolDefinition] | None = None,
-        instructions: str | None = None,
-    ) -> bool:
-        _ = (code, message, tools, instructions)
-        return False
-
     async def iter_normalized_events(self) -> AsyncIterator[NormalizedRealtimeEvent]:
         async for event in self.iter_events():
             normalized_events = self._to_normalized_runtime_events(event)

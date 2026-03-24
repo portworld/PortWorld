@@ -84,7 +84,7 @@ class HealthAwareTrustedHostMiddleware:
     def __init__(self, app: ASGIApp, *, allowed_hosts: list[str]) -> None:
         self._app = app
         self._trusted = TrustedHostMiddleware(app, allowed_hosts=allowed_hosts)
-        self._health_paths = {"/healthz", "/livez", "/readyz"}
+        self._health_paths = {"/livez", "/readyz"}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         # ALB health checks may use an IP-based Host header; bypass host checks
