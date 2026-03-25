@@ -85,8 +85,7 @@ private extension HomeReadinessState {
     wearablesRuntimeManager: WearablesRuntimeManager
   ) -> Bool {
     guard wearablesRuntimeManager.configurationState == .ready else { return false }
-    guard wearablesRuntimeManager.registrationState == .registered ||
-      wearablesRuntimeManager.canActivateGlassesRouteForDebugMock else { return false }
+    guard wearablesRuntimeManager.registrationState == .registered else { return false }
     guard wearablesRuntimeManager.devices.isEmpty == false else { return false }
     guard wearablesRuntimeManager.activeCompatibilityMessage == nil else { return false }
     guard wearablesRuntimeManager.glassesSessionPhase != .failed else { return false }

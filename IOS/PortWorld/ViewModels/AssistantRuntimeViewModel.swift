@@ -148,8 +148,7 @@ final class AssistantRuntimeViewModel: ObservableObject {
 
   private var canKeepGlassesRouteSelected: Bool {
     guard wearablesRuntimeManager.configurationState == .ready else { return false }
-    guard wearablesRuntimeManager.registrationState == .registered ||
-      wearablesRuntimeManager.canActivateGlassesRouteForDebugMock else { return false }
+    guard wearablesRuntimeManager.registrationState == .registered else { return false }
     guard wearablesRuntimeManager.devices.isEmpty == false else { return false }
     guard wearablesRuntimeManager.activeCompatibilityMessage == nil else { return false }
     guard wearablesRuntimeManager.glassesSessionPhase != .failed else { return false }
@@ -231,14 +230,6 @@ final class AssistantRuntimeViewModel: ObservableObject {
       .sink { [weak self] _ in self?.publishMergedStatus() }
       .store(in: &cancellables)
 
-    wearablesRuntimeManager.$mockWorkflowState
-      .sink { [weak self] _ in self?.publishMergedStatus() }
-      .store(in: &cancellables)
-
-    wearablesRuntimeManager.$mockWorkflowDetail
-      .sink { [weak self] _ in self?.publishMergedStatus() }
-      .store(in: &cancellables)
-
     wearablesRuntimeManager.$glassesDevelopmentReadinessDetail
       .sink { [weak self] _ in self?.publishMergedStatus() }
       .store(in: &cancellables)
@@ -296,8 +287,7 @@ final class AssistantRuntimeViewModel: ObservableObject {
     let shouldCaptureVision =
       selectedRoute == .glasses &&
       controllerStatus.assistantRuntimeState == .activeConversation &&
-      (wearablesRuntimeManager.glassesSessionPhase == .running ||
-        wearablesRuntimeManager.canActivateGlassesRouteForDebugMock) &&
+      wearablesRuntimeManager.glassesSessionPhase == .running &&
       controllerStatus.sessionID != "-"
 
     if shouldCapturePhoneVision {
@@ -331,7 +321,7 @@ final class AssistantRuntimeViewModel: ObservableObject {
       return
     }
 
-    if glassesSessionPhase == .running || wearablesRuntimeManager.canActivateGlassesRouteForDebugMock {
+    if glassesSessionPhase == .running {
       if pendingGlassesActivation &&
         controllerStatus.assistantRuntimeState == .inactive &&
         isStartingPhoneRuntimeForGlassesRoute == false {
@@ -362,8 +352,7 @@ final class AssistantRuntimeViewModel: ObservableObject {
     }
 
     if glassesSessionPhase == .waitingForDevice &&
-      shouldTearDownForWaitingDeviceLoss &&
-      wearablesRuntimeManager.canActivateGlassesRouteForDebugMock == false {
+      shouldTearDownForWaitingDeviceLoss {
       await stopGlassesRouteIfNeeded()
       return
     }
@@ -450,7 +439,6 @@ final class AssistantRuntimeViewModel: ObservableObject {
       ? "Disable Phone Vision"
       : "Enable Phone Vision"
     mergedStatus.canTogglePhoneVision = canTogglePhoneVision()
-    mergedStatus.mockWorkflowText = mockWorkflowText()
     mergedStatus.glassesDevelopmentDetailText = glassesRouteDetailText()
     mergedStatus.canChangeRoute =
       controllerStatus.assistantRuntimeState == .inactive &&
@@ -494,8 +482,7 @@ final class AssistantRuntimeViewModel: ObservableObject {
       break
     }
 
-    guard wearablesRuntimeManager.registrationState == .registered ||
-      wearablesRuntimeManager.canActivateGlassesRouteForDebugMock else {
+    guard wearablesRuntimeManager.registrationState == .registered else {
       return (
         "Glasses setup required",
         wearablesRuntimeManager.glassesDevelopmentReadinessDetail,
@@ -539,7 +526,7 @@ final class AssistantRuntimeViewModel: ObservableObject {
       }
       return (
         "Glasses detected",
-        "Glasses lifecycle can now activate through DAT. Without physical HFP hardware, audio will use the labeled phone fallback for development.",
+        "Glasses lifecycle can now activate through DAT. If Bluetooth HFP is unavailable, audio will use the phone fallback.",
         .success
       )
 
@@ -640,19 +627,6 @@ final class AssistantRuntimeViewModel: ObservableObject {
     }
 
     return wearablesRuntimeManager.glassesDevelopmentReadinessDetail
-  }
-
-  private func mockWorkflowText() -> String {
-    switch wearablesRuntimeManager.mockWorkflowState {
-    case .disabled:
-      return "disabled"
-    case .preparing:
-      return "preparing"
-    case .ready:
-      return "ready"
-    case .failed:
-      return "failed"
-    }
   }
 
   private func resolvedVisionStatus() -> (
