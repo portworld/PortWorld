@@ -1,4 +1,4 @@
-// Bounded camera-session owner for periodic still-photo capture from Meta glasses.
+// Bounded camera-session owner for periodic frame sampling from Meta glasses.
 import Foundation
 import MWDATCamera
 import MWDATCore
@@ -27,9 +27,9 @@ final class GlassesPhotoCaptureController {
 
   private let deviceSessionCoordinator: DeviceSessionCoordinator
   private var snapshot = Snapshot()
-  private var captureLoopTask: Task<Void, Never>?
   private var isActive = false
-  private var photoIntervalNs: UInt64 = 1_000_000_000
+  private var minimumFrameIntervalMs: Int64 = 1_000
+  private var lastSampleTimestampMs: Int64?
 
   init(wearables: WearablesInterface) {
     self.deviceSessionCoordinator = DeviceSessionCoordinator(wearables: wearables)
@@ -37,19 +37,15 @@ final class GlassesPhotoCaptureController {
     publishSnapshot()
   }
 
-  deinit {
-    captureLoopTask?.cancel()
-  }
-
   func start(photoFps: Double) async {
-    photoIntervalNs = UInt64((1_000_000_000.0 / max(0.1, photoFps)).rounded())
+    minimumFrameIntervalMs = Int64((1_000.0 / max(0.1, photoFps)).rounded())
 
     guard !isActive else {
-      ensureCaptureLoop()
       return
     }
 
     isActive = true
+    lastSampleTimestampMs = nil
     snapshot.errorMessage = nil
     snapshot.phase = .requestingPermission
     publishSnapshot()
@@ -67,11 +63,10 @@ final class GlassesPhotoCaptureController {
     snapshot.phase = .starting
     publishSnapshot()
     await deviceSessionCoordinator.startSession()
-    ensureCaptureLoop()
   }
 
   func stop() async {
-    guard isActive || captureLoopTask != nil else {
+    guard isActive else {
       snapshot.phase = .inactive
       snapshot.errorMessage = nil
       publishSnapshot()
@@ -79,10 +74,9 @@ final class GlassesPhotoCaptureController {
     }
 
     isActive = false
+    lastSampleTimestampMs = nil
     snapshot.phase = .stopping
     publishSnapshot()
-    captureLoopTask?.cancel()
-    captureLoopTask = nil
     await deviceSessionCoordinator.stopSession()
     snapshot.phase = .inactive
     snapshot.errorMessage = nil
@@ -90,8 +84,8 @@ final class GlassesPhotoCaptureController {
   }
 
   private func bindHooks() {
-    deviceSessionCoordinator.hooks.onPhotoCaptured = { [weak self] image, timestampMs in
-      self?.onPhotoCaptured?(image, timestampMs)
+    deviceSessionCoordinator.hooks.onVideoFrame = { [weak self] image, timestampMs in
+      self?.handleVideoFrame(image, timestampMs: timestampMs)
     }
 
     deviceSessionCoordinator.hooks.onStreamError = { [weak self] error in
@@ -132,23 +126,16 @@ final class GlassesPhotoCaptureController {
     publishSnapshot()
   }
 
-  private func ensureCaptureLoop() {
-    guard captureLoopTask == nil else { return }
+  private func handleVideoFrame(_ image: UIImage, timestampMs: Int64) {
+    guard isActive, snapshot.phase == .capturing else { return }
 
-    captureLoopTask = Task { @MainActor [weak self] in
-      guard let self else { return }
-      while !Task.isCancelled {
-        if isActive, snapshot.phase == .capturing {
-          deviceSessionCoordinator.capturePhoto()
-        }
-
-        do {
-          try await Task.sleep(nanoseconds: photoIntervalNs)
-        } catch {
-          break
-        }
-      }
+    if let lastSampleTimestampMs,
+      timestampMs - lastSampleTimestampMs < minimumFrameIntervalMs {
+      return
     }
+
+    lastSampleTimestampMs = timestampMs
+    onPhotoCaptured?(image, timestampMs)
   }
 
   private func publishSnapshot() {
