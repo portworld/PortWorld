@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		0C6663052F5351150084DE6C /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 0C6663042F5351150084DE6C /* MWDATCamera */; };
 		0C6663072F5351150084DE6C /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0C6663062F5351150084DE6C /* MWDATCore */; };
-		0C6663092F5351150084DE6C /* MWDATMockDevice in Frameworks */ = {isa = PBXBuildFile; productRef = 0C6663082F5351150084DE6C /* MWDATMockDevice */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,7 +46,6 @@
 			files = (
 				0C6663052F5351150084DE6C /* MWDATCamera in Frameworks */,
 				0C6663072F5351150084DE6C /* MWDATCore in Frameworks */,
-				0C6663092F5351150084DE6C /* MWDATMockDevice in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -172,7 +170,6 @@
 			packageProductDependencies = (
 				0C6663042F5351150084DE6C /* MWDATCamera */,
 				0C6663062F5351150084DE6C /* MWDATCore */,
-				0C6663082F5351150084DE6C /* MWDATMockDevice */,
 			);
 			productName = PortWorld;
 			productReference = 0C6662DC2F534F350084DE6C /* PortWorld.app */;
@@ -475,11 +472,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0C6663032F5351150084DE6C /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
 			productName = MWDATCore;
-		};
-		0C6663082F5351150084DE6C /* MWDATMockDevice */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 0C6663032F5351150084DE6C /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
-			productName = MWDATMockDevice;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
