@@ -108,7 +108,7 @@ def build_default_vision_provider_registry() -> VisionProviderRegistry:
             build_analyzer=build_nvidia_integrate_vision_analyzer,
             validate_settings=validate_nvidia_integrate_vision_settings,
             capabilities=VisionProviderCapabilities(
-                structured_output=True,
+                structured_output=False,
                 image_transport="data_url",
                 retry_hint="provider_managed",
                 rate_limit_hint="provider_managed",

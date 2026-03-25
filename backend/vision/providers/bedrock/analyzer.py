@@ -20,6 +20,7 @@ from backend.vision.providers.shared import (
     DEFAULT_VISION_MAX_TOKENS,
     DEFAULT_VISION_TEMPERATURE,
     DEFAULT_VISION_TOP_P,
+    build_provider_payload_parse_error,
     VISION_SYSTEM_PROMPT,
     build_user_prompt,
     normalize_observation,
@@ -148,9 +149,23 @@ class BedrockVisionAnalyzer:
         try:
             payload = self._extract_provider_payload(response)
         except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
-            raise VisionProviderError(
-                provider_error_code="provider_payload_invalid_json",
-                provider_message="Vision provider returned an observation payload that could not be parsed",
+            payload_text: str | None = None
+            if isinstance(response, dict):
+                output = response.get("output")
+                if isinstance(output, dict):
+                    message = output.get("message")
+                    if isinstance(message, dict):
+                        content = message.get("content")
+                        if isinstance(content, list):
+                            text_parts = [
+                                item.get("text")
+                                for item in content
+                                if isinstance(item, dict) and isinstance(item.get("text"), str)
+                            ]
+                            payload_text = "\n".join(text_parts) if text_parts else None
+            raise build_provider_payload_parse_error(
+                status_code=None,
+                payload_text=payload_text,
                 payload_excerpt=safe_json_excerpt(response),
             ) from exc
 
@@ -162,7 +177,12 @@ class BedrockVisionAnalyzer:
         assert self._client is not None
         return self._client
 
-    def _extract_provider_payload(self, response_json: dict[str, Any]) -> ProviderObservationPayload:
+    def _extract_provider_payload(
+        self,
+        response_json: dict[str, Any],
+        *,
+        status_code: int | None = None,
+    ) -> ProviderObservationPayload:
         output = response_json.get("output")
         if not isinstance(output, dict):
             raise ValueError("Bedrock response did not include output")
@@ -186,7 +206,15 @@ class BedrockVisionAnalyzer:
         if not text_parts:
             raise ValueError("Bedrock response did not include text content")
 
-        return parse_provider_observation_payload("\n".join(text_parts))
+        payload_text = "\n".join(text_parts)
+        try:
+            return parse_provider_observation_payload(payload_text)
+        except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
+            raise build_provider_payload_parse_error(
+                status_code=status_code,
+                payload_text=payload_text,
+                payload_excerpt=safe_json_excerpt(response_json),
+            ) from exc
 
 
 def _image_format_from_media_type(media_type: str) -> str:

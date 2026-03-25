@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
+from pydantic import ValidationError
 
 from backend.core.settings import Settings
 from backend.vision.contracts import (
@@ -21,10 +23,12 @@ from backend.vision.providers.shared import (
     DEFAULT_VISION_MAX_TOKENS,
     DEFAULT_VISION_TEMPERATURE,
     DEFAULT_VISION_TOP_P,
+    build_provider_payload_parse_error,
     VISION_SYSTEM_PROMPT,
     build_data_url,
     build_user_prompt,
     coalesce_text_content,
+    extract_provider_content_excerpt_from_chat_choices,
 )
 
 DEFAULT_AZURE_OPENAI_API_VERSION = "2024-10-21"
@@ -229,7 +233,12 @@ class AzureOpenAIVisionAnalyzer(OpenAICompatibleVisionAnalyzerBase):
             payload["response_format"] = {"type": "json_object"}
         return payload
 
-    def extract_provider_payload(self, response_json: dict[str, Any]) -> ProviderObservationPayload:
+    def extract_provider_payload(
+        self,
+        response_json: dict[str, Any],
+        *,
+        status_code: int | None = None,
+    ) -> ProviderObservationPayload:
         choices = response_json.get("choices")
         if not isinstance(choices, list) or not choices:
             raise ValueError("Azure OpenAI response did not include choices")
@@ -238,4 +247,12 @@ class AzureOpenAIVisionAnalyzer(OpenAICompatibleVisionAnalyzerBase):
         if not isinstance(message, dict):
             raise ValueError("Azure OpenAI response did not include a message payload")
 
-        return parse_provider_observation_payload(coalesce_text_content(message.get("content")))
+        payload_text = coalesce_text_content(message.get("content"))
+        try:
+            return parse_provider_observation_payload(payload_text)
+        except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
+            raise build_provider_payload_parse_error(
+                status_code=status_code,
+                payload_text=payload_text,
+                payload_excerpt=extract_provider_content_excerpt_from_chat_choices(response_json),
+            ) from exc

@@ -81,7 +81,12 @@ class OpenAICompatibleVisionAnalyzerBase(ABC):
     ) -> dict[str, Any]: ...
 
     @abstractmethod
-    def extract_provider_payload(self, response_json: dict[str, Any]) -> ProviderObservationPayload: ...
+    def extract_provider_payload(
+        self,
+        response_json: dict[str, Any],
+        *,
+        status_code: int | None = None,
+    ) -> ProviderObservationPayload: ...
 
     # Backward-compatible private aliases used by existing smoke checks and internal tooling.
     def _build_request_body(
@@ -101,8 +106,13 @@ class OpenAICompatibleVisionAnalyzerBase(ABC):
             use_legacy_max_tokens=use_legacy_max_tokens,
         )
 
-    def _extract_provider_payload(self, response_json: dict[str, Any]) -> ProviderObservationPayload:
-        return self.extract_provider_payload(response_json)
+    def _extract_provider_payload(
+        self,
+        response_json: dict[str, Any],
+        *,
+        status_code: int | None = None,
+    ) -> ProviderObservationPayload:
+        return self.extract_provider_payload(response_json, status_code=status_code)
 
     def extract_payload_excerpt(self, response_json: dict[str, Any]) -> str | None:
         return extract_provider_content_excerpt_from_chat_choices(response_json)
@@ -210,7 +220,10 @@ class OpenAICompatibleVisionAnalyzerBase(ABC):
             ) from exc
 
         try:
-            payload = self.extract_provider_payload(response_json)
+            payload = self.extract_provider_payload(
+                response_json,
+                status_code=response.status_code,
+            )
         except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
             raise VisionProviderError(
                 status_code=response.status_code,

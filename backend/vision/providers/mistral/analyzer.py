@@ -20,6 +20,7 @@ from backend.vision.providers.shared import (
     DEFAULT_VISION_TEMPERATURE,
     DEFAULT_VISION_TOP_P,
     VISION_SYSTEM_PROMPT,
+    build_provider_payload_parse_error,
     build_data_url,
     build_user_prompt,
     coalesce_text_content,
@@ -194,7 +195,12 @@ class MistralVisionAnalyzer:
             payload["response_format"] = {"type": "json_object"}
         return payload
 
-    def _extract_provider_payload(self, response_json: dict[str, Any]) -> ProviderObservationPayload:
+    def _extract_provider_payload(
+        self,
+        response_json: dict[str, Any],
+        *,
+        status_code: int | None = None,
+    ) -> ProviderObservationPayload:
         choices = response_json.get("choices")
         if not isinstance(choices, list) or not choices:
             raise ValueError("Mistral response did not include choices")
@@ -203,4 +209,12 @@ class MistralVisionAnalyzer:
         if not isinstance(message, dict):
             raise ValueError("Mistral response did not include a message payload")
 
-        return parse_provider_observation_payload(coalesce_text_content(message.get("content")))
+        payload_text = coalesce_text_content(message.get("content"))
+        try:
+            return parse_provider_observation_payload(payload_text)
+        except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
+            raise build_provider_payload_parse_error(
+                status_code=status_code,
+                payload_text=payload_text,
+                payload_excerpt=extract_provider_content_excerpt_from_chat_choices(response_json),
+            ) from exc

@@ -21,6 +21,7 @@ from backend.vision.providers.shared import (
     DEFAULT_VISION_MAX_TOKENS,
     DEFAULT_VISION_TEMPERATURE,
     DEFAULT_VISION_TOP_P,
+    build_provider_payload_parse_error,
     VISION_SYSTEM_PROMPT,
     build_base64_data,
     build_user_prompt,
@@ -190,7 +191,12 @@ class GeminiVisionAnalyzer:
             },
         }
 
-    def _extract_provider_payload(self, response_json: dict[str, Any]) -> ProviderObservationPayload:
+    def _extract_provider_payload(
+        self,
+        response_json: dict[str, Any],
+        *,
+        status_code: int | None = None,
+    ) -> ProviderObservationPayload:
         candidates = response_json.get("candidates")
         if not isinstance(candidates, list) or not candidates:
             raise ValueError("Gemini response did not include candidates")
@@ -218,4 +224,12 @@ class GeminiVisionAnalyzer:
         if not text_parts:
             raise ValueError("Gemini response content parts did not include text")
 
-        return parse_provider_observation_payload("\n".join(text_parts))
+        payload_text = "\n".join(text_parts)
+        try:
+            return parse_provider_observation_payload(payload_text)
+        except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
+            raise build_provider_payload_parse_error(
+                status_code=status_code,
+                payload_text=payload_text,
+                payload_excerpt=safe_json_excerpt(response_json),
+            ) from exc

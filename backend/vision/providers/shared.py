@@ -28,6 +28,7 @@ VISION_SYSTEM_PROMPT = (
     "scene_summary, user_activity_guess, entities, actions, visible_text, documents_seen, salient_change, confidence. "
     "Do not include markdown, code fences, or extra commentary. "
     "Keep scene_summary short and factual. "
+    "Set user_activity_guess to a single short string. "
     "Use arrays of short strings for entities, actions, visible_text, and documents_seen. "
     "Set salient_change to the JSON boolean true or false. "
     "Set confidence as a JSON number between 0.0 and 1.0."
@@ -154,6 +155,60 @@ def coalesce_text_content(content: object) -> str:
     if not text_parts:
         raise ValueError("Provider response content list did not contain text")
     return "\n".join(text_parts)
+
+
+def is_likely_truncated_json_payload(payload_text: str | None) -> bool:
+    if payload_text is None:
+        return False
+
+    text = payload_text.strip()
+    if not text:
+        return False
+
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 3 and lines[0].startswith("```"):
+            text = "\n".join(lines[1:-1]).strip() if lines[-1].startswith("```") else "\n".join(lines[1:]).strip()
+        if text.lower().startswith("json\n"):
+            text = text[5:].strip()
+
+    if text.count("{") > text.count("}"):
+        return True
+    if text.count("[") > text.count("]"):
+        return True
+
+    tail = text.rstrip()
+    if not tail:
+        return False
+    if tail.endswith(("...", ",", ":", "{", "[")):
+        return True
+    return False
+
+
+def build_provider_payload_parse_error(
+    *,
+    status_code: int | None,
+    payload_text: str | None,
+    payload_excerpt: str | None,
+) -> VisionProviderError:
+    excerpt = sanitize_sensitive_text(payload_excerpt or payload_text)
+    if excerpt is not None:
+        excerpt = excerpt[:400]
+
+    if is_likely_truncated_json_payload(payload_text):
+        return VisionProviderError(
+            status_code=status_code,
+            provider_error_code="provider_payload_truncated_json",
+            provider_message="Vision provider returned a truncated observation payload",
+            payload_excerpt=excerpt,
+        )
+
+    return VisionProviderError(
+        status_code=status_code,
+        provider_error_code="provider_payload_invalid_json",
+        provider_message="Vision provider returned an observation payload that could not be parsed",
+        payload_excerpt=excerpt,
+    )
 
 
 def extract_provider_content_excerpt_from_chat_choices(response_json: Mapping[str, Any]) -> str | None:

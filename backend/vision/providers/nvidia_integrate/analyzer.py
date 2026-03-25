@@ -22,6 +22,7 @@ from backend.vision.providers.shared import (
     DEFAULT_VISION_MAX_TOKENS,
     DEFAULT_VISION_TEMPERATURE,
     DEFAULT_VISION_TOP_P,
+    build_provider_payload_parse_error,
     VISION_SYSTEM_PROMPT,
     build_data_url,
     build_user_prompt,
@@ -29,6 +30,7 @@ from backend.vision.providers.shared import (
 )
 
 DEFAULT_NVIDIA_INTEGRATE_BASE_URL = "https://integrate.api.nvidia.com"
+NVIDIA_FALLBACK_MAX_TOKENS = 384
 NVIDIA_FALLBACK_SYSTEM_PROMPT = (
     f"{VISION_SYSTEM_PROMPT} "
     "Return only a raw JSON object with no markdown and no code fences. "
@@ -60,6 +62,10 @@ class NvidiaIntegrateVisionAnalyzer(OpenAICompatibleVisionAnalyzerBase):
     model_name: str
     base_url: str | None = None
     provider_name: str = field(default="nvidia_integrate", init=False)
+
+    def __post_init__(self) -> None:
+        if "mistral" in self.model_name.strip().lower():
+            self._supports_response_format = False
 
     @property
     def default_base_url(self) -> str:
@@ -116,12 +122,21 @@ class NvidiaIntegrateVisionAnalyzer(OpenAICompatibleVisionAnalyzerBase):
             ],
         }
         token_field_name = "max_tokens" if use_legacy_max_tokens else "max_completion_tokens"
-        payload[token_field_name] = DEFAULT_VISION_MAX_TOKENS
+        payload[token_field_name] = (
+            NVIDIA_FALLBACK_MAX_TOKENS
+            if not include_response_format
+            else DEFAULT_VISION_MAX_TOKENS
+        )
         if include_response_format:
             payload["response_format"] = {"type": "json_object"}
         return payload
 
-    def extract_provider_payload(self, response_json: dict[str, Any]) -> ProviderObservationPayload:
+    def extract_provider_payload(
+        self,
+        response_json: dict[str, Any],
+        *,
+        status_code: int | None = None,
+    ) -> ProviderObservationPayload:
         choices = response_json.get("choices")
         if not isinstance(choices, list) or not choices:
             raise ValueError("NVIDIA Integrate response did not include choices")
@@ -134,8 +149,12 @@ class NvidiaIntegrateVisionAnalyzer(OpenAICompatibleVisionAnalyzerBase):
         try:
             normalized_payload = _normalize_nvidia_fallback_payload(payload_text)
             return parse_provider_observation_payload(normalized_payload)
-        except (json.JSONDecodeError, TypeError, ValueError, ValidationError):
-            return parse_provider_observation_payload(payload_text)
+        except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
+            raise build_provider_payload_parse_error(
+                status_code=status_code,
+                payload_text=payload_text,
+                payload_excerpt=payload_text,
+            ) from exc
 
 
 def _normalize_nvidia_fallback_payload(payload_text: str) -> dict[str, object]:

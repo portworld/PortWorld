@@ -18,6 +18,7 @@ from backend.vision.contracts import (
 from backend.vision.providers.shared import (
     DEFAULT_VISION_MAX_TOKENS,
     DEFAULT_VISION_TEMPERATURE,
+    build_provider_payload_parse_error,
     VISION_SYSTEM_PROMPT,
     build_base64_data,
     build_user_prompt,
@@ -160,7 +161,12 @@ class ClaudeVisionAnalyzer:
             ],
         }
 
-    def _extract_provider_payload(self, response_json: dict[str, Any]) -> ProviderObservationPayload:
+    def _extract_provider_payload(
+        self,
+        response_json: dict[str, Any],
+        *,
+        status_code: int | None = None,
+    ) -> ProviderObservationPayload:
         content = response_json.get("content")
         if not isinstance(content, list) or not content:
             raise ValueError("Claude response did not include content")
@@ -178,4 +184,12 @@ class ClaudeVisionAnalyzer:
         if not text_parts:
             raise ValueError("Claude response content did not include text")
 
-        return parse_provider_observation_payload("\n".join(text_parts))
+        payload_text = "\n".join(text_parts)
+        try:
+            return parse_provider_observation_payload(payload_text)
+        except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
+            raise build_provider_payload_parse_error(
+                status_code=status_code,
+                payload_text=payload_text,
+                payload_excerpt=safe_json_excerpt(response_json),
+            ) from exc

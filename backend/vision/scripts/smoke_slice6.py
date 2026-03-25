@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from contextlib import contextmanager
 
 from pydantic import ValidationError
 
 from backend.core.settings import Settings
-from backend.vision.contracts import VisionFrameContext
+from backend.vision.contracts import VisionFrameContext, VisionProviderError
 from backend.vision.factory import VisionAnalyzerFactory, build_default_vision_provider_registry
 from backend.vision.providers.azure_openai.analyzer import AzureOpenAIVisionAnalyzer
 from backend.vision.providers.bedrock.analyzer import BedrockVisionAnalyzer
@@ -21,6 +23,8 @@ from backend.vision.providers.nvidia_integrate.analyzer import (
 )
 from backend.vision.providers.openai.analyzer import OpenAIVisionAnalyzer
 from backend.vision.providers.shared import normalize_observation
+from backend.ws.session.session_registry import SessionRecord
+from backend.ws.session.session_runtime import _close_finalize_and_mark_ended
 
 
 @contextmanager
@@ -192,16 +196,20 @@ def _assert_request_shapes() -> None:
     nvidia_request = NvidiaIntegrateVisionAnalyzer(
         api_key="k",
         model_name="mistralai/ministral-14b-instruct-2512",
-    )._build_request_body(
+    )
+    assert nvidia_request._supports_response_format is False
+
+    request_body = nvidia_request._build_request_body(
         image_bytes=image_bytes,
         frame_context=frame_context,
         image_media_type="image/jpeg",
-        include_response_format=True,
+        include_response_format=nvidia_request._supports_response_format,
         use_legacy_max_tokens=False,
     )
-    nvidia_content = nvidia_request["messages"][1]["content"]
+    nvidia_content = request_body["messages"][1]["content"]
     assert nvidia_content[1]["type"] == "image_url"
     assert nvidia_content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert "response_format" not in request_body
 
     nvidia_fallback_request = NvidiaIntegrateVisionAnalyzer(
         api_key="k",
@@ -214,6 +222,76 @@ def _assert_request_shapes() -> None:
         use_legacy_max_tokens=False,
     )
     assert nvidia_fallback_request["messages"][0]["content"] == NVIDIA_FALLBACK_SYSTEM_PROMPT
+
+
+def _assert_nvidia_truncated_payload_classification() -> None:
+    try:
+        NvidiaIntegrateVisionAnalyzer(
+            api_key="k",
+            model_name="mistralai/ministral-14b-instruct-2512",
+        )._extract_provider_payload(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": """```json
+{
+  "scene_summary": "User seated at a table with an open laptop and external keyboard, surrounded by personal items.",
+  "user_activity_guess": "working",
+  "entities": ["laptop", "external keyboard", "mouse", "notebook"
+```"""
+                        }
+                    }
+                ]
+            }
+        )
+    except VisionProviderError as exc:
+        assert exc.provider_error_code == "provider_payload_truncated_json"
+    else:
+        raise AssertionError("Expected truncated NVIDIA payload to be classified explicitly")
+
+
+async def _assert_session_teardown_does_not_wait_for_consolidation() -> None:
+    class DummyBridge:
+        async def close(self) -> None:
+            return None
+
+    class DummyStorage:
+        def __init__(self) -> None:
+            self.status_updates: list[tuple[str, str]] = []
+
+        def upsert_session_status(self, *, session_id: str, status: str) -> None:
+            self.status_updates.append((session_id, status))
+
+    class SlowDurableMemoryRuntime:
+        def __init__(self) -> None:
+            self.completed = asyncio.Event()
+
+        async def finalize_session(self, *, session_id: str) -> str:
+            await asyncio.sleep(0.2)
+            self.completed.set()
+            return "completed"
+
+    session = SessionRecord(
+        session_id="session-1",
+        websocket=object(),  # type: ignore[arg-type]
+        bridge=DummyBridge(),
+    )
+    storage = DummyStorage()
+    durable_memory_runtime = SlowDurableMemoryRuntime()
+
+    start = time.perf_counter()
+    await _close_finalize_and_mark_ended(
+        active_session=session,
+        storage=storage,
+        vision_memory_runtime=None,
+        durable_memory_runtime=durable_memory_runtime,  # type: ignore[arg-type]
+    )
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 0.1, f"Session close took too long: {elapsed:.3f}s"
+    assert storage.status_updates == [("session-1", "ended")]
+    await asyncio.wait_for(durable_memory_runtime.completed.wait(), timeout=1.0)
 
 
 def _assert_nvidia_fallback_normalization() -> None:
@@ -286,6 +364,8 @@ def _assert_nvidia_fallback_normalization() -> None:
                 ]
             }
         )
+    except VisionProviderError:
+        pass
     except ValidationError:
         pass
     except ValueError:
@@ -452,7 +532,9 @@ def main() -> None:
 
     _assert_payload_parsing()
     _assert_request_shapes()
+    _assert_nvidia_truncated_payload_classification()
     _assert_nvidia_fallback_normalization()
+    asyncio.run(_assert_session_teardown_does_not_wait_for_consolidation())
     print("slice6 smoke checks passed")
 
 
