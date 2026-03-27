@@ -26,6 +26,28 @@ must mirror the corresponding section in this changelog.
 
 - No user-visible security changes recorded yet.
 
+## [v0.2.0b10] - 2026-03-27
+
+### Added
+
+- No user-visible additions recorded yet.
+
+### Changed
+
+- Removed pre-v1 compatibility surfaces from the public backend and CLI
+  contract so the published operator workflow now exposes only the canonical
+  health endpoints, AWS ECS Fargate target naming, and user-memory terminology.
+
+### Fixed
+
+- Removed deprecated AWS App Runner aliases and legacy backend memory/profile
+  compatibility shims that were no longer part of the supported release
+  surface.
+
+### Security
+
+- No user-visible security changes recorded yet.
+
 ## [v0.2.0b9] - 2026-03-24
 
 ### Added
