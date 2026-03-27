@@ -24,7 +24,7 @@ struct ProfileInterviewView: View {
     PWOnboardingScaffold(
       style: .centeredHero,
       title: "Let Mario get to know you",
-      subtitle: "He’ll welcome you, ask a few setup questions, and finish setup when he has enough to get started.",
+      subtitle: "He’ll welcome you, teach the interaction flow, and ask a few setup questions before unlocking the app.",
       content: {
         VStack(spacing: PWSpace.hero) {
           VStack(spacing: PWSpace.md) {
@@ -93,7 +93,7 @@ private extension ProfileInterviewView {
 
   var detailText: String {
     if viewModel.status.errorText.isEmpty == false && viewModel.isProfileReadyForReview == false {
-      return "The onboarding interview stopped before it could finish. Start it again and Mario will pick it up from the beginning."
+      return "The onboarding interview stopped before it could finish. Start it again once your glasses audio is ready."
     }
 
     if viewModel.isProfileReadyForReview {
@@ -101,10 +101,10 @@ private extension ProfileInterviewView {
     }
 
     if viewModel.isStarting {
-      return "Opening your onboarding session now. Mario will start speaking first."
+      return "Opening your onboarding session through the glasses now. Mario will start speaking first."
     }
 
-    return "Listen and answer naturally. Mario will keep the conversation focused on setting up your profile."
+    return "Listen and answer naturally through your glasses. Mario will explain the interaction flow and collect your initial profile details."
   }
 
   var headlineColor: Color {
