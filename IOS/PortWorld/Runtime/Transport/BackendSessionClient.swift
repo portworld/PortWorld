@@ -54,8 +54,8 @@ actor BackendSessionClient {
     self.urlSession = urlSession
   }
 
-  func connect(sessionID: String) {
-    disconnect(sendDeactivate: false, emitLifecycleEvents: false)
+  func connect(sessionID: String) async {
+    await disconnect(sendDeactivate: false, emitLifecycleEvents: false)
     self.sessionID = sessionID
     isLocallyDisconnecting = false
     loggedFirstServerAudioFrame = false
@@ -81,7 +81,7 @@ actor BackendSessionClient {
     }
   }
 
-  func disconnect(sendDeactivate: Bool = true, emitLifecycleEvents: Bool = true) {
+  func disconnect(sendDeactivate: Bool = true, emitLifecycleEvents: Bool = true) async {
     let activeSessionID = sessionID
     let hadActiveConnection =
       webSocketTask != nil ||
@@ -93,13 +93,36 @@ actor BackendSessionClient {
       "Disconnect requested session=\(activeSessionID ?? "-") sendDeactivate=\(sendDeactivate) emitLifecycleEvents=\(emitLifecycleEvents) hadActiveConnection=\(hadActiveConnection)"
     )
 
+    isLocallyDisconnecting = true
+
     if sendDeactivate, let sessionID {
-      Task {
-        try? await self.sendTextEnvelope(type: .sessionDeactivate, sessionID: sessionID)
+      guard webSocketTask != nil else {
+        let message = "Failed to send session.deactivate for session=\(sessionID): websocket is unavailable"
+        debugLog(message)
+        NSLog("[BackendSessionClient] \(message)")
+        proceedToSocketTeardown(emitLifecycleEvents: emitLifecycleEvents, hadActiveConnection: hadActiveConnection, activeSessionID: activeSessionID)
+        return
+      }
+
+      do {
+        try await sendTextEnvelope(type: .sessionDeactivate, sessionID: sessionID)
+        debugLog("session.deactivate sent for session=\(sessionID)")
+      } catch {
+        let message = "Failed to send session.deactivate for session=\(sessionID): \(error.localizedDescription)"
+        debugLog(message)
+        // Keep a production-visible signal for teardown failures without altering UI state transitions.
+        NSLog("[BackendSessionClient] \(message)")
       }
     }
 
-    isLocallyDisconnecting = true
+    proceedToSocketTeardown(emitLifecycleEvents: emitLifecycleEvents, hadActiveConnection: hadActiveConnection, activeSessionID: activeSessionID)
+  }
+
+  func proceedToSocketTeardown(
+    emitLifecycleEvents: Bool,
+    hadActiveConnection: Bool,
+    activeSessionID: String?
+  ) {
     receiveTask?.cancel()
     receiveTask = nil
     webSocketTask?.cancel(with: .normalClosure, reason: nil)

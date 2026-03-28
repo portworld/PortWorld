@@ -198,6 +198,14 @@ final class GlassesAudioIO: AssistantAudioIOControlling {
 }
 
 private extension GlassesAudioIO {
+  func releaseHFPAudioSessionLease(context: String) async {
+    do {
+      try await hfpAudioSessionLeaseManager.releaseIfNeeded()
+    } catch {
+      NSLog("GlassesAudioIO: failed to release HFP audio session lease (\(context)): \(error)")
+    }
+  }
+
   func handleAudioRouteChange() async {
     publishAudioModeChange()
 
@@ -212,7 +220,7 @@ private extension GlassesAudioIO {
     await hfpAudioManager.prepareAudioSession()
 
     guard hfpAudioManager.isAudioSessionReady else {
-      try? await hfpAudioSessionLeaseManager.releaseIfNeeded()
+      await releaseHFPAudioSessionLease(context: "session_not_ready")
       throw Error.sessionPreparationFailed(
         hfpAudioManager.stats.lastError ?? "Glasses audio session did not become ready."
       )
@@ -220,7 +228,7 @@ private extension GlassesAudioIO {
 
     guard isHFPRouteReady else {
       await hfpAudioManager.stop()
-      try? await hfpAudioSessionLeaseManager.releaseIfNeeded()
+      await releaseHFPAudioSessionLease(context: "route_not_ready")
       return false
     }
 
@@ -228,7 +236,7 @@ private extension GlassesAudioIO {
       try hfpPlaybackEngine.configureBluetoothHFPRoute()
     } catch {
       await hfpAudioManager.stop()
-      try? await hfpAudioSessionLeaseManager.releaseIfNeeded()
+      await releaseHFPAudioSessionLease(context: "route_configuration_failed")
       throw error
     }
 
@@ -241,17 +249,17 @@ private extension GlassesAudioIO {
 
     case .waitingForDevice:
       await hfpAudioManager.stop()
-      try? await hfpAudioSessionLeaseManager.releaseIfNeeded()
+      await releaseHFPAudioSessionLease(context: "waiting_for_device")
       return false
 
     case .failed(let message):
       await hfpAudioManager.stop()
-      try? await hfpAudioSessionLeaseManager.releaseIfNeeded()
+      await releaseHFPAudioSessionLease(context: "audio_manager_failed")
       throw Error.startFailed(message)
 
     default:
       await hfpAudioManager.stop()
-      try? await hfpAudioSessionLeaseManager.releaseIfNeeded()
+      await releaseHFPAudioSessionLease(context: "unexpected_audio_manager_state")
       throw Error.startFailed("Audio manager entered unexpected state: \(hfpStateDescription())")
     }
   }
@@ -262,7 +270,7 @@ private extension GlassesAudioIO {
       cancelPlayback()
       hfpPlaybackEngine.shutdown()
       await hfpAudioManager.stop()
-      try? await hfpAudioSessionLeaseManager.releaseIfNeeded()
+      await releaseHFPAudioSessionLease(context: "stop_active_pipeline")
     case .none:
       break
     }
