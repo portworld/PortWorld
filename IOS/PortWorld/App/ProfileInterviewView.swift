@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ProfileInterviewView: View {
+  @Environment(\.scenePhase) private var scenePhase
   let onContinue: () -> Void
 
   @StateObject private var viewModel: ProfileInterviewSessionViewModel
@@ -61,6 +62,9 @@ struct ProfileInterviewView: View {
     )
     .task {
       await runInterviewFlow()
+    }
+    .onChange(of: scenePhase) { _, newValue in
+      viewModel.handleScenePhaseChange(newValue)
     }
   }
 }

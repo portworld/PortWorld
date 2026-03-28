@@ -13,6 +13,7 @@ enum SettingsScrollTarget: Hashable {
 }
 
 struct PostOnboardingShellView: View {
+  @Environment(\.scenePhase) private var scenePhase
   @ObservedObject private var appSettingsStore: AppSettingsStore
   @ObservedObject private var wearablesRuntimeManager: WearablesRuntimeManager
   let shouldShowProfileSetupCallToAction: Bool
@@ -100,6 +101,9 @@ struct PostOnboardingShellView: View {
     .tint(PWColor.textPrimary)
     .toolbarBackground(PWColor.background, for: .tabBar)
     .toolbarBackground(.visible, for: .tabBar)
+    .onChange(of: scenePhase) { _, newValue in
+      viewModel.handleScenePhaseChange(newValue)
+    }
   }
 }
 

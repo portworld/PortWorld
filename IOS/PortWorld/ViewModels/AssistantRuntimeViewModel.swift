@@ -83,6 +83,10 @@ final class AssistantRuntimeViewModel: ObservableObject {
     publishMergedStatus()
   }
 
+  func handleScenePhaseChange(_ phase: ScenePhase) {
+    controller.handleScenePhaseChange(phase)
+  }
+
   private var canActivateGlassesRoute: Bool {
     guard controllerStatus.assistantRuntimeState == .inactive else { return false }
     guard pendingGlassesActivation == false else { return false }

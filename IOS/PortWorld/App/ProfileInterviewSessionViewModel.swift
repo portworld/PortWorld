@@ -70,6 +70,10 @@ final class ProfileInterviewSessionViewModel: ObservableObject {
     await runtimeViewModel.stopGuidedConversation()
   }
 
+  func handleScenePhaseChange(_ phase: ScenePhase) {
+    runtimeViewModel.handleScenePhaseChange(phase)
+  }
+
   func waitUntilProfileReadyForReview() async {
     guard isProfileReadyForReview == false else { return }
 
