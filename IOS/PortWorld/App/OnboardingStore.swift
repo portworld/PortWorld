@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import OSLog
 
 @MainActor
 final class OnboardingStore: ObservableObject {
@@ -16,6 +17,10 @@ final class OnboardingStore: ObservableObject {
   }
 
   private static let progressKey = "portworld.onboarding.progress"
+  private static let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "PortWorld",
+    category: "OnboardingStore"
+  )
 
   @Published private(set) var progress: Progress
 
@@ -25,10 +30,14 @@ final class OnboardingStore: ObservableObject {
 
   init(userDefaults: UserDefaults = .standard) {
     self.userDefaults = userDefaults
-    if let data = userDefaults.data(forKey: Self.progressKey),
-       let decoded = try? decoder.decode(Progress.self, from: data)
-    {
-      self.progress = Self.normalize(decoded)
+    if let data = userDefaults.data(forKey: Self.progressKey) {
+      do {
+        let decoded = try decoder.decode(Progress.self, from: data)
+        self.progress = Self.normalize(decoded)
+      } catch {
+        Self.logger.error("Failed to decode onboarding progress: \(error.localizedDescription, privacy: .public)")
+        self.progress = Progress()
+      }
     } else {
       self.progress = Progress()
     }
@@ -96,8 +105,12 @@ final class OnboardingStore: ObservableObject {
   }
 
   private func persist() {
-    guard let data = try? encoder.encode(progress) else { return }
-    userDefaults.set(data, forKey: Self.progressKey)
+    do {
+      let data = try encoder.encode(progress)
+      userDefaults.set(data, forKey: Self.progressKey)
+    } catch {
+      Self.logger.error("Failed to persist onboarding progress: \(error.localizedDescription, privacy: .public)")
+    }
   }
 
   private static func normalize(_ progress: Progress) -> Progress {

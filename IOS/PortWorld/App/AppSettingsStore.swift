@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import OSLog
 
 @MainActor
 final class AppSettingsStore: ObservableObject {
@@ -26,6 +27,10 @@ final class AppSettingsStore: ObservableObject {
   }
 
   private static let settingsKey = "portworld.app.settings"
+  private static let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "PortWorld",
+    category: "AppSettingsStore"
+  )
 
   @Published private(set) var settings: Settings
 
@@ -44,10 +49,13 @@ final class AppSettingsStore: ObservableObject {
       .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
     let decodedSettings: Settings?
-    if let data = userDefaults.data(forKey: Self.settingsKey),
-       let decoded = try? decoder.decode(Settings.self, from: data)
-    {
-      decodedSettings = decoded
+    if let data = userDefaults.data(forKey: Self.settingsKey) {
+      do {
+        decodedSettings = try decoder.decode(Settings.self, from: data)
+      } catch {
+        Self.logger.error("Failed to decode persisted settings: \(error.localizedDescription, privacy: .public)")
+        decodedSettings = nil
+      }
     } else {
       decodedSettings = nil
     }
@@ -97,9 +105,7 @@ final class AppSettingsStore: ObservableObject {
       let data = try encoder.encode(settings)
       userDefaults.set(data, forKey: Self.settingsKey)
     } catch {
-      #if DEBUG
-        NSLog("AppSettingsStore: failed to persist settings: \(error)")
-      #endif
+      Self.logger.error("Failed to persist settings: \(error.localizedDescription, privacy: .public)")
     }
   }
 
@@ -110,9 +116,7 @@ final class AppSettingsStore: ObservableObject {
       do {
         try KeychainCredentialStore.clearBearerToken()
       } catch {
-        #if DEBUG
-          NSLog("AppSettingsStore: failed to clear bearer token from keychain: \(error)")
-        #endif
+        Self.logger.error("Failed to clear bearer token from keychain: \(error.localizedDescription, privacy: .public)")
       }
       return
     }
@@ -141,9 +145,7 @@ final class AppSettingsStore: ObservableObject {
       return try KeychainCredentialStore.retrieveBearerToken()?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     } catch {
-      #if DEBUG
-        NSLog("AppSettingsStore: failed to read bearer token from keychain: \(error)")
-      #endif
+      logger.error("Failed to read bearer token from keychain: \(error.localizedDescription, privacy: .public)")
       return ""
     }
   }
@@ -152,9 +154,7 @@ final class AppSettingsStore: ObservableObject {
     do {
       try KeychainCredentialStore.storeBearerToken(bearerToken)
     } catch {
-      #if DEBUG
-        NSLog("AppSettingsStore: failed to store bearer token in keychain: \(error)")
-      #endif
+      logger.error("Failed to store bearer token in keychain: \(error.localizedDescription, privacy: .public)")
     }
   }
 }
