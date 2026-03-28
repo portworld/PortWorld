@@ -18,7 +18,7 @@ struct SettingsView: View {
   @State private var bearerToken: String
   @State private var backendErrorMessage = ""
   @State private var isValidatingBackend = false
-  @FocusState private var focusedField: Field?
+  @FocusState private var focusedField: BackendValidationField?
 
   private let validationClient = BackendValidationClient()
 
@@ -63,7 +63,7 @@ struct SettingsView: View {
               backendURLTone: backendURLTone,
               focusedField: $focusedField,
               buttonTitle: isValidatingBackend ? "Checking…" : backendButtonTitle,
-              isButtonDisabled: isValidatingBackend || normalized(backendBaseURL).isEmpty,
+              isButtonDisabled: isValidatingBackend || BackendValidationForm.normalized(backendBaseURL).isEmpty,
               onBackendURLSubmit: focusBearerToken,
               onBearerTokenSubmit: submitBackendValidation,
               onValidate: submitBackendValidation
@@ -98,11 +98,6 @@ struct SettingsView: View {
 }
 
 private extension SettingsView {
-  enum Field {
-    case backendURL
-    case bearerToken
-  }
-
   var glassesButtonTitle: String {
     if isGlassesRegistered {
       return "Reconnect Glasses"
@@ -116,39 +111,30 @@ private extension SettingsView {
   }
 
   var hasUnsavedBackendChanges: Bool {
-    normalized(backendBaseURL) != settings.backendBaseURL ||
-      normalized(bearerToken) != settings.bearerToken
+    BackendValidationForm.hasUnsavedChanges(
+      backendBaseURL: backendBaseURL,
+      bearerToken: bearerToken,
+      savedSettings: settings
+    )
   }
 
   var backendURLTone: PWFieldTone {
-    if backendErrorMessage.isEmpty == false {
-      return .error
-    }
-
-    if settings.validationState == .valid &&
-      normalized(backendBaseURL) == settings.backendBaseURL &&
-      hasUnsavedBackendChanges == false
-    {
-      return .success
-    }
-
-    return .normal
+    BackendValidationForm.backendURLTone(
+      backendBaseURL: backendBaseURL,
+      bearerToken: bearerToken,
+      savedSettings: settings,
+      errorMessage: backendErrorMessage
+    )
   }
 
   var backendURLMessage: String? {
-    if backendErrorMessage.isEmpty == false {
-      return backendErrorMessage
-    }
-
-    if hasUnsavedBackendChanges {
-      return "Save and verify your changes before starting the assistant again."
-    }
-
-    if settings.validationState == .valid {
-      return "Backend connection verified."
-    }
-
-    return "Base URL only. PortWorld derives the required endpoints automatically."
+    BackendValidationForm.backendURLMessage(
+      backendBaseURL: backendBaseURL,
+      bearerToken: bearerToken,
+      savedSettings: settings,
+      errorMessage: backendErrorMessage,
+      unsavedChangesMessage: "Save and verify your changes before starting the assistant again."
+    )
   }
 
   func focusBearerToken() {
@@ -181,22 +167,16 @@ private extension SettingsView {
   }
 
   func validateAndSaveBackend() async {
-    let trimmedURL = normalized(backendBaseURL)
-    let trimmedToken = normalized(bearerToken)
-
     isValidatingBackend = true
     backendErrorMessage = ""
-
-    await stopAssistantIfNeeded()
-
-    do {
-      try await validationClient.validate(baseURLString: trimmedURL, bearerToken: trimmedToken)
-      onUpdateBackendSettings(trimmedURL, trimmedToken, .valid)
-    } catch {
-      backendErrorMessage = error.localizedDescription
-      onUpdateBackendSettings(trimmedURL, trimmedToken, .invalid)
-    }
-
+    let validationError = await BackendValidationForm.validateAndSave(
+      backendBaseURL: backendBaseURL,
+      bearerToken: bearerToken,
+      validationClient: validationClient,
+      beforeValidation: stopAssistantIfNeeded,
+      saveSettings: onUpdateBackendSettings
+    )
+    backendErrorMessage = validationError ?? ""
     isValidatingBackend = false
   }
 
@@ -212,10 +192,6 @@ private extension SettingsView {
       action()
     }
   }
-
-  func normalized(_ value: String) -> String {
-    value.trimmingCharacters(in: .whitespacesAndNewlines)
-  }
 }
 
 private struct SettingsBackendSection: View {
@@ -224,7 +200,7 @@ private struct SettingsBackendSection: View {
   @Binding var bearerToken: String
   let backendURLMessage: String?
   let backendURLTone: PWFieldTone
-  let focusedField: FocusState<SettingsView.Field?>.Binding
+  let focusedField: FocusState<BackendValidationField?>.Binding
   let buttonTitle: String
   let isButtonDisabled: Bool
   let onBackendURLSubmit: () -> Void
@@ -245,30 +221,16 @@ private struct SettingsBackendSection: View {
           systemImage: readiness.backendStatus.systemImage
         )
 
-        PWTextFieldRow(
-          label: "Backend URL",
-          placeholder: "https://your-backend.example.com",
-          text: $backendBaseURL,
-          message: backendURLMessage,
-          tone: backendURLTone,
-          textInputAutocapitalization: .never,
-          keyboardType: .URL,
-          submitLabel: .next
+        BackendValidationFields(
+          backendBaseURL: $backendBaseURL,
+          bearerToken: $bearerToken,
+          backendURLMessage: backendURLMessage,
+          backendURLTone: backendURLTone,
+          bearerTokenMessage: "Optional. Leave blank if your backend does not require bearer auth. PortWorld stores this token securely in Keychain.",
+          focusedField: focusedField,
+          onBackendURLSubmit: onBackendURLSubmit,
+          onBearerTokenSubmit: onBearerTokenSubmit
         )
-        .focused(focusedField, equals: .backendURL)
-        .onSubmit(onBackendURLSubmit)
-
-        PWTextFieldRow(
-          label: "Bearer Token",
-          placeholder: "Optional",
-          text: $bearerToken,
-          message: "Optional. Leave blank if your backend does not require bearer auth. PortWorld stores this token securely in Keychain.",
-          isSecure: true,
-          textInputAutocapitalization: .never,
-          submitLabel: .go
-        )
-        .focused(focusedField, equals: .bearerToken)
-        .onSubmit(onBearerTokenSubmit)
 
         PWSecondaryButton(
           title: buttonTitle,

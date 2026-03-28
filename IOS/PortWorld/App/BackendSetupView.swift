@@ -9,7 +9,7 @@ struct BackendSetupView: View {
   @State private var bearerToken: String
   @State private var errorMessage = ""
   @State private var isValidating = false
-  @FocusState private var focusedField: Field?
+  @FocusState private var focusedField: BackendValidationField?
 
   private let validationClient = BackendValidationClient()
 
@@ -29,36 +29,20 @@ struct BackendSetupView: View {
       title: "Add your backend",
       subtitle: "Use your self-hosted PortWorld URL. Add a bearer token only if your deployment requires it.",
       content: {
-        VStack(alignment: .leading, spacing: PWSpace.xl) {
-          PWTextFieldRow(
-            label: "Backend URL",
-            placeholder: "https://your-backend.example.com",
-            text: $backendBaseURL,
-            message: backendURLMessage,
-            tone: backendURLTone,
-            textInputAutocapitalization: .never,
-            keyboardType: .URL,
-            submitLabel: .next
-          )
-          .focused($focusedField, equals: .backendURL)
-          .onSubmit {
+        BackendValidationFields(
+          backendBaseURL: $backendBaseURL,
+          bearerToken: $bearerToken,
+          backendURLMessage: backendURLMessage,
+          backendURLTone: backendURLTone,
+          bearerTokenMessage: "Optional. Leave blank if your backend does not require bearer auth.",
+          focusedField: $focusedField,
+          onBackendURLSubmit: {
             focusedField = .bearerToken
-          }
-
-          PWTextFieldRow(
-            label: "Bearer Token",
-            placeholder: "Optional",
-            text: $bearerToken,
-            message: "Optional. Leave blank if your backend does not require bearer auth.",
-            isSecure: true,
-            textInputAutocapitalization: .never,
-            submitLabel: .go
-          )
-          .focused($focusedField, equals: .bearerToken)
-          .onSubmit {
+          },
+          onBearerTokenSubmit: {
             Task { await validateAndContinue() }
           }
-        }
+        )
 
         if statusMessage.isEmpty == false {
           PWStatusRow(
@@ -84,37 +68,27 @@ struct BackendSetupView: View {
 }
 
 private extension BackendSetupView {
-  enum Field {
-    case backendURL
-    case bearerToken
-  }
-
   var isContinueDisabled: Bool {
-    isValidating || backendBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    isValidating || BackendValidationForm.normalized(backendBaseURL).isEmpty
   }
 
   var backendURLTone: PWFieldTone {
-    if errorMessage.isEmpty == false { return .error }
-    if appSettingsStore.settings.validationState == .valid &&
-      normalized(backendBaseURL) == appSettingsStore.settings.backendBaseURL
-    {
-      return .success
-    }
-    return .normal
+    BackendValidationForm.backendURLTone(
+      backendBaseURL: backendBaseURL,
+      bearerToken: bearerToken,
+      savedSettings: appSettingsStore.settings,
+      errorMessage: errorMessage
+    )
   }
 
   var backendURLMessage: String? {
-    if errorMessage.isEmpty == false {
-      return errorMessage
-    }
-
-    if appSettingsStore.settings.validationState == .valid &&
-      normalized(backendBaseURL) == appSettingsStore.settings.backendBaseURL
-    {
-      return "Backend connection verified."
-    }
-
-    return "Base URL only. PortWorld derives the required endpoints automatically."
+    BackendValidationForm.backendURLMessage(
+      backendBaseURL: backendBaseURL,
+      bearerToken: bearerToken,
+      savedSettings: appSettingsStore.settings,
+      errorMessage: errorMessage,
+      unsavedChangesMessage: nil
+    )
   }
 
   var statusTitle: String {
@@ -162,41 +136,27 @@ private extension BackendSetupView {
   }
 
   func validateAndContinue() async {
-    let trimmedURL = normalized(backendBaseURL)
-    let trimmedToken = normalized(bearerToken)
-
     isValidating = true
     errorMessage = ""
 
-    do {
-      try await validationClient.validate(baseURLString: trimmedURL, bearerToken: trimmedToken)
-      appSettingsStore.updateBackendSettings(
-        backendBaseURL: trimmedURL,
-        bearerToken: trimmedToken,
-        validationState: .valid
-      )
-      isValidating = false
-      onValidationSuccess()
-    } catch let error as BackendValidationClient.ValidationError {
-      appSettingsStore.updateBackendSettings(
-        backendBaseURL: trimmedURL,
-        bearerToken: trimmedToken,
-        validationState: .invalid
-      )
-      errorMessage = error.errorDescription ?? "Validation failed."
-      isValidating = false
-    } catch {
-      appSettingsStore.updateBackendSettings(
-        backendBaseURL: trimmedURL,
-        bearerToken: trimmedToken,
-        validationState: .invalid
-      )
-      errorMessage = "Validation failed."
-      isValidating = false
-    }
-  }
+    let validationError = await BackendValidationForm.validateAndSave(
+      backendBaseURL: backendBaseURL,
+      bearerToken: bearerToken,
+      validationClient: validationClient,
+      saveSettings: { backendBaseURL, bearerToken, validationState in
+        appSettingsStore.updateBackendSettings(
+          backendBaseURL: backendBaseURL,
+          bearerToken: bearerToken,
+          validationState: validationState
+        )
+      }
+    )
 
-  func normalized(_ value: String) -> String {
-    value.trimmingCharacters(in: .whitespacesAndNewlines)
+    isValidating = false
+    errorMessage = validationError ?? ""
+
+    if validationError == nil {
+      onValidationSuccess()
+    }
   }
 }
