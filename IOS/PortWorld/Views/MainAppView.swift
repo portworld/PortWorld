@@ -18,35 +18,23 @@ struct MainAppView: View {
         case .splash:
           Color.clear
         case .welcome:
-          WelcomeShellView {
-            onboardingStore.markWelcomeSeen()
-            route = nextOnboardingRoute()
-          }
+          WelcomeShellView { advanceOnboarding { onboardingStore.markWelcomeSeen() } }
         case .features:
-          FeatureHighlightsView {
-            onboardingStore.markFeaturesSeen()
-            route = nextOnboardingRoute()
-          }
+          FeatureHighlightsView { advanceOnboarding { onboardingStore.markFeaturesSeen() } }
         case .connectAgents:
-          ConnectAgentsIntroView {
-            onboardingStore.markBackendIntroSeen()
-            route = nextOnboardingRoute()
-          }
+          ConnectAgentsIntroView { advanceOnboarding { onboardingStore.markBackendIntroSeen() } }
         case .backendSetup:
           BackendSetupView(appSettingsStore: appSettingsStore) {
-            onboardingStore.markBackendValidated()
-            route = nextOnboardingRoute()
+            advanceOnboarding { onboardingStore.markBackendValidated() }
           }
         case .metaConnection:
           MetaConnectionView(
             wearablesRuntimeManager: wearablesRuntimeManager,
             onContinue: {
-              onboardingStore.markMetaCompleted()
-              route = nextOnboardingRoute()
+              advanceOnboarding { onboardingStore.markMetaCompleted() }
             },
             onSkip: {
-              onboardingStore.markMetaSkipped()
-              route = nextOnboardingRoute()
+              handleMetaSkip()
             }
           )
         case .profileInterview:
@@ -54,8 +42,7 @@ struct MainAppView: View {
             wearablesRuntimeManager: wearablesRuntimeManager,
             settings: appSettingsStore.settings,
             onContinue: {
-              onboardingStore.markProfileCompleted()
-              route = nextOnboardingRoute()
+              advanceOnboarding { onboardingStore.markProfileCompleted() }
             }
           )
         case .home:
@@ -83,17 +70,13 @@ struct MainAppView: View {
     }
     .onChange(of: onboardingStore.progress) { _, _ in
       guard route != .splash else { return }
-      route = nextOnboardingRoute()
+      route = onboardingRoute
     }
   }
 }
 
 private extension MainAppView {
-  func nextOnboardingRoute() -> AppRoute {
-    if onboardingStore.hasCompletedInitialOnboarding {
-      return .home
-    }
-
+  var onboardingRoute: AppRoute {
     if onboardingStore.progress.welcomeSeen == false {
       return .welcome
     }
@@ -125,6 +108,19 @@ private extension MainAppView {
     return .home
   }
 
+  func advanceOnboarding(_ mutation: () -> Void) {
+    mutation()
+    route = onboardingRoute
+  }
+
+  func handleMetaSkip() {
+    if onboardingRoute == .metaConnection {
+      advanceOnboarding { onboardingStore.markMetaSkipped() }
+    } else {
+      route = .home
+    }
+  }
+
   func resolveRoute(
     for configurationState: WearablesRuntimeManager.ConfigurationState
   ) {
@@ -140,7 +136,7 @@ private extension MainAppView {
       default:
         break
       }
-      route = nextOnboardingRoute()
+      route = onboardingRoute
     }
   }
 }

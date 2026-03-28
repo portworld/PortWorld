@@ -12,8 +12,6 @@ final class OnboardingStore: ObservableObject {
     var metaCompleted = false
     var metaSkipped = false
     var profileCompleted = false
-    var initialOnboardingCompleted = false
-    var isFullyOnboarded = false
   }
 
   private static let progressKey = "portworld.onboarding.progress"
@@ -48,7 +46,7 @@ final class OnboardingStore: ObservableObject {
   }
 
   var hasCompletedInitialOnboarding: Bool {
-    progress.initialOnboardingCompleted
+    progress.metaSkipped || progress.profileCompleted
   }
 
   func markWelcomeSeen() {
@@ -83,20 +81,17 @@ final class OnboardingStore: ObservableObject {
   }
 
   func markMetaSkipped() {
-    guard progress.metaSkipped == false || progress.initialOnboardingCompleted == false else { return }
+    guard progress.metaCompleted == false else { return }
+    guard progress.metaSkipped == false else { return }
     progress.metaSkipped = true
-    progress.initialOnboardingCompleted = true
-    progress.isFullyOnboarded = true
     persist()
   }
 
   func markProfileCompleted() {
-    guard progress.profileCompleted == false ||
-      progress.initialOnboardingCompleted == false ||
-      progress.isFullyOnboarded == false else { return }
+    guard progress.profileCompleted == false else { return }
     progress.profileCompleted = true
-    progress.initialOnboardingCompleted = true
-    progress.isFullyOnboarded = true
+    progress.metaCompleted = true
+    progress.metaSkipped = false
     persist()
   }
 
@@ -112,12 +107,9 @@ final class OnboardingStore: ObservableObject {
   private static func normalize(_ progress: Progress) -> Progress {
     var normalized = progress
 
-    if normalized.profileCompleted || normalized.isFullyOnboarded || normalized.metaSkipped {
-      normalized.initialOnboardingCompleted = true
-    }
-
     if normalized.profileCompleted {
-      normalized.isFullyOnboarded = true
+      normalized.metaCompleted = true
+      normalized.metaSkipped = false
     }
 
     return normalized
