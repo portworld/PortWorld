@@ -42,7 +42,6 @@ struct PostOnboardingShellView: View {
     )
     _viewModel = StateObject(
       wrappedValue: AssistantRuntimeViewModel(
-        appSettingsStore: appSettingsStore,
         wearablesRuntimeManager: wearablesRuntimeManager,
         config: config
       )

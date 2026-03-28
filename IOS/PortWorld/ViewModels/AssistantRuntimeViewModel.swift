@@ -23,7 +23,6 @@ final class AssistantRuntimeViewModel: ObservableObject {
   }
 
   init(
-    appSettingsStore _: AppSettingsStore,
     wearablesRuntimeManager: WearablesRuntimeManager,
     config: AssistantRuntimeConfig
   ) {
