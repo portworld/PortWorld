@@ -43,10 +43,6 @@ final class OnboardingStore: ObservableObject {
     }
   }
 
-  var shouldShowWelcome: Bool {
-    progress.welcomeSeen == false
-  }
-
   var shouldOfferProfileSetup: Bool {
     progress.metaCompleted && progress.profileCompleted == false
   }

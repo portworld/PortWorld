@@ -59,10 +59,6 @@ final class AssistantRuntimeViewModel: ObservableObject {
     publishMergedStatus()
   }
 
-  func endConversation() async {
-    await controller.endConversation()
-  }
-
   func startGuidedConversation() async {
     guard controllerStatus.assistantRuntimeState == .inactive else { return }
     guard canActivateGlassesRoute else {
@@ -86,10 +82,6 @@ final class AssistantRuntimeViewModel: ObservableObject {
     await controller.deactivate()
     await wearablesRuntimeManager.stopGlassesSession()
     publishMergedStatus()
-  }
-
-  func handleScenePhaseChange(_ phase: ScenePhase) {
-    controller.handleScenePhaseChange(phase)
   }
 
   private var canActivateGlassesRoute: Bool {

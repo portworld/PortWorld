@@ -82,7 +82,6 @@ struct SettingsView: View {
             .id(SettingsScrollTarget.glasses)
 
             SettingsHelpSection()
-              .id(SettingsScrollTarget.help)
           }
           .padding(.bottom, PWSpace.hero)
         }

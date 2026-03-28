@@ -65,11 +65,6 @@ final class WakePhraseDetector {
     engine.startListening()
   }
 
-  func restartArmedListening() {
-    engine.stopListening()
-    engine.startListening()
-  }
-
   func stop() {
     engine.stopListening()
   }

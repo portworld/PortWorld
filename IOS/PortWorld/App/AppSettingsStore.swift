@@ -95,11 +95,6 @@ final class AppSettingsStore: ObservableObject {
     persist()
   }
 
-  func markValidationState(_ validationState: BackendValidationState) {
-    settings.validationState = validationState
-    persist()
-  }
-
   private func persist() {
     do {
       let data = try encoder.encode(settings)

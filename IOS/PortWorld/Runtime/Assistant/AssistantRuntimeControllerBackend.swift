@@ -127,25 +127,4 @@ extension AssistantRuntimeController {
     }
     return normalized.contains("already") && normalized.contains("active response")
   }
-
-  func describeBackendEvent(_ event: BackendSessionClient.Event) -> String {
-    switch event {
-    case .stateChanged(let state):
-      return "state_changed=\(state.rawValue)"
-    case .sessionReady:
-      return "session_ready"
-    case .uplinkAcknowledged(let payload):
-      return "uplink_ack frames=\(payload.framesReceived) bytes=\(payload.bytesReceived)"
-    case .serverAudio(let data):
-      return "server_audio bytes=\(data.count)"
-    case .playbackControl(let payload):
-      return "playback_control command=\(payload.command.rawValue)"
-    case .profileOnboardingReady:
-      return "profile_onboarding_ready"
-    case .closed:
-      return "closed"
-    case .error(let message):
-      return "error=\(message)"
-    }
-  }
 }

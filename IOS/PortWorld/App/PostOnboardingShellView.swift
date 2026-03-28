@@ -10,7 +10,6 @@ private enum AppTab: Hashable {
 enum SettingsScrollTarget: Hashable {
   case backend
   case glasses
-  case help
 }
 
 struct PostOnboardingShellView: View {
