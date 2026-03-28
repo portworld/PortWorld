@@ -62,7 +62,9 @@ struct MainAppView: View {
           PostOnboardingShellView(
             appSettingsStore: appSettingsStore,
             wearablesRuntimeManager: wearablesRuntimeManager,
-            onOpenMetaSetup: { route = .metaConnection }
+            shouldShowProfileSetupCallToAction: onboardingStore.shouldOfferProfileSetup,
+            onOpenMetaSetup: { route = .metaConnection },
+            onOpenProfileSetup: { route = .profileInterview }
           )
           .id(runtimeHostIdentity)
         }
@@ -97,6 +99,10 @@ private extension MainAppView {
   }
 
   func nextOnboardingRoute() -> AppRoute {
+    if onboardingStore.hasCompletedInitialOnboarding {
+      return .home
+    }
+
     if onboardingStore.progress.welcomeSeen == false {
       return .welcome
     }
@@ -119,7 +125,9 @@ private extension MainAppView {
       return .metaConnection
     }
 
-    if onboardingStore.progress.profileCompleted == false {
+    if onboardingStore.progress.metaCompleted &&
+      onboardingStore.progress.profileCompleted == false
+    {
       return .profileInterview
     }
 
@@ -133,13 +141,13 @@ private extension MainAppView {
     case .idle, .configuring:
       route = .splash
     case .ready, .failed:
-      if onboardingStore.progress.profileCompleted == false {
-        switch route {
-        case .profileInterview:
-          return
-        default:
-          break
-        }
+      switch route {
+      case .metaConnection:
+        return
+      case .profileInterview where onboardingStore.progress.profileCompleted == false:
+        return
+      default:
+        break
       }
       route = nextOnboardingRoute()
     }

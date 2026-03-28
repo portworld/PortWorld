@@ -37,7 +37,7 @@ struct MetaConnectionView: View {
     PWOnboardingScaffold(
       style: .leadingContent,
       title: "Connect your Meta glasses",
-      subtitle: "Pair PortWorld with the Meta ecosystem so the assistant can follow your glasses workflow.",
+      subtitle: "Pair PortWorld with the Meta ecosystem so the assistant can follow your glasses workflow. If you are not ready now, you can finish this later from Home or Settings.",
       content: {
         VStack(alignment: .leading, spacing: PWSpace.section) {
           prerequisiteBlock
@@ -65,7 +65,7 @@ struct MetaConnectionView: View {
             action: primaryAction
           )
 
-          Button(isReadyToContinue ? "Continue later" : "Set up later") {
+          Button(deferButtonTitle) {
             onSkip()
           }
           .buttonStyle(.plain)
@@ -160,6 +160,14 @@ private extension MetaConnectionView {
     if isRegistering { return "Connecting..." }
     if isInitializing { return "Preparing..." }
     return "Connect my glasses"
+  }
+
+  var deferButtonTitle: String {
+    if isReadyToContinue {
+      return "Finish setup later from the app"
+    }
+
+    return "Set up later from Home or Settings"
   }
 
   var primaryButtonDisabled: Bool {

@@ -11,6 +11,7 @@ final class OnboardingStore: ObservableObject {
     var metaCompleted = false
     var metaSkipped = false
     var profileCompleted = false
+    var initialOnboardingCompleted = false
     var isFullyOnboarded = false
   }
 
@@ -27,7 +28,7 @@ final class OnboardingStore: ObservableObject {
     if let data = userDefaults.data(forKey: Self.progressKey),
        let decoded = try? decoder.decode(Progress.self, from: data)
     {
-      self.progress = decoded
+      self.progress = Self.normalize(decoded)
     } else {
       self.progress = Progress()
     }
@@ -35,6 +36,14 @@ final class OnboardingStore: ObservableObject {
 
   var shouldShowWelcome: Bool {
     progress.welcomeSeen == false
+  }
+
+  var shouldOfferProfileSetup: Bool {
+    progress.metaCompleted && progress.profileCompleted == false
+  }
+
+  var hasCompletedInitialOnboarding: Bool {
+    progress.initialOnboardingCompleted
   }
 
   func markWelcomeSeen() {
@@ -62,21 +71,26 @@ final class OnboardingStore: ObservableObject {
   }
 
   func markMetaCompleted() {
-    guard progress.metaCompleted == false else { return }
+    guard progress.metaCompleted == false || progress.metaSkipped else { return }
     progress.metaCompleted = true
     progress.metaSkipped = false
     persist()
   }
 
   func markMetaSkipped() {
-    guard progress.metaSkipped == false else { return }
+    guard progress.metaSkipped == false || progress.initialOnboardingCompleted == false else { return }
     progress.metaSkipped = true
+    progress.initialOnboardingCompleted = true
+    progress.isFullyOnboarded = true
     persist()
   }
 
   func markProfileCompleted() {
-    guard progress.profileCompleted == false || progress.isFullyOnboarded == false else { return }
+    guard progress.profileCompleted == false ||
+      progress.initialOnboardingCompleted == false ||
+      progress.isFullyOnboarded == false else { return }
     progress.profileCompleted = true
+    progress.initialOnboardingCompleted = true
     progress.isFullyOnboarded = true
     persist()
   }
@@ -84,5 +98,19 @@ final class OnboardingStore: ObservableObject {
   private func persist() {
     guard let data = try? encoder.encode(progress) else { return }
     userDefaults.set(data, forKey: Self.progressKey)
+  }
+
+  private static func normalize(_ progress: Progress) -> Progress {
+    var normalized = progress
+
+    if normalized.profileCompleted || normalized.isFullyOnboarded || normalized.metaSkipped {
+      normalized.initialOnboardingCompleted = true
+    }
+
+    if normalized.profileCompleted {
+      normalized.isFullyOnboarded = true
+    }
+
+    return normalized
   }
 }
