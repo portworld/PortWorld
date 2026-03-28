@@ -2,9 +2,8 @@
 import SwiftUI
 
 extension AssistantRuntimeController {
-  func activate(using route: AssistantRoute) async {
+  func activate() async {
     guard status.assistantRuntimeState == .inactive else { return }
-    selectAudioIO(for: route)
     status.errorText = ""
     status.infoText = "Preparing glasses audio routing and wake detection."
     publishStatus()
@@ -62,7 +61,7 @@ extension AssistantRuntimeController {
     wakeListeningGeneration += 1
     debugLog("Disconnecting backend session session=\(previousSessionID)")
     await backendSessionClient.disconnect()
-    debugLog("Stopping active audio I/O route=\(activeAssistantRoute.rawValue)")
+    debugLog("Stopping active audio I/O")
     await activeAudioIO.stop()
 
     activeSessionID = nil

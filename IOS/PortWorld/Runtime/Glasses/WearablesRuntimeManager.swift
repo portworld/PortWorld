@@ -175,6 +175,16 @@ final class WearablesRuntimeManager: ObservableObject {
   @Published var showError: Bool = false
   @Published var errorMessage: String = ""
 
+  var isGlassesActivationReady: Bool {
+    guard configurationState == .ready else { return false }
+    guard registrationState == .registered else { return false }
+    guard devices.isEmpty == false else { return false }
+    guard activeCompatibilityMessage == nil else { return false }
+    guard glassesSessionPhase != .failed else { return false }
+    guard isHFPRouteAvailable else { return false }
+    return true
+  }
+
   private let configure: () throws -> Void
   private let wearablesProvider: () -> WearablesInterface
   private let audioSession: AVAudioSession

@@ -18,7 +18,6 @@ final class AssistantRuntimeController {
   let backendSessionClient: BackendSessionClient
   let wakePhraseDetector: WakePhraseDetector
   var activeAudioIO: AssistantAudioIOControlling
-  var activeAssistantRoute: AssistantRoute = .glasses
 
   var wakeWarmupTask: Task<Void, Never>?
   var wakeListeningGeneration: Int = 0
@@ -155,10 +154,5 @@ final class AssistantRuntimeController {
     #if DEBUG
       print("[AssistantRuntimeController] \(message)")
     #endif
-  }
-
-  func selectAudioIO(for route: AssistantRoute) {
-    activeAssistantRoute = route
-    activeAudioIO = glassesAudioIO
   }
 }

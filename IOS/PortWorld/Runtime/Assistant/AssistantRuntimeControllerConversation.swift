@@ -6,7 +6,6 @@ extension AssistantRuntimeController {
     guard status.assistantRuntimeState == .inactive else { return }
 
     conversationMode = .guidedOnboarding
-    selectAudioIO(for: .glasses)
     wakeWarmupTask?.cancel()
     wakeWarmupTask = nil
     wakeListeningGeneration += 1

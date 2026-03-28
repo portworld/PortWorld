@@ -1,31 +1,8 @@
 // Shared UI-facing status model for the glasses-first assistant runtime.
 import Foundation
 
-enum AssistantRoute: String {
-  case glasses
-}
-
-enum GlassesReadinessKind {
-  case neutral
-  case success
-  case warning
-  case error
-}
-
 struct AssistantRuntimeStatus {
   var assistantRuntimeState: AssistantRuntimeState = .inactive
-  var selectedRoute: AssistantRoute = .glasses
-  var activeRouteText: String = "none"
-  var glassesReadinessTitle: String = "Glasses setup required"
-  var glassesReadinessDetail: String = "Open Glasses Setup to connect Meta glasses and review DAT readiness."
-  var glassesReadinessKind: GlassesReadinessKind = .neutral
-  var glassesSessionText: String = "inactive"
-  var activeGlassesDeviceText: String = "-"
-  var glassesAudioModeText: String = "inactive"
-  var hfpRouteText: String = "not_ready"
-  var glassesAudioDetailText: String = "No glasses audio path is active."
-  var glassesDevelopmentDetailText: String = "Complete DAT setup before validating the glasses runtime."
-  var canChangeRoute: Bool = true
   var canActivateSelectedRoute: Bool = true
   var activationButtonTitle: String = "Activate Assistant"
   var audioModeText: String = "inactive"
@@ -39,10 +16,6 @@ struct AssistantRuntimeStatus {
   var uplinkStatusText: String = "idle"
   var playbackStatusText: String = "idle"
   var playbackRouteText: String = "-"
-  var visionCaptureStateText: String = "inactive"
-  var visionUploadCount: Int = 0
-  var visionUploadFailureCount: Int = 0
-  var visionLastErrorText: String = ""
   var infoText: String = ""
   var errorText: String = ""
 
@@ -55,15 +28,6 @@ struct AssistantRuntimeStatus {
     case .armedListening, .connectingConversation, .activeConversation, .pausedByHardware:
       return true
     case .inactive, .deactivating:
-      return false
-    }
-  }
-
-  var canEndConversation: Bool {
-    switch assistantRuntimeState {
-    case .connectingConversation, .activeConversation:
-      return true
-    case .inactive, .armedListening, .pausedByHardware, .deactivating:
       return false
     }
   }

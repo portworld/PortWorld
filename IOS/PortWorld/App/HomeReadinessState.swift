@@ -72,19 +72,7 @@ private extension HomeReadinessState {
   ) -> Bool {
     guard settings.validationState == .valid else { return false }
     guard runtimeStatus.assistantRuntimeState != .deactivating else { return false }
-    return areGlassesReady(wearablesRuntimeManager: wearablesRuntimeManager)
-  }
-
-  static func areGlassesReady(
-    wearablesRuntimeManager: WearablesRuntimeManager
-  ) -> Bool {
-    guard wearablesRuntimeManager.configurationState == .ready else { return false }
-    guard wearablesRuntimeManager.registrationState == .registered else { return false }
-    guard wearablesRuntimeManager.devices.isEmpty == false else { return false }
-    guard wearablesRuntimeManager.activeCompatibilityMessage == nil else { return false }
-    guard wearablesRuntimeManager.glassesSessionPhase != .failed else { return false }
-    guard wearablesRuntimeManager.isHFPRouteAvailable else { return false }
-    return true
+    return wearablesRuntimeManager.isGlassesActivationReady
   }
 
   static func makeBackendStatus(
