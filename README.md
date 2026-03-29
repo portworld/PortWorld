@@ -13,7 +13,7 @@ It connects an iOS app running on Meta glasses to a FastAPI backend that handles
 
 Built during the Mistral Worldwide Hackathon 2026 by **Pierre Haas, Vassili de Rosen, Arman Artola.** 
 
-**We finished top 10 out of 600 teams worldwide + won the Giant Venture prize "futur unicorn prize"**.
+🏆**We finished top 10 out of 600 teams worldwide + won the Giant Venture prize "futur unicorn prize"**.🏆
 
 
 
