@@ -11,7 +11,9 @@ The uses cases are infinite, connect your AI agents, customize them, prompt them
 
 It connects an iOS app running on Meta glasses to a FastAPI backend that handles video streaming, AI inference, voice responses, and tool execution. You define the prompts and domain logic. Port:World handles the streaming, model routing, and real-time communication.
 
-Built during the Mistral Worldwide Hackathon 2026 by **Pierre Haas, Vassili de Rosen, Arman Artola. We finished top 10 out of 600 teams worldwide + won the Giant Venture prize "futur unicorn prize"**.
+Built during the Mistral Worldwide Hackathon 2026 by **Pierre Haas, Vassili de Rosen, Arman Artola.** 
+
+**We finished top 10 out of 600 teams worldwide + won the Giant Venture prize "futur unicorn prize"**.
 
 
 
