@@ -1,0 +1,4 @@
+interface:
+  display_name: "PortWorld CLI Autopilot"
+  short_description: "Install, initialize, and operate PortWorld CLI"
+  default_prompt: "Use $portworld-cli-autopilot to install, initialize, and operate PortWorld CLI end-to-end without manual setup."
