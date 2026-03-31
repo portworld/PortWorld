@@ -45,6 +45,7 @@ from portworld_cli.services.config.sections import (
     collect_security_section,
 )
 from portworld_cli.services.config.types import CloudEditOptions, SecurityEditOptions
+from portworld_cli.ux.prompts import prompt_choice
 from portworld_cli.workspace.state.state_store import CLIStateDecodeError, CLIStateTypeError
 from portworld_cli.workspace.session import WorkspaceSession as ConfigSession
 from portworld_cli.workspace.session import (
@@ -55,6 +56,8 @@ from portworld_cli.workspace.session import (
 
 
 COMMAND_NAME = "portworld init"
+SETUP_MODE_QUICKSTART = "quickstart"
+SETUP_MODE_MANUAL = "manual"
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +77,7 @@ class InitOptions:
     bearer_token: str | None
     generate_bearer_token: bool
     clear_bearer_token: bool
+    setup_mode: str | None
     project_mode: str | None
     runtime_source: str | None
     cloud_provider: str | None
@@ -105,6 +109,8 @@ class InitOptions:
 
 
 def run_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
+    options = replace(options, setup_mode=_resolve_setup_mode(cli_context, options))
+
     if options.runtime_source == RUNTIME_SOURCE_PUBLISHED:
         return _run_published_init(cli_context, options)
     if options.runtime_source == RUNTIME_SOURCE_SOURCE:
@@ -113,7 +119,11 @@ def run_init(cli_context: CLIContext, options: InitOptions) -> CommandResult:
     try:
         session = load_workspace_session(cli_context)
     except ProjectRootResolutionError:
-        selected_runtime_source = _select_first_run_runtime_source(cli_context)
+        selected_runtime_source = (
+            RUNTIME_SOURCE_PUBLISHED
+            if options.setup_mode == SETUP_MODE_QUICKSTART
+            else _select_first_run_runtime_source(cli_context)
+        )
         if selected_runtime_source == RUNTIME_SOURCE_PUBLISHED:
             return _run_published_init(cli_context, options)
         return _source_init_requires_repo_result()
@@ -416,6 +426,8 @@ def _collect_init_sections(
     *,
     runtime_source: str,
 ) -> tuple[object, _InitCollectionOutcome]:
+    quickstart = options.setup_mode == SETUP_MODE_QUICKSTART
+
     provider_result = collect_provider_section(
         session,
         ProviderEditOptions(
@@ -430,6 +442,7 @@ def _collect_init_sections(
             vision_api_key=options.vision_api_key,
             search_api_key=options.search_api_key,
         ),
+        quickstart=quickstart,
     )
     project_config, env_updates = apply_provider_section(
         session.project_config,
@@ -444,6 +457,7 @@ def _collect_init_sections(
             generate_bearer_token=options.generate_bearer_token,
             clear_bearer_token=options.clear_bearer_token,
         ),
+        quickstart=quickstart,
     )
     project_config, security_env_updates = apply_security_section(
         project_config,
@@ -481,6 +495,7 @@ def _collect_init_sections(
             azure_app=options.azure_app,
         ),
         prompt_defaults_when_local=False,
+        quickstart=quickstart,
     )
     project_config, cloud_env_updates = apply_cloud_section(project_config, cloud_result)
     env_updates.update(cloud_env_updates)
@@ -527,16 +542,37 @@ def _select_first_run_runtime_source(cli_context: CLIContext) -> str:
     click.echo("How do you want to set up PortWorld?")
     click.echo("  operator: zero-clone workspace with published runtime images (recommended)")
     click.echo("  contributor: repo-backed source checkout workflow")
-    selection = click.prompt(
-        "Setup flow",
-        type=click.Choice(["operator", "contributor"], case_sensitive=False),
+    selection = prompt_choice(
+        cli_context,
+        message="Setup flow",
+        choices=("operator", "contributor"),
         default="operator",
-        show_choices=False,
+        labels={
+            "operator": "Operator (published runtime, recommended)",
+            "contributor": "Contributor (source checkout workflow)",
+        },
     )
     return (
         RUNTIME_SOURCE_PUBLISHED
         if selection.strip().lower() == "operator"
         else RUNTIME_SOURCE_SOURCE
+    )
+
+
+def _resolve_setup_mode(cli_context: CLIContext, options: InitOptions) -> str:
+    if options.setup_mode in {SETUP_MODE_QUICKSTART, SETUP_MODE_MANUAL}:
+        return str(options.setup_mode)
+    if cli_context.non_interactive:
+        return SETUP_MODE_MANUAL
+    return prompt_choice(
+        cli_context,
+        message="Setup mode",
+        choices=(SETUP_MODE_QUICKSTART, SETUP_MODE_MANUAL),
+        default=SETUP_MODE_QUICKSTART,
+        labels={
+            SETUP_MODE_QUICKSTART: "Quickstart (recommended)",
+            SETUP_MODE_MANUAL: "Manual (full control)",
+        },
     )
 
 

@@ -78,6 +78,12 @@ from portworld_cli.services.init import InitOptions, run_init
     help="Project mode for this repo.",
 )
 @click.option(
+    "--setup-mode",
+    type=click.Choice(["quickstart", "manual"]),
+    default=None,
+    help="Interactive setup mode (quickstart or manual).",
+)
+@click.option(
     "--runtime-source",
     type=click.Choice(["source", "published"]),
     default=None,
@@ -141,6 +147,7 @@ def init_command(
     bearer_token: str | None,
     generate_bearer_token: bool,
     clear_bearer_token: bool,
+    setup_mode: str | None,
     project_mode: str | None,
     runtime_source: str | None,
     cloud_provider: str | None,
@@ -191,6 +198,7 @@ def init_command(
                 bearer_token=bearer_token,
                 generate_bearer_token=generate_bearer_token,
                 clear_bearer_token=clear_bearer_token,
+                setup_mode=setup_mode,
                 project_mode=project_mode,
                 runtime_source=runtime_source,
                 cloud_provider=cloud_provider,

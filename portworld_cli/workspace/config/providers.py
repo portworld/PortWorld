@@ -15,12 +15,15 @@ from portworld_cli.workspace.project_config import (
     VisionProviderConfig,
 )
 from portworld_cli.providers.types import ProviderEditOptions, ProviderSectionResult
+from portworld_cli.ux.prompts import prompt_confirm
 from portworld_cli.workspace.session import WorkspaceSession as ConfigSession
 
 
 def collect_provider_section(
     session: ConfigSession,
     options: ProviderEditOptions,
+    *,
+    quickstart: bool = False,
 ) -> ProviderSectionResult:
     from portworld_cli.services.config.prompts import (
         resolve_choice_value,
@@ -44,51 +47,76 @@ def collect_provider_section(
         choices=supported_provider_ids(PROVIDER_KIND_REALTIME),
     )
 
-    vision_enabled = resolve_toggle(
-        session.cli_context,
-        prompt="Enable visual memory?",
-        current_value=session.project_config.providers.vision.enabled,
-        explicit_enable=options.with_vision,
-        explicit_disable=options.without_vision,
-    )
     vision_provider = _default_choice(
         session.project_config.providers.vision.provider,
         choices=supported_provider_ids(PROVIDER_KIND_VISION),
-    )
-    if vision_enabled:
-        vision_provider = resolve_choice_value(
-            session.cli_context,
-            prompt="Vision provider",
-            current_value=vision_provider,
-            explicit_value=options.vision_provider,
-            choices=supported_provider_ids(PROVIDER_KIND_VISION),
-        )
-    _validate_provider_toggle_dependencies(
-        vision_enabled=vision_enabled,
-        tooling_enabled=session.project_config.providers.tooling.enabled,
-        options=options,
-        check_tooling=False,
-    )
-
-    tooling_enabled = resolve_toggle(
-        session.cli_context,
-        prompt="Enable realtime tooling?",
-        current_value=session.project_config.providers.tooling.enabled,
-        explicit_enable=options.with_tooling,
-        explicit_disable=options.without_tooling,
     )
     search_provider = _default_choice(
         session.project_config.providers.tooling.web_search_provider,
         choices=supported_provider_ids(PROVIDER_KIND_SEARCH),
     )
-    if tooling_enabled:
-        search_provider = resolve_choice_value(
-            session.cli_context,
-            prompt="Realtime web-search provider",
-            current_value=search_provider,
-            explicit_value=options.search_provider,
-            choices=supported_provider_ids(PROVIDER_KIND_SEARCH),
+    explicit_advanced = any(
+        value
+        for value in (
+            options.with_vision,
+            options.without_vision,
+            options.vision_provider is not None,
+            options.with_tooling,
+            options.without_tooling,
+            options.search_provider is not None,
+            bool((options.vision_api_key or "").strip()),
+            bool((options.search_api_key or "").strip()),
         )
+    )
+    configure_advanced = True
+    if quickstart and not session.cli_context.non_interactive and not explicit_advanced:
+        configure_advanced = prompt_confirm(
+            session.cli_context,
+            message="Configure advanced provider features now? (vision memory + realtime tooling)",
+            default=False,
+        )
+    if configure_advanced:
+        vision_enabled = resolve_toggle(
+            session.cli_context,
+            prompt="Enable visual memory?",
+            current_value=session.project_config.providers.vision.enabled,
+            explicit_enable=options.with_vision,
+            explicit_disable=options.without_vision,
+        )
+        if vision_enabled:
+            vision_provider = resolve_choice_value(
+                session.cli_context,
+                prompt="Vision provider",
+                current_value=vision_provider,
+                explicit_value=options.vision_provider,
+                choices=supported_provider_ids(PROVIDER_KIND_VISION),
+            )
+        _validate_provider_toggle_dependencies(
+            vision_enabled=vision_enabled,
+            tooling_enabled=session.project_config.providers.tooling.enabled,
+            options=options,
+            check_tooling=False,
+        )
+
+        tooling_enabled = resolve_toggle(
+            session.cli_context,
+            prompt="Enable realtime tooling?",
+            current_value=session.project_config.providers.tooling.enabled,
+            explicit_enable=options.with_tooling,
+            explicit_disable=options.without_tooling,
+        )
+        if tooling_enabled:
+            search_provider = resolve_choice_value(
+                session.cli_context,
+                prompt="Realtime web-search provider",
+                current_value=search_provider,
+                explicit_value=options.search_provider,
+                choices=supported_provider_ids(PROVIDER_KIND_SEARCH),
+            )
+    else:
+        vision_enabled = session.project_config.providers.vision.enabled
+        tooling_enabled = session.project_config.providers.tooling.enabled
+
     _validate_provider_toggle_dependencies(
         vision_enabled=vision_enabled,
         tooling_enabled=tooling_enabled,
@@ -128,6 +156,7 @@ def collect_provider_section(
                 existing_value=existing_value or "",
                 explicit_value=explicit_value,
                 required=True,
+                prompt_when_existing=not quickstart,
             )
         for env_key in entry.required_non_secret_env_keys:
             existing_value, _ = resolve_effective_env_value(
@@ -142,6 +171,7 @@ def collect_provider_section(
                 prompt=label,
                 current_value=existing_value or "",
                 explicit_value=None,
+                prompt_when_current_set=not quickstart,
             )
 
     return ProviderSectionResult(

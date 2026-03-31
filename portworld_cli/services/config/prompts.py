@@ -8,6 +8,7 @@ from portworld_cli.context import CLIContext
 from portworld_cli.workspace.project_config import DEFAULT_BACKEND_PROFILE
 from portworld_cli.services.config.errors import ConfigUsageError, ConfigValidationError
 from portworld_cli.services.config.types import SecurityEditOptions
+from portworld_cli.ux.prompts import prompt_choice, prompt_confirm, prompt_text
 
 
 def resolve_toggle(
@@ -24,7 +25,7 @@ def resolve_toggle(
         return False
     if cli_context.non_interactive:
         return current_value
-    return bool(click.confirm(prompt, default=current_value, show_default=True))
+    return prompt_confirm(cli_context, message=prompt, default=current_value)
 
 
 def resolve_secret_value(
@@ -34,6 +35,7 @@ def resolve_secret_value(
     existing_value: str,
     explicit_value: str | None,
     required: bool,
+    prompt_when_existing: bool = True,
 ) -> str:
     if explicit_value is not None:
         value = explicit_value.strip()
@@ -47,19 +49,23 @@ def resolve_secret_value(
             raise ConfigValidationError(f"{label} is required in non-interactive mode.")
         return current_value
 
+    if current_value and not prompt_when_existing:
+        return current_value
+
     if current_value:
         click.echo(f"{label}: existing value detected.")
     while True:
-        prompt_text = (
+        prompt_label = (
             f"{label} (press Enter to keep the existing value)"
             if current_value
             else label
         )
-        response = click.prompt(
-            prompt_text,
+        response = prompt_text(
+            cli_context,
+            message=prompt_label,
             default="",
             show_default=False,
-            hide_input=True,
+            secret=True,
         ).strip()
         if response:
             return response
@@ -101,11 +107,11 @@ def resolve_bearer_token(
         return current_value
 
     if current_value:
-        action = click.prompt(
-            "Bearer token action",
-            type=click.Choice(["keep", "generate", "replace", "clear"]),
+        action = prompt_choice(
+            cli_context,
+            message="Bearer token action",
+            choices=("keep", "generate", "replace", "clear"),
             default="keep",
-            show_default=True,
         )
         if action == "keep":
             return current_value
@@ -121,10 +127,10 @@ def resolve_bearer_token(
             required=True,
         )
 
-    should_generate = click.confirm(
-        "Generate a local bearer token for development?",
+    should_generate = prompt_confirm(
+        cli_context,
+        message="Generate a local bearer token for development?",
         default=False,
-        show_default=True,
     )
     if should_generate:
         return secrets.token_hex(32)
@@ -144,6 +150,8 @@ def resolve_choice_value(
     current_value: str,
     explicit_value: str | None,
     choices: tuple[str, ...],
+    prompt_when_unspecified: bool = True,
+    labels: dict[str, str] | None = None,
 ) -> str:
     if explicit_value is not None:
         normalized = explicit_value.strip().lower()
@@ -153,11 +161,14 @@ def resolve_choice_value(
         return normalized
     if cli_context.non_interactive:
         return current_value
-    return click.prompt(
-        prompt,
-        type=click.Choice(choices),
+    if not prompt_when_unspecified:
+        return current_value
+    return prompt_choice(
+        cli_context,
+        message=prompt,
+        choices=choices,
         default=current_value,
-        show_default=True,
+        labels=labels,
     )
 
 
@@ -167,6 +178,7 @@ def resolve_csv_value(
     prompt: str,
     current_values: tuple[str, ...],
     explicit_value: str | None,
+    prompt_when_current_set: bool = True,
 ) -> tuple[str, ...]:
     if explicit_value is not None:
         values = _parse_csv_tuple(explicit_value)
@@ -175,9 +187,12 @@ def resolve_csv_value(
         return values
     if cli_context.non_interactive:
         return current_values
+    if current_values and not prompt_when_current_set:
+        return current_values
     current_text = ",".join(current_values)
-    response = click.prompt(
-        prompt,
+    response = prompt_text(
+        cli_context,
+        message=prompt,
         default=current_text,
         show_default=True,
     )
@@ -193,6 +208,7 @@ def resolve_required_text_value(
     prompt: str,
     current_value: str,
     explicit_value: str | None,
+    prompt_when_current_set: bool = True,
 ) -> str:
     if explicit_value is not None:
         value = explicit_value.strip()
@@ -203,7 +219,14 @@ def resolve_required_text_value(
         if not current_value.strip():
             raise ConfigValidationError(f"{prompt} is required in non-interactive mode.")
         return current_value.strip()
-    response = click.prompt(prompt, default=current_value, show_default=True)
+    if current_value.strip() and not prompt_when_current_set:
+        return current_value.strip()
+    response = prompt_text(
+        cli_context,
+        message=prompt,
+        default=current_value,
+        show_default=True,
+    )
     value = response.strip()
     if not value:
         raise ConfigValidationError(f"{prompt} is required.")
@@ -216,14 +239,18 @@ def resolve_optional_text_value(
     prompt: str,
     current_value: str | None,
     explicit_value: str | None,
+    prompt_when_current_set: bool = True,
 ) -> str | None:
     if explicit_value is not None:
         value = explicit_value.strip()
         return value or None
     if cli_context.non_interactive:
         return current_value
-    response = click.prompt(
-        prompt,
+    if current_value and not prompt_when_current_set:
+        return current_value
+    response = prompt_text(
+        cli_context,
+        message=prompt,
         default=current_value or "",
         show_default=bool(current_value),
     )
@@ -237,19 +264,24 @@ def resolve_int_value(
     prompt: str,
     current_value: int,
     explicit_value: int | None,
+    prompt_when_current_set: bool = True,
 ) -> int:
     if explicit_value is not None:
         return explicit_value
     if cli_context.non_interactive:
         return current_value
-    return int(
-        click.prompt(
-            prompt,
-            type=int,
-            default=current_value,
-            show_default=True,
-        )
+    if not prompt_when_current_set:
+        return current_value
+    response = prompt_text(
+        cli_context,
+        message=prompt,
+        default=str(current_value),
+        show_default=True,
     )
+    try:
+        return int(response)
+    except ValueError as exc:
+        raise ConfigValidationError(f"{prompt} must be an integer.") from exc
 
 
 def validate_security_flag_conflicts(options: SecurityEditOptions) -> None:
