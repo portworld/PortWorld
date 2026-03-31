@@ -8,19 +8,19 @@ from unittest import mock
 
 from portworld_cli.aws.deploy import (
     DeployAWSECSFargateOptions,
-    _DatabaseResolution,
-    _ResolvedAWSDeployConfig,
     _run_aws_deploy_mutations,
     _sanitize_runtime_env_for_output,
     run_deploy_aws_ecs_fargate,
 )
+from portworld_cli.aws.stages.config import ResolvedAWSDeployConfig
+from portworld_cli.aws.stages.database import DatabaseResolution
 from portworld_cli.context import CLIContext
 from portworld_cli.deploy.config import DeployStageError
 from portworld_cli.deploy_artifacts import IMAGE_SOURCE_MODE_PUBLISHED_RELEASE, IMAGE_SOURCE_MODE_SOURCE_BUILD
 
 
-def _base_config(*, image_source_mode: str = IMAGE_SOURCE_MODE_SOURCE_BUILD) -> _ResolvedAWSDeployConfig:
-    return _ResolvedAWSDeployConfig(
+def _base_config(*, image_source_mode: str = IMAGE_SOURCE_MODE_SOURCE_BUILD) -> ResolvedAWSDeployConfig:
+    return ResolvedAWSDeployConfig(
         runtime_source="source",
         image_source_mode=image_source_mode,
         account_id="123456789012",
@@ -58,11 +58,10 @@ class AWSDeployTests(unittest.TestCase):
         self.assertEqual(payload["OPENAI_API_KEY"], "***REDACTED***")
 
     @mock.patch("portworld_cli.aws.deploy.write_deploy_state")
-    @mock.patch("portworld_cli.aws.deploy._probe_ws", return_value=True)
-    @mock.patch("portworld_cli.aws.deploy._probe_livez", return_value=True)
+    @mock.patch("portworld_cli.aws.deploy.wait_for_public_validation", return_value=(True, True))
     @mock.patch("portworld_cli.aws.deploy._run_aws_deploy_mutations")
     @mock.patch("portworld_cli.aws.deploy._confirm_mutations")
-    @mock.patch("portworld_cli.aws.deploy._resolve_aws_deploy_config")
+    @mock.patch("portworld_cli.aws.deploy.resolve_aws_deploy_config")
     @mock.patch("portworld_cli.aws.deploy.load_deploy_session")
     @mock.patch("portworld_cli.aws.deploy.aws_cli_available", return_value=True)
     def test_success_runs_mutations_then_writes_state(
@@ -72,8 +71,7 @@ class AWSDeployTests(unittest.TestCase):
         resolve_config: mock.Mock,
         _confirm: mock.Mock,
         run_mutations: mock.Mock,
-        _probe_livez: mock.Mock,
-        _probe_ws: mock.Mock,
+        _wait_for_public_validation: mock.Mock,
         write_state: mock.Mock,
     ) -> None:
         session = mock.Mock()
@@ -111,7 +109,7 @@ class AWSDeployTests(unittest.TestCase):
     @mock.patch("portworld_cli.aws.deploy.write_deploy_state")
     @mock.patch("portworld_cli.aws.deploy._run_aws_deploy_mutations")
     @mock.patch("portworld_cli.aws.deploy._confirm_mutations")
-    @mock.patch("portworld_cli.aws.deploy._resolve_aws_deploy_config")
+    @mock.patch("portworld_cli.aws.deploy.resolve_aws_deploy_config")
     @mock.patch("portworld_cli.aws.deploy.load_deploy_session")
     @mock.patch("portworld_cli.aws.deploy.aws_cli_available", return_value=True)
     def test_failure_during_mutation_does_not_write_state(
@@ -159,14 +157,14 @@ class AWSDeployTests(unittest.TestCase):
     def test_run_mutations_source_build_runs_image_publish(self) -> None:
         stage_records: list[dict[str, object]] = []
         with ExitStack() as stack:
-            ensure_s3_bucket = stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_s3_bucket"))
-            ensure_repo = stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_ecr_repository"))
-            docker_login = stack.enter_context(mock.patch("portworld_cli.aws.deploy._docker_login_to_ecr"))
-            build_push = stack.enter_context(mock.patch("portworld_cli.aws.deploy._build_and_push_image"))
+            ensure_s3_bucket = stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_s3_bucket"))
+            ensure_repo = stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_ecr_repository"))
+            docker_login = stack.enter_context(mock.patch("portworld_cli.aws.deploy.docker_login_to_ecr"))
+            build_push = stack.enter_context(mock.patch("portworld_cli.aws.deploy.build_and_push_image"))
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._resolve_or_provision_database",
-                    return_value=_DatabaseResolution(
+                    "portworld_cli.aws.deploy.resolve_or_provision_database",
+                    return_value=DatabaseResolution(
                         database_url="postgresql://user:pass@db:5432/app",
                         resolved_vpc_id=None,
                         resolved_subnet_ids=(),
@@ -177,74 +175,74 @@ class AWSDeployTests(unittest.TestCase):
             )
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._resolve_vpc_and_subnets",
+                    "portworld_cli.aws.deploy.resolve_vpc_and_subnets",
                     return_value=("vpc-1", ("subnet-a", "subnet-b")),
                 )
             )
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._ensure_service_security_groups",
+                    "portworld_cli.aws.deploy.ensure_service_security_groups",
                     return_value=("sg-alb", "sg-ecs"),
                 )
             )
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._ensure_application_load_balancer",
+                    "portworld_cli.aws.deploy.ensure_application_load_balancer",
                     return_value=("alb-arn", "alb.example.com"),
                 )
             )
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._ensure_target_group",
+                    "portworld_cli.aws.deploy.ensure_target_group",
                     return_value="tg-arn",
                 )
             )
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_alb_listener"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_alb_listener"))
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._ensure_cloudfront_distribution",
+                    "portworld_cli.aws.deploy.ensure_cloudfront_distribution",
                     return_value=("dist-1", "d111.cloudfront.net"),
                 )
             )
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._ensure_ecs_execution_role",
+                    "portworld_cli.aws.deploy.ensure_ecs_execution_role",
                     return_value="arn:aws:iam::123:role/exec",
                 )
             )
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._ensure_ecs_task_role",
+                    "portworld_cli.aws.deploy.ensure_ecs_task_role",
                     return_value="arn:aws:iam::123:role/task",
                 )
             )
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._ensure_ecs_log_group",
+                    "portworld_cli.aws.deploy.ensure_ecs_log_group",
                     return_value="/ecs/service",
                 )
             )
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._ensure_ecs_cluster",
+                    "portworld_cli.aws.deploy.ensure_ecs_cluster",
                     return_value="service-cluster",
                 )
             )
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_ecs_service_linked_role"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_ecs_service_linked_role"))
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._register_task_definition",
+                    "portworld_cli.aws.deploy.register_task_definition",
                     return_value="arn:aws:ecs:task-definition/service:1",
                 )
             )
             upsert_service = stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._upsert_ecs_service",
+                    "portworld_cli.aws.deploy.upsert_ecs_service",
                     return_value="service",
                 )
             )
-            wait_stable = stack.enter_context(mock.patch("portworld_cli.aws.deploy._wait_for_ecs_service_stable"))
-            wait_cloudfront = stack.enter_context(mock.patch("portworld_cli.aws.deploy._wait_for_cloudfront_deployed"))
+            wait_stable = stack.enter_context(mock.patch("portworld_cli.aws.deploy.wait_for_ecs_service_stable"))
+            wait_cloudfront = stack.enter_context(mock.patch("portworld_cli.aws.deploy.wait_for_cloudfront_deployed"))
 
             _run_aws_deploy_mutations(
                 _base_config(image_source_mode=IMAGE_SOURCE_MODE_SOURCE_BUILD),
@@ -264,14 +262,14 @@ class AWSDeployTests(unittest.TestCase):
     def test_run_mutations_published_release_skips_image_publish(self) -> None:
         stage_records: list[dict[str, object]] = []
         with ExitStack() as stack:
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_s3_bucket"))
-            ensure_repo = stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_ecr_repository"))
-            docker_login = stack.enter_context(mock.patch("portworld_cli.aws.deploy._docker_login_to_ecr"))
-            build_push = stack.enter_context(mock.patch("portworld_cli.aws.deploy._build_and_push_image"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_s3_bucket"))
+            ensure_repo = stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_ecr_repository"))
+            docker_login = stack.enter_context(mock.patch("portworld_cli.aws.deploy.docker_login_to_ecr"))
+            build_push = stack.enter_context(mock.patch("portworld_cli.aws.deploy.build_and_push_image"))
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._resolve_or_provision_database",
-                    return_value=_DatabaseResolution(
+                    "portworld_cli.aws.deploy.resolve_or_provision_database",
+                    return_value=DatabaseResolution(
                         database_url="postgresql://user:pass@db:5432/app",
                         resolved_vpc_id=None,
                         resolved_subnet_ids=(),
@@ -282,39 +280,39 @@ class AWSDeployTests(unittest.TestCase):
             )
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._resolve_vpc_and_subnets",
+                    "portworld_cli.aws.deploy.resolve_vpc_and_subnets",
                     return_value=("vpc-1", ("subnet-a", "subnet-b")),
                 )
             )
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._ensure_service_security_groups",
+                    "portworld_cli.aws.deploy.ensure_service_security_groups",
                     return_value=("sg-alb", "sg-ecs"),
                 )
             )
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._ensure_application_load_balancer",
+                    "portworld_cli.aws.deploy.ensure_application_load_balancer",
                     return_value=("alb-arn", "alb.example.com"),
                 )
             )
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_target_group", return_value="tg-arn"))
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_alb_listener"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_target_group", return_value="tg-arn"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_alb_listener"))
             stack.enter_context(
                 mock.patch(
-                    "portworld_cli.aws.deploy._ensure_cloudfront_distribution",
+                    "portworld_cli.aws.deploy.ensure_cloudfront_distribution",
                     return_value=("dist-1", "d111.cloudfront.net"),
                 )
             )
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_ecs_execution_role", return_value="arn:aws:iam::123:role/exec"))
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_ecs_task_role", return_value="arn:aws:iam::123:role/task"))
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_ecs_log_group", return_value="/ecs/service"))
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_ecs_cluster", return_value="service-cluster"))
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._ensure_ecs_service_linked_role"))
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._register_task_definition", return_value="arn:aws:ecs:task-definition/service:1"))
-            upsert_service = stack.enter_context(mock.patch("portworld_cli.aws.deploy._upsert_ecs_service", return_value="service"))
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._wait_for_ecs_service_stable"))
-            stack.enter_context(mock.patch("portworld_cli.aws.deploy._wait_for_cloudfront_deployed"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_ecs_execution_role", return_value="arn:aws:iam::123:role/exec"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_ecs_task_role", return_value="arn:aws:iam::123:role/task"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_ecs_log_group", return_value="/ecs/service"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_ecs_cluster", return_value="service-cluster"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.ensure_ecs_service_linked_role"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.register_task_definition", return_value="arn:aws:ecs:task-definition/service:1"))
+            upsert_service = stack.enter_context(mock.patch("portworld_cli.aws.deploy.upsert_ecs_service", return_value="service"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.wait_for_ecs_service_stable"))
+            stack.enter_context(mock.patch("portworld_cli.aws.deploy.wait_for_cloudfront_deployed"))
 
             _run_aws_deploy_mutations(
                 _base_config(image_source_mode=IMAGE_SOURCE_MODE_PUBLISHED_RELEASE),

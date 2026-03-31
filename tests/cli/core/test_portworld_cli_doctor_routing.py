@@ -24,7 +24,6 @@ class DoctorRoutingTests(unittest.TestCase):
             project=None,
             region=None,
             aws_region=None,
-            aws_cluster=None,
             aws_service=None,
             aws_vpc_id=None,
             aws_subnet_ids=None,

@@ -45,20 +45,33 @@ class AWSDoctorTests(unittest.TestCase):
         "portworld_cli.aws.doctor._s3_bucket_ready_check",
         return_value=mock.Mock(id="s3_bucket_ready", status="pass"),
     )
+    @mock.patch("portworld_cli.aws.doctor.AWSAdapters.create")
     @mock.patch("portworld_cli.aws.doctor.run_aws_json")
     @mock.patch("portworld_cli.aws.doctor.aws_cli_available", return_value=True)
     def test_valid_configuration_passes_core_checks(
         self,
         _available: mock.Mock,
         run_aws_json: mock.Mock,
+        create_adapters: mock.Mock,
         _s3_bucket_ready_check: mock.Mock,
         _ecr_repository_ready_check: mock.Mock,
         _ecs_service_check: mock.Mock,
         _alb_check: mock.Mock,
         _cloudfront_distribution_check: mock.Mock,
     ) -> None:
+        create_adapters.return_value = mock.Mock(
+            compute=mock.Mock(
+                run_json=mock.Mock(
+                    return_value=mock.Mock(
+                        ok=True,
+                        value={"Account": "123", "Arn": "arn:aws:iam::123:user/test"},
+                        message=None,
+                    )
+                )
+            )
+        )
         run_aws_json.side_effect = [
-            mock.Mock(ok=True, value={"Account": "123", "Arn": "arn:aws:iam::123:user/test"}, message=None),
+            mock.Mock(ok=True, value={"Buckets": []}, message=None),
         ]
 
         evaluation = evaluate_aws_ecs_fargate_readiness(

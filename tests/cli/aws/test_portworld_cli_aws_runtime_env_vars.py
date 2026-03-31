@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections import OrderedDict
 import unittest
 
-from portworld_cli.aws.deploy import _ResolvedAWSDeployConfig, _build_runtime_env_vars
+from portworld_cli.aws.stages.config import ResolvedAWSDeployConfig
+from portworld_cli.aws.stages.ecs_runtime import build_runtime_env_vars
 
 
 class AWSRuntimeEnvVarsTests(unittest.TestCase):
@@ -15,7 +16,7 @@ class AWSRuntimeEnvVarsTests(unittest.TestCase):
                 ("FOO", "bar"),
             ]
         )
-        config = _ResolvedAWSDeployConfig(
+        config = ResolvedAWSDeployConfig(
             runtime_source="source",
             image_source_mode="source_build",
             account_id="123456789012",
@@ -36,7 +37,7 @@ class AWSRuntimeEnvVarsTests(unittest.TestCase):
             published_image_ref=None,
         )
 
-        env = _build_runtime_env_vars(
+        env = build_runtime_env_vars(
             env_values,
             config,
             database_url="postgresql://user:pass@db.example:5432/app",
