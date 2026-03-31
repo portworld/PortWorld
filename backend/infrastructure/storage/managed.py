@@ -306,45 +306,17 @@ class ManagedBackendStorage(BackendStorage):
     def read_session_memory_markdown(self, *, session_id: str) -> str:
         self._require_session_persisted(session_id=session_id)
         session_storage = self.get_session_storage_paths(session_id=session_id)
-        return self._read_memory_markdown_with_fallbacks(
-            canonical_relative_path=self._relative_path(session_storage.session_memory_markdown_path),
-            legacy_relative_paths=(
-                self._legacy_session_relative_path(
-                    session_id=session_id,
-                    file_name="session_memory.md",
-                ),
-            ),
-            fallback_document=self._coerce_text(
-                (self.metadata_store.read_session_memory_document(
-                    session_id=session_id,
-                    memory_scope="session",
-                ) or {}).get("markdown_text")
-            ),
-            fallback_template=SESSION_MEMORY_TEMPLATE,
-            content_type="text/markdown",
-            context=f"managed session memory artifact session_id={session_id}",
+        return self._read_or_initialize_markdown_artifact(
+            relative_path=self._relative_path(session_storage.session_memory_markdown_path),
+            default_text=SESSION_MEMORY_TEMPLATE,
         )
 
     def read_short_term_memory_markdown(self, *, session_id: str) -> str:
         self._require_session_persisted(session_id=session_id)
         session_storage = self.get_session_storage_paths(session_id=session_id)
-        return self._read_memory_markdown_with_fallbacks(
-            canonical_relative_path=self._relative_path(session_storage.short_term_memory_markdown_path),
-            legacy_relative_paths=(
-                self._legacy_session_relative_path(
-                    session_id=session_id,
-                    file_name="short_term_memory.md",
-                ),
-            ),
-            fallback_document=self._coerce_text(
-                (self.metadata_store.read_session_memory_document(
-                    session_id=session_id,
-                    memory_scope="short_term",
-                ) or {}).get("markdown_text")
-            ),
-            fallback_template=SHORT_TERM_MEMORY_TEMPLATE,
-            content_type="text/markdown",
-            context=f"managed short-term memory artifact session_id={session_id}",
+        return self._read_or_initialize_markdown_artifact(
+            relative_path=self._relative_path(session_storage.short_term_memory_markdown_path),
+            default_text=SHORT_TERM_MEMORY_TEMPLATE,
         )
 
     def write_short_term_memory(
