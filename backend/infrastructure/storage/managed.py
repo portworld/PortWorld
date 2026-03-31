@@ -237,12 +237,6 @@ class ManagedBackendStorage(BackendStorage):
 
     def append_memory_candidate(self, *, session_id: str, candidate: dict[str, Any]) -> None:
         self.ensure_session_storage(session_id=session_id)
-        self.metadata_store.append_session_event(
-            session_id=session_id,
-            log_kind="memory_candidates",
-            payload_json=json.dumps(candidate, ensure_ascii=True, sort_keys=True),
-            created_at_ms=now_ms(),
-        )
         self._append_event_to_log_artifact(
             session_id=session_id,
             log_kind="memory_candidates",
@@ -887,12 +881,7 @@ class ManagedBackendStorage(BackendStorage):
         )
         self._ensure_text_artifact(
             relative_path=self._relative_path(session_storage.memory_candidates_log_path),
-            fallback_text=self._render_ndjson(
-                self.metadata_store.list_session_events(
-                    session_id=session_id,
-                    log_kind="memory_candidates",
-                )
-            ),
+            fallback_text="",
             content_type="application/x-ndjson",
         )
         self._ensure_text_artifact(
