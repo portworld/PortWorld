@@ -65,7 +65,8 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
             or options.azure_blob_endpoint is not None
         ):
             return _usage_error_result(
-                "AWS/Azure flags are only supported with their matching cloud targets."
+                problem="AWS/Azure flags are only supported with their matching cloud targets.",
+                next_step="Use only GCP flags with `--target gcp-cloud-run`, or switch `--target` to the matching cloud.",
             )
         return _run_gcp_cloud_run_doctor(cli_context, options=options)
     if normalized_target == TARGET_AWS_ECS_FARGATE:
@@ -83,7 +84,8 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
             or options.azure_blob_endpoint is not None
         ):
             return _usage_error_result(
-                "GCP/Azure flags are not supported with --target aws-ecs-fargate."
+                problem="GCP/Azure flags are not supported with --target aws-ecs-fargate.",
+                next_step="Use only AWS flags with `--target aws-ecs-fargate`, or switch `--target`.",
             )
         return _run_aws_ecs_fargate_doctor(cli_context, options=options)
     if options.target == "azure-container-apps":
@@ -98,7 +100,8 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
             or options.aws_s3_bucket is not None
         ):
             return _usage_error_result(
-                "GCP/AWS flags are not supported with --target azure-container-apps."
+                problem="GCP/AWS flags are not supported with --target azure-container-apps.",
+                next_step="Use only Azure flags with `--target azure-container-apps`, or switch `--target`.",
             )
         return _run_azure_container_apps_doctor(cli_context, options=options)
     if (
@@ -121,7 +124,11 @@ def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult
         or options.azure_blob_endpoint is not None
     ):
         return _usage_error_result(
-            "Cloud target options are only supported with --target gcp-cloud-run, --target aws-ecs-fargate, or --target azure-container-apps."
+            problem=(
+                "Cloud target options are only supported with --target gcp-cloud-run, "
+                "--target aws-ecs-fargate, or --target azure-container-apps."
+            ),
+            next_step="Run `portworld doctor --target local` without cloud flags, or choose a managed target.",
         )
     return _run_local_doctor(cli_context, full=options.full)
 
@@ -549,14 +556,23 @@ def _run_azure_container_apps_doctor(
     )
 
 
-def _usage_error_result(message: str) -> CommandResult:
+def _usage_error_result(*, problem: str, next_step: str) -> CommandResult:
     return CommandResult(
         ok=False,
         command=COMMAND_NAME,
-        message=message,
+        message=_problem_next_message(problem=problem, next_step=next_step),
         data={
             "status": "error",
             "error_type": "UsageError",
         },
         exit_code=2,
     )
+
+
+def _problem_next_message(*, problem: str, next_step: str, stage: str | None = None) -> str:
+    lines: list[str] = []
+    if stage:
+        lines.append(f"stage: {stage}")
+    lines.append(f"problem: {problem}")
+    lines.append(f"next: {next_step}")
+    return "\n".join(lines)

@@ -483,7 +483,11 @@ def run_deploy_gcp_cloud_run(
         return CommandResult(
             ok=False,
             command=COMMAND_NAME,
-            message="Aborted before deploy completed.",
+            message=_problem_next_message(
+                problem="Deploy canceled before completion.",
+                next_step=f"Rerun `{COMMAND_NAME}` when you are ready.",
+                stage="parameter_resolution",
+            ),
             data={
                 "stage": "parameter_resolution",
                 "error_type": "Abort",
@@ -586,3 +590,12 @@ def _gcp_error_action(error: object | None, fallback: str) -> str:
 
 def _now_ms() -> int:
     return time_ns() // 1_000_000
+
+
+def _problem_next_message(*, problem: str, next_step: str, stage: str | None = None) -> str:
+    lines: list[str] = []
+    if stage:
+        lines.append(f"stage: {stage}")
+    lines.append(f"problem: {problem}")
+    lines.append(f"next: {next_step}")
+    return "\n".join(lines)

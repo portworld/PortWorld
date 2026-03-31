@@ -102,20 +102,25 @@ def build_failure_result(
     exit_code: int = 1,
 ) -> CommandResult:
     message = str(exc)
+    next_step = action or "Inspect the stage details in output and rerun deploy."
     checks = ()
-    if action:
+    if next_step:
         checks = (
             DiagnosticCheck(
                 id="next-step",
                 status="warn",
                 message=message,
-                action=action,
+                action=next_step,
             ),
         )
     return CommandResult(
         ok=False,
         command=COMMAND_NAME,
-        message=f"stage: {stage}\nerror: {message}",
+        message=_problem_next_message(
+            stage=stage,
+            problem=message,
+            next_step=next_step,
+        ),
         data={
             "stage": stage,
             "error_type": error_type,
@@ -129,3 +134,12 @@ def build_failure_result(
 
 def _parse_bool_string(raw_value: str) -> bool:
     return raw_value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _problem_next_message(*, problem: str, next_step: str, stage: str | None = None) -> str:
+    lines: list[str] = []
+    if stage:
+        lines.append(f"stage: {stage}")
+    lines.append(f"problem: {problem}")
+    lines.append(f"next: {next_step}")
+    return "\n".join(lines)

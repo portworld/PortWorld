@@ -236,24 +236,51 @@ def run_deploy_azure_container_apps(
         return CommandResult(
             ok=False,
             command=COMMAND_NAME,
-            message=str(exc),
-            data={"error_type": type(exc).__name__, "resources": resources, "stages": stage_records},
+            message=_problem_next_message(
+                problem=str(exc),
+                next_step=f"Run `{COMMAND_NAME} --help` and provide the required target inputs.",
+                stage="parameter_resolution",
+            ),
+            data={
+                "stage": "parameter_resolution",
+                "error_type": type(exc).__name__,
+                "resources": resources,
+                "stages": stage_records,
+            },
             exit_code=2,
         )
     except DeployStageError as exc:
         return CommandResult(
             ok=False,
             command=COMMAND_NAME,
-            message=f"stage: {exc.stage}\nerror: {exc}",
-            data={"stage": exc.stage, "error_type": type(exc).__name__, "resources": resources, "stages": stage_records},
+            message=_problem_next_message(
+                problem=str(exc),
+                next_step=exc.action or "Inspect the reported stage and rerun deploy.",
+                stage=exc.stage,
+            ),
+            data={
+                "stage": exc.stage,
+                "error_type": type(exc).__name__,
+                "resources": resources,
+                "stages": stage_records,
+            },
             exit_code=1,
         )
     except click.Abort:
         return CommandResult(
             ok=False,
             command=COMMAND_NAME,
-            message="Aborted before deploy completed.",
-            data={"error_type": "Abort", "resources": resources, "stages": stage_records},
+            message=_problem_next_message(
+                problem="Deploy canceled before completion.",
+                next_step=f"Rerun `{COMMAND_NAME}` when you are ready.",
+                stage="mutation_plan",
+            ),
+            data={
+                "stage": "mutation_plan",
+                "error_type": "Abort",
+                "resources": resources,
+                "stages": stage_records,
+            },
             exit_code=1,
         )
 
@@ -1478,6 +1505,15 @@ def _first_non_empty(*values: str | None) -> str | None:
         if normalized is not None:
             return normalized
     return None
+
+
+def _problem_next_message(*, problem: str, next_step: str, stage: str | None = None) -> str:
+    lines: list[str] = []
+    if stage:
+        lines.append(f"stage: {stage}")
+    lines.append(f"problem: {problem}")
+    lines.append(f"next: {next_step}")
+    return "\n".join(lines)
 
 
 def _now_ms() -> int:
