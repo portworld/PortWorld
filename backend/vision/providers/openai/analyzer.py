@@ -46,6 +46,7 @@ def build_openai_vision_analyzer(*, settings: Settings) -> "OpenAIVisionAnalyzer
         api_key=settings.require_vision_provider_api_key(provider="openai"),
         model_name=settings.resolve_vision_provider_model(provider="openai") or "",
         base_url=settings.resolve_vision_provider_base_url(provider="openai"),
+        request_timeout_seconds=settings.vision_provider_timeout_seconds,
     )
 
 

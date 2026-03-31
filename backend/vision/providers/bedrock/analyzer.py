@@ -28,7 +28,6 @@ from backend.vision.providers.shared import (
 )
 
 BEDROCK_CONNECT_TIMEOUT_SECONDS = 8
-BEDROCK_READ_TIMEOUT_SECONDS = 25
 BEDROCK_MAX_RETRY_ATTEMPTS = 5
 
 
@@ -61,6 +60,7 @@ def build_bedrock_vision_analyzer(*, settings: Settings) -> "BedrockVisionAnalyz
             provider="bedrock"
         ),
         aws_session_token=settings.resolve_vision_provider_aws_session_token(provider="bedrock"),
+        read_timeout_seconds=settings.vision_provider_timeout_seconds,
     )
 
 
@@ -71,6 +71,7 @@ class BedrockVisionAnalyzer:
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     aws_session_token: str | None = None
+    read_timeout_seconds: int = 45
     provider_name: str = field(default="bedrock", init=False)
     _client: Any | None = field(default=None, init=False, repr=False)
 
@@ -90,7 +91,7 @@ class BedrockVisionAnalyzer:
             "region_name": self.region_name,
             "config": BotocoreConfig(
                 connect_timeout=BEDROCK_CONNECT_TIMEOUT_SECONDS,
-                read_timeout=BEDROCK_READ_TIMEOUT_SECONDS,
+                read_timeout=self.read_timeout_seconds,
                 retries={
                     "mode": "standard",
                     "max_attempts": BEDROCK_MAX_RETRY_ATTEMPTS,

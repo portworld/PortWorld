@@ -31,6 +31,7 @@ from backend.vision.providers.shared import (
     sanitize_sensitive_text,
     sanitize_url_for_logging,
 )
+from backend.vision.providers.openai_compatible import build_provider_http_timeout
 
 DEFAULT_MISTRAL_BASE_URL = "https://api.mistral.ai"
 
@@ -46,6 +47,7 @@ def build_mistral_vision_analyzer(*, settings: Settings) -> "MistralVisionAnalyz
         api_key=settings.require_vision_provider_api_key(provider="mistral"),
         model_name=settings.resolve_vision_provider_model(provider="mistral") or "",
         base_url=settings.resolve_vision_provider_base_url(provider="mistral"),
+        request_timeout_seconds=settings.vision_provider_timeout_seconds,
     )
 
 
@@ -54,6 +56,7 @@ class MistralVisionAnalyzer:
     api_key: str
     model_name: str
     base_url: str | None = None
+    request_timeout_seconds: int = 45
     provider_name: str = field(default="mistral", init=False)
     _client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _supports_response_format: bool = field(default=True, init=False, repr=False)
@@ -66,7 +69,9 @@ class MistralVisionAnalyzer:
                     "Authorization": f"Bearer {self.api_key}",
                     "Accept": "application/json",
                 },
-                timeout=httpx.Timeout(connect=8.0, read=20.0, write=20.0, pool=8.0),
+                timeout=build_provider_http_timeout(
+                    request_timeout_seconds=float(self.request_timeout_seconds)
+                ),
             )
 
     async def shutdown(self) -> None:

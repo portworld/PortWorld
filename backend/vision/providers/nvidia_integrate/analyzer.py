@@ -53,6 +53,7 @@ def build_nvidia_integrate_vision_analyzer(*, settings: Settings) -> "NvidiaInte
         api_key=settings.require_vision_provider_api_key(provider="nvidia_integrate"),
         model_name=settings.resolve_vision_provider_model(provider="nvidia_integrate") or "",
         base_url=settings.resolve_vision_provider_base_url(provider="nvidia_integrate"),
+        request_timeout_seconds=settings.vision_provider_timeout_seconds,
     )
 
 

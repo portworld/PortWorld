@@ -26,6 +26,7 @@ from backend.vision.providers.shared import (
     post_json_with_vision_errors,
     safe_json_excerpt,
 )
+from backend.vision.providers.openai_compatible import build_provider_http_timeout
 
 DEFAULT_CLAUDE_BASE_URL = "https://api.anthropic.com"
 DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
@@ -45,6 +46,7 @@ def build_claude_vision_analyzer(*, settings: Settings) -> "ClaudeVisionAnalyzer
         api_key=settings.require_vision_provider_api_key(provider="claude"),
         model_name=settings.resolve_vision_provider_model(provider="claude") or "",
         base_url=settings.resolve_vision_provider_base_url(provider="claude"),
+        request_timeout_seconds=settings.vision_provider_timeout_seconds,
     )
 
 
@@ -53,6 +55,7 @@ class ClaudeVisionAnalyzer:
     api_key: str
     model_name: str
     base_url: str | None = None
+    request_timeout_seconds: int = 45
     provider_name: str = field(default="claude", init=False)
     _client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
 
@@ -66,7 +69,9 @@ class ClaudeVisionAnalyzer:
                     "content-type": "application/json",
                     "accept": "application/json",
                 },
-                timeout=httpx.Timeout(connect=8.0, read=20.0, write=20.0, pool=8.0),
+                timeout=build_provider_http_timeout(
+                    request_timeout_seconds=float(self.request_timeout_seconds)
+                ),
             )
 
     async def shutdown(self) -> None:

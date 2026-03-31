@@ -251,6 +251,7 @@ class Settings:
     vision_min_analysis_gap_seconds: int
     vision_scene_change_hamming_threshold: int
     vision_provider_max_rps: int
+    vision_provider_timeout_seconds: int
     vision_analysis_heartbeat_seconds: int
     vision_provider_backoff_initial_seconds: int
     vision_provider_backoff_max_seconds: int
@@ -738,6 +739,11 @@ def _load_vision_settings() -> dict[str, str | int | bool]:
             default=1,
             minimum=1,
         ),
+        "vision_provider_timeout_seconds": _parse_int_env(
+            "VISION_PROVIDER_TIMEOUT_SECONDS",
+            default=45,
+            minimum=1,
+        ),
         "vision_analysis_heartbeat_seconds": _parse_int_env(
             "VISION_ANALYSIS_HEARTBEAT_SECONDS",
             default=15,
@@ -818,7 +824,7 @@ def _load_tooling_settings(
         ),
         "memory_consolidation_timeout_ms": _parse_int_env(
             "MEMORY_CONSOLIDATION_TIMEOUT_MS",
-            default=12000,
+            default=30000,
             minimum=1000,
         ),
         "portworld_extensions_manifest": _parse_optional_path_env(

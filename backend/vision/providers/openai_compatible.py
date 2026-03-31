@@ -27,9 +27,22 @@ from backend.vision.providers.shared import (
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_PROVIDER_CONNECT_TIMEOUT_SECONDS = 8.0
+DEFAULT_PROVIDER_POOL_TIMEOUT_SECONDS = 8.0
+
+
+def build_provider_http_timeout(*, request_timeout_seconds: float) -> httpx.Timeout:
+    return httpx.Timeout(
+        connect=DEFAULT_PROVIDER_CONNECT_TIMEOUT_SECONDS,
+        read=request_timeout_seconds,
+        write=request_timeout_seconds,
+        pool=DEFAULT_PROVIDER_POOL_TIMEOUT_SECONDS,
+    )
+
 
 @dataclass(slots=True)
 class OpenAICompatibleVisionAnalyzerBase(ABC):
+    request_timeout_seconds: int = field(default=45, kw_only=True)
     _client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _supports_response_format: bool = field(default=True, init=False, repr=False)
     _uses_legacy_max_tokens: bool = field(default=False, init=False, repr=False)
@@ -127,7 +140,9 @@ class OpenAICompatibleVisionAnalyzerBase(ABC):
         self._client = httpx.AsyncClient(
             base_url=self._resolved_base_url(),
             headers=dict(self.build_client_headers()),
-            timeout=httpx.Timeout(connect=8.0, read=20.0, write=20.0, pool=8.0),
+            timeout=build_provider_http_timeout(
+                request_timeout_seconds=float(self.request_timeout_seconds)
+            ),
         )
 
     async def shutdown(self) -> None:

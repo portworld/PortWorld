@@ -46,6 +46,7 @@ def build_groq_vision_analyzer(*, settings: Settings) -> "GroqVisionAnalyzer":
         api_key=settings.require_vision_provider_api_key(provider="groq"),
         model_name=settings.resolve_vision_provider_model(provider="groq") or "",
         base_url=settings.resolve_vision_provider_base_url(provider="groq"),
+        request_timeout_seconds=settings.vision_provider_timeout_seconds,
     )
 
 

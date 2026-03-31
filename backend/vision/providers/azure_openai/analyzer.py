@@ -146,6 +146,7 @@ def build_azure_openai_vision_analyzer(*, settings: Settings) -> "AzureOpenAIVis
         deployment=_normalize_azure_deployment(deployment),
         endpoint=_normalize_azure_endpoint(endpoint),
         api_version=_normalize_azure_api_version(api_version),
+        request_timeout_seconds=settings.vision_provider_timeout_seconds,
     )
 
 
