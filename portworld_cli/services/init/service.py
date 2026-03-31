@@ -30,7 +30,7 @@ from portworld_cli.providers.types import ProviderEditOptions
 from portworld_cli.services.config.errors import ConfigRuntimeError, ConfigUsageError
 from portworld_cli.services.config.edit_service import confirm_apply
 from portworld_cli.services.config.messages import (
-    build_init_review_lines,
+    build_init_confirmation_lines,
     build_init_success_message,
     default_managed_deploy_command,
 )
@@ -190,7 +190,7 @@ def _run_source_init(cli_context: CLIContext, options: InitOptions) -> CommandRe
         return CommandResult(
             ok=False,
             command=COMMAND_NAME,
-            message="Aborted; configuration changes were not applied.",
+            message="Canceled. No files changed.",
             data={"status": "aborted", "error_type": "Abort"},
             exit_code=1,
         )
@@ -338,7 +338,7 @@ def _run_published_init(
         return CommandResult(
             ok=False,
             command=COMMAND_NAME,
-            message="Aborted; published workspace changes were not applied.",
+            message="Canceled. No published workspace files changed.",
             data={"status": "aborted", "error_type": "Abort"},
             exit_code=1,
         )
@@ -503,7 +503,7 @@ def _collect_init_sections(
     preview_outcome = preview_secret_readiness(session, project_config, env_updates)
     return project_config, _InitCollectionOutcome(
         env_updates=env_updates,
-        review_lines=build_init_review_lines(
+        review_lines=build_init_confirmation_lines(
             project_config=project_config,
             secret_readiness=preview_outcome,
         ),

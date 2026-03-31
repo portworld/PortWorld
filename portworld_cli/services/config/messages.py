@@ -81,6 +81,37 @@ def build_init_review_lines(
     )
 
 
+def build_init_confirmation_lines(
+    *,
+    project_config: ProjectConfig,
+    secret_readiness: SecretReadiness,
+) -> tuple[str, ...]:
+    lines: list[str] = [
+        f"project_mode: {project_config.project_mode}",
+        f"runtime_source: {project_config.runtime_source or 'unset'}",
+        f"cloud_provider: {project_config.cloud_provider or 'none'}",
+        f"realtime_provider: {project_config.providers.realtime.provider}",
+        f"vision_memory: {'yes' if project_config.providers.vision.enabled else 'no'}",
+        f"realtime_tooling: {'yes' if project_config.providers.tooling.enabled else 'no'}",
+    ]
+    if project_config.project_mode == "managed":
+        lines.append(f"preferred_target: {project_config.deploy.preferred_target or 'none'}")
+    if secret_readiness.missing_required_secret_keys:
+        lines.append(
+            f"missing_provider_secrets: {','.join(secret_readiness.missing_required_secret_keys)}"
+        )
+    else:
+        lines.append("missing_provider_secrets: none")
+    if secret_readiness.missing_required_config_keys:
+        lines.append(
+            f"missing_provider_config: {','.join(secret_readiness.missing_required_config_keys)}"
+        )
+    else:
+        lines.append("missing_provider_config: none")
+    lines.append(f"bearer_token: {presence_label(secret_readiness.bearer_token_present)}")
+    return tuple(lines)
+
+
 def build_init_success_message(
     *,
     project_config: ProjectConfig,
@@ -98,7 +129,7 @@ def build_init_success_message(
             f"next: {default_managed_deploy_command(project_config)}",
         )
     lines = list(
-        build_init_review_lines(
+        build_init_confirmation_lines(
             project_config=project_config,
             secret_readiness=secret_readiness,
         )

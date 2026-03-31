@@ -276,6 +276,30 @@ def build_status_message(
     secret_readiness: SecretReadiness,
 ) -> str:
     sections: list[str] = []
+    summary_pairs: list[tuple[str, object | None]] = [
+        ("active_target", active_target or "none"),
+        ("deploy_source", "state" if last_known_payload else "none"),
+        ("live_status", live_status.status),
+        ("livez", health.livez),
+        ("readyz", health.readyz),
+        (
+            "missing_provider_secrets",
+            ",".join(secret_readiness.missing_required_secret_keys) or "none",
+        ),
+        (
+            "missing_provider_config",
+            ",".join(secret_readiness.missing_required_config_keys) or "none",
+        ),
+    ]
+    if last_known_payload:
+        summary_pairs.extend(
+            [
+                ("service_name", last_known_payload.get("service_name")),
+                ("service_url", last_known_payload.get("service_url")),
+            ]
+        )
+    sections.append("\n".join(["Summary", format_key_value_lines(*summary_pairs)]))
+
     project_pairs: list[tuple[str, object | None]] = [
         ("workspace_root", session.config_session.workspace_root),
         (
