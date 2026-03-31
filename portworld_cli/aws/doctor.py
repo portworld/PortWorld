@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 
+from portworld_cli.aws.client import AWSAdapters
 from portworld_cli.aws.common import (
     aws_cli_available,
     is_postgres_url,
@@ -123,8 +124,10 @@ def evaluate_aws_ecs_fargate_readiness(
 
     account_id: str | None = None
     arn: str | None = None
+    aws_adapters = AWSAdapters.create() if cli_ok else None
     if cli_ok:
-        identity = run_aws_json(["sts", "get-caller-identity"])
+        assert aws_adapters is not None
+        identity = aws_adapters.compute.run_json(["sts", "get-caller-identity"])
         if identity.ok and isinstance(identity.value, dict):
             account_id = _read_dict_string(identity.value, "Account")
             arn = _read_dict_string(identity.value, "Arn")
@@ -146,7 +149,8 @@ def evaluate_aws_ecs_fargate_readiness(
             )
 
     if region is None and cli_ok:
-        configured_region = run_aws_text(["configure", "get", "region"])
+        assert aws_adapters is not None
+        configured_region = aws_adapters.executor.run_text(["configure", "get", "region"])
         if configured_region.ok and isinstance(configured_region.value, str):
             region = normalize_optional_text(configured_region.value)
 

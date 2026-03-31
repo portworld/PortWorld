@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 
-from portworld_cli.aws.common import run_aws_json, run_aws_text
+from portworld_cli.aws import AWSAdapters
 from portworld_cli.azure.common import run_az_json, run_az_text
 from portworld_cli.context import CLIContext
 from portworld_cli.gcp import GCPAdapters, GCPError
@@ -145,8 +145,9 @@ def run_logs_aws_ecs_fargate(
             usage_error_types=(LogsUsageError,),
         )
 
+    adapters = AWSAdapters.create()
     log_group_name = f"/ecs/{target.service_name}"
-    described = run_aws_json(
+    described = adapters.logging.run_json(
         [
             "logs",
             "describe-log-groups",
@@ -197,7 +198,7 @@ def run_logs_aws_ecs_fargate(
         )
 
     rendered_entries: list[dict[str, object | None]] = []
-    tailed = run_aws_text(
+    tailed = adapters.logging.run_text(
         [
             "logs",
             "tail",
