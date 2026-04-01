@@ -54,7 +54,7 @@ UV_TOOL_UPGRADE_COMMAND = "uv tool upgrade {package_name}"
 LEGACY_PIPX_UPGRADE_COMMAND = "python3 -m pipx upgrade {package_name}"
 UPDATE_CLI_COMMAND_NAME = "portworld update cli"
 UPDATE_DEPLOY_COMMAND_NAME = "portworld update deploy"
-SELF_HOST_DOCS_HINT = "See backend/README.md and docs/operations/BACKEND_SELF_HOSTING.md."
+SELF_HOST_DOCS_HINT = "See backend/README.md and portworld_cli/README.md."
 
 
 class UpdateUsageError(RuntimeError):

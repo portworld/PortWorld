@@ -125,10 +125,9 @@ This exists because DAT integration, glasses lifecycle, and mock-device workflow
 
 ### 4. Historical Context
 
-- `../docs/archived/`
 - git history
 
-These are useful for migration context and historical reasoning only.
+Git history is useful for migration context and historical reasoning only.
 
 ## Dependency Status
 
@@ -190,16 +189,14 @@ Use these docs as the current source of truth:
 
 - [IOS/AGENTS.md](AGENTS.md)
   iOS implementation and verification guidance for active work
-- [docs/operations/BACKEND_SELF_HOSTING.md](../docs/operations/BACKEND_SELF_HOSTING.md)
-  backend startup, environment, and operator workflow for local validation
+- [backend/README.md](../backend/README.md)
+  backend runtime, environment contract, and local operator workflow
+- [portworld_cli/README.md](../portworld_cli/README.md)
+  install, workspace bootstrap, update paths, and CLI entrypoints
 - [docs/operations/CLI_RELEASE_PROCESS.md](../docs/operations/CLI_RELEASE_PROCESS.md)
   release workflow and tagging policy
 
-Historical context lives in:
-
-- [docs/archived/](../docs/archived/)
-
-Archived docs are not implementation authority for new assistant work.
+Historical context lives in git history. It is not implementation authority for new assistant work.
 
 ## Recommended Mental Model
 
@@ -207,6 +204,6 @@ When working in the iOS app, assume this ordering:
 
 1. trust the active runtime in `IOS/PortWorld/` first
 2. treat `FutureHardware/` as the bounded DAT / glasses capability layer consumed by the main runtime
-3. treat archived docs and git history as historical context only
+3. treat git history as historical context only
 
 If a file or flow conflicts with the working assistant runtime, the active runtime should win unless the task is explicitly about legacy migration or historical comparison.

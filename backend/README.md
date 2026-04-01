@@ -155,7 +155,10 @@ curl http://127.0.0.1:8080/livez
 # → {"status":"ok","service":"portworld-backend"}
 ```
 
+`GET /livez` confirms process liveness only. It does not validate provider credentials or provider readiness.
 Use `/livez` for public and Cloud Run liveness checks.
+Use `portworld ops check-config --full-readiness` for a stricter preflight that includes provider validation and a storage bootstrap probe.
+The legacy `python -m backend.cli check-config --full-readiness` path still works.
 
 ## Configuration
 
@@ -298,6 +301,15 @@ portworld ops check-config
 portworld ops check-config --full-readiness
 portworld ops bootstrap-storage
 portworld ops export-memory --output /tmp/portworld-memory-export.zip
+```
+
+Legacy compatibility path:
+
+```bash
+python3 -m backend.cli check-config
+python3 -m backend.cli check-config --full-readiness
+python3 -m backend.cli bootstrap-storage
+python3 -m backend.cli export-memory --output /tmp/portworld-memory-export.zip
 ```
 
 ## Storage

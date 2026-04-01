@@ -68,6 +68,11 @@ portworld init --setup-mode quickstart
 portworld init --setup-mode manual
 ```
 
+Example extension manifests for the filesystem MCP server:
+
+- local/source runtime: [docs/operations/examples/mcp-filesystem-local.extensions.json](https://github.com/portworld/PortWorld/blob/main/docs/operations/examples/mcp-filesystem-local.extensions.json)
+- published/container runtime: [docs/operations/examples/mcp-filesystem-published.extensions.json](https://github.com/portworld/PortWorld/blob/main/docs/operations/examples/mcp-filesystem-published.extensions.json)
+
 ## Source Checkout Workflow
 
 Use a repo checkout when you are developing PortWorld itself:
@@ -133,6 +138,15 @@ portworld update deploy
 - `portworld update deploy`: redeploy the active managed target
 - `portworld ops`: run lower-level operator tasks
 
+Common low-level operator tasks:
+
+```bash
+portworld ops check-config
+portworld ops check-config --full-readiness
+portworld ops bootstrap-storage
+portworld ops export-memory --output /tmp/portworld-memory-export.zip
+```
+
 ## Updating
 
 Upgrade an installed CLI:
@@ -179,6 +193,5 @@ Treat those defaults as validation-oriented until production hardening is comple
 ## More Documentation
 
 - Backend runtime and self-hosting: [backend/README.md](https://github.com/portworld/PortWorld/blob/main/backend/README.md)
-- Operator quickstart and self-hosting notes: [docs/operations/BACKEND_SELF_HOSTING.md](https://github.com/portworld/PortWorld/blob/main/docs/operations/BACKEND_SELF_HOSTING.md)
 - CLI release process: [docs/operations/CLI_RELEASE_PROCESS.md](https://github.com/portworld/PortWorld/blob/main/docs/operations/CLI_RELEASE_PROCESS.md)
 - Changelog: [CHANGELOG.md](https://github.com/portworld/PortWorld/blob/main/CHANGELOG.md)

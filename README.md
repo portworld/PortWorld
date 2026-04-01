@@ -220,10 +220,9 @@ Non-blocking image/profile warning in logs. Usually unrelated to network/audio f
 ## Additional Docs
 
 - Backend details: [`backend/README.md`](backend/README.md)
+- CLI details: [`portworld_cli/README.md`](portworld_cli/README.md)
 - iOS details: [`IOS/README.md`](IOS/README.md)
-- Backend operations: [`docs/operations/BACKEND_SELF_HOSTING.md`](docs/operations/BACKEND_SELF_HOSTING.md)
 - Release process: [`docs/operations/CLI_RELEASE_PROCESS.md`](docs/operations/CLI_RELEASE_PROCESS.md)
-- Archived maintainer/history docs: [`docs/archived/README.md`](docs/archived/README.md)
 
 ## License
 
