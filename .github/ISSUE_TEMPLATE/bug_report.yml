@@ -63,8 +63,8 @@ body:
     id: version
     attributes:
       label: Version/tag tested
-      description: Example: v0.2.0b3 or main
-      placeholder: v0.2.0b3
+      description: Example: v0.2.0 or latest stable release
+      placeholder: v0.2.0
 
   - type: checkboxes
     id: checks

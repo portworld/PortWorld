@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-PortWorld is currently in early beta and moving quickly.
+PortWorld is under active development and security fixes are handled on a best-effort basis.
 
 Security fixes are handled on a best-effort basis for:
 
