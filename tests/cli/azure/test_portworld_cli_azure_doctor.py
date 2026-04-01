@@ -102,12 +102,12 @@ class AzureDoctorTests(unittest.TestCase):
             mock.Mock(id="az_provider_microsoft_dbforpostgresql_registered", status="pass"),
         ],
     )
-    @mock.patch("portworld_cli.azure.doctor.run_az_json")
+    @mock.patch("portworld_cli.azure.doctor.AzureAdapters.create")
     @mock.patch("portworld_cli.azure.doctor.azure_cli_available", return_value=True)
     def test_valid_configuration_passes_core_checks(
         self,
         _available: mock.Mock,
-        run_az_json: mock.Mock,
+        create_adapters: mock.Mock,
         _provider_registration_checks: mock.Mock,
         _resource_group_exists_check: mock.Mock,
         _acr_exists_check: mock.Mock,
@@ -117,10 +117,12 @@ class AzureDoctorTests(unittest.TestCase):
         _container_apps_environment_exists_check: mock.Mock,
         _container_app_checks: mock.Mock,
     ) -> None:
-        run_az_json.side_effect = [
+        adapters = mock.Mock()
+        adapters.compute.run_json.side_effect = [
             mock.Mock(ok=True, value={"name": "containerapp"}, message=None),
             mock.Mock(ok=True, value={"id": "sub-1", "tenantId": "tenant-1"}, message=None),
         ]
+        create_adapters.return_value = adapters
         evaluation = evaluate_azure_container_apps_readiness(
             explicit_subscription=None,
             explicit_resource_group="rg",

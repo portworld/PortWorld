@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections import OrderedDict
 import unittest
 
-from portworld_cli.azure.deploy import _ResolvedAzureDeployConfig, _build_runtime_env_vars
+from portworld_cli.azure.stages.config import ResolvedAzureDeployConfig
+from portworld_cli.azure.stages.container_app_runtime import build_runtime_env_vars
 
 
 class AzureRuntimeEnvVarsTests(unittest.TestCase):
@@ -15,7 +16,7 @@ class AzureRuntimeEnvVarsTests(unittest.TestCase):
                 ("FOO", "bar"),
             ]
         )
-        config = _ResolvedAzureDeployConfig(
+        config = ResolvedAzureDeployConfig(
             runtime_source="source",
             image_source_mode="source_build",
             subscription_id="sub-123",
@@ -40,7 +41,7 @@ class AzureRuntimeEnvVarsTests(unittest.TestCase):
             published_image_ref=None,
         )
 
-        env = _build_runtime_env_vars(
+        env = build_runtime_env_vars(
             env_values,
             config,
             database_url="postgresql://user:pass@db.example:5432/app",

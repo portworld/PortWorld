@@ -14,8 +14,8 @@ class ProviderCatalogAWSTests(unittest.TestCase):
         self.assertEqual(provider.kind, "cloud")
         self.assertIn("aws-ecs-fargate", provider.aliases)
         self.assertIn("deploy", provider.capability_tags)
-        self.assertNotIn("logs", provider.capability_tags)
-        self.assertNotIn("update_deploy", provider.capability_tags)
+        self.assertIn("logs", provider.capability_tags)
+        self.assertIn("update_deploy", provider.capability_tags)
 
 
 if __name__ == "__main__":

@@ -5,21 +5,20 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
-from portworld_cli.azure.deploy import (
-    _DeployMutationResult,
-    DeployAzureContainerAppsOptions,
-    _ResolvedAzureDeployConfig,
-    _run_azure_deploy_mutations,
-    _split_runtime_env_for_azure,
-    run_deploy_azure_container_apps,
+from portworld_cli.azure.deploy import DeployAzureContainerAppsOptions, run_deploy_azure_container_apps
+from portworld_cli.azure.stages.config import ResolvedAzureDeployConfig
+from portworld_cli.azure.stages.container_app_runtime import (
+    AzureDeployMutationResult,
+    run_azure_deploy_mutations,
+    split_runtime_env_for_azure,
 )
 from portworld_cli.context import CLIContext
 from portworld_cli.deploy.config import DeployStageError
 from portworld_cli.deploy_artifacts import IMAGE_SOURCE_MODE_SOURCE_BUILD
 
 
-def _base_config() -> _ResolvedAzureDeployConfig:
-    return _ResolvedAzureDeployConfig(
+def _base_config() -> ResolvedAzureDeployConfig:
+    return ResolvedAzureDeployConfig(
         runtime_source="source",
         image_source_mode=IMAGE_SOURCE_MODE_SOURCE_BUILD,
         subscription_id="sub-1",
@@ -47,18 +46,18 @@ def _base_config() -> _ResolvedAzureDeployConfig:
 
 class AzureDeployTests(unittest.TestCase):
     @mock.patch("portworld_cli.azure.deploy.write_deploy_state")
-    @mock.patch("portworld_cli.azure.deploy._probe_ws", return_value=True)
-    @mock.patch("portworld_cli.azure.deploy._probe_livez", return_value=True)
+    @mock.patch("portworld_cli.azure.deploy.probe_ws", return_value=True)
+    @mock.patch("portworld_cli.azure.deploy.probe_livez", return_value=True)
     @mock.patch(
-        "portworld_cli.azure.deploy._run_azure_deploy_mutations",
-        return_value=_DeployMutationResult(
+        "portworld_cli.azure.deploy.run_azure_deploy_mutations",
+        return_value=AzureDeployMutationResult(
             fqdn="app.westeurope.azurecontainerapps.io",
             database_url="postgresql://user:pass@db:5432/app",
             image_uri="pw.azurecr.io/app-backend:abc123",
         ),
     )
     @mock.patch("portworld_cli.azure.deploy._confirm_mutations")
-    @mock.patch("portworld_cli.azure.deploy._resolve_azure_deploy_config")
+    @mock.patch("portworld_cli.azure.deploy.resolve_azure_deploy_config")
     @mock.patch("portworld_cli.azure.deploy.load_deploy_session")
     @mock.patch("portworld_cli.azure.deploy.azure_cli_available", return_value=True)
     def test_success_runs_mutations_then_writes_state(
@@ -108,9 +107,9 @@ class AzureDeployTests(unittest.TestCase):
         self.assertTrue(any(stage.get("stage") == "mutation_plan" for stage in stages))
 
     @mock.patch("portworld_cli.azure.deploy.write_deploy_state")
-    @mock.patch("portworld_cli.azure.deploy._run_azure_deploy_mutations")
+    @mock.patch("portworld_cli.azure.deploy.run_azure_deploy_mutations")
     @mock.patch("portworld_cli.azure.deploy._confirm_mutations")
-    @mock.patch("portworld_cli.azure.deploy._resolve_azure_deploy_config")
+    @mock.patch("portworld_cli.azure.deploy.resolve_azure_deploy_config")
     @mock.patch("portworld_cli.azure.deploy.load_deploy_session")
     @mock.patch("portworld_cli.azure.deploy.azure_cli_available", return_value=True)
     def test_failure_during_mutation_does_not_write_state(
@@ -160,21 +159,25 @@ class AzureDeployTests(unittest.TestCase):
         self.assertIn("next:", result.message or "")
         write_state.assert_not_called()
 
-    @mock.patch("portworld_cli.azure.deploy._wait_for_container_app_readiness", return_value="app.westeurope.azurecontainerapps.io")
-    @mock.patch("portworld_cli.azure.deploy._ensure_postgres_and_database_url", return_value="postgresql://user:pass@db:5432/app")
-    @mock.patch("portworld_cli.azure.deploy._ensure_container_apps_environment")
-    @mock.patch("portworld_cli.azure.deploy._ensure_storage")
     @mock.patch(
-        "portworld_cli.azure.deploy._ensure_acr",
+        "portworld_cli.azure.stages.container_app_runtime.wait_for_container_app_readiness",
+        return_value="app.westeurope.azurecontainerapps.io",
+    )
+    @mock.patch(
+        "portworld_cli.azure.stages.container_app_runtime.ensure_postgres_and_database_url",
+        return_value="postgresql://user:pass@db:5432/app",
+    )
+    @mock.patch("portworld_cli.azure.stages.container_app_runtime.ensure_container_apps_environment")
+    @mock.patch("portworld_cli.azure.stages.container_app_runtime.ensure_storage")
+    @mock.patch(
+        "portworld_cli.azure.stages.container_app_runtime.ensure_acr",
         return_value=("pw.azurecr.io", "acr-user", "acr-password"),
     )
-    @mock.patch("portworld_cli.azure.deploy._set_container_app_registry_credentials")
-    @mock.patch("portworld_cli.azure.deploy._ensure_resource_provider")
-    @mock.patch("portworld_cli.azure.deploy._ensure_resource_group")
-    @mock.patch("portworld_cli.azure.deploy.run_az_json")
+    @mock.patch("portworld_cli.azure.stages.container_app_runtime.set_container_app_registry_credentials")
+    @mock.patch("portworld_cli.azure.stages.container_app_runtime.ensure_resource_provider")
+    @mock.patch("portworld_cli.azure.stages.container_app_runtime.ensure_resource_group")
     def test_mutations_use_secretrefs_for_sensitive_env_values(
         self,
-        run_az_json: mock.Mock,
         _ensure_resource_group: mock.Mock,
         _ensure_resource_provider: mock.Mock,
         _set_container_app_registry_credentials: mock.Mock,
@@ -184,7 +187,8 @@ class AzureDeployTests(unittest.TestCase):
         _ensure_postgres_and_database_url: mock.Mock,
         _wait_ready: mock.Mock,
     ) -> None:
-        run_az_json.side_effect = [
+        adapters = mock.Mock()
+        adapters.compute.run_json.side_effect = [
             mock.Mock(ok=True, value={}, message=None),  # account set
             mock.Mock(ok=True, value={"name": "app"}, message=None),  # app show
             mock.Mock(ok=True, value={"name": "app"}, message=None),  # app update
@@ -196,16 +200,21 @@ class AzureDeployTests(unittest.TestCase):
                 "BACKEND_BEARER_TOKEN": "token",
             }
         )
-        result = _run_azure_deploy_mutations(config=_base_config(), env_values=env_values, stage_records=stages)
+        result = run_azure_deploy_mutations(
+            config=_base_config(),
+            env_values=env_values,
+            stage_records=stages,
+            adapters=adapters,
+        )
         self.assertEqual(result.fqdn, "app.westeurope.azurecontainerapps.io")
-        update_call = run_az_json.call_args_list[2].args[0]
+        update_call = adapters.compute.run_json.call_args_list[2].args[0]
         self.assertIn("--secrets", update_call)
         self.assertIn("--set-env-vars", update_call)
         self.assertTrue(any(value.startswith("BACKEND_DATABASE_URL=secretref:") for value in update_call))
         self.assertTrue(any(value.startswith("OPENAI_API_KEY=secretref:") for value in update_call))
 
     def test_split_runtime_env_for_azure_classifies_sensitive_keys(self) -> None:
-        plain, secrets = _split_runtime_env_for_azure(
+        plain, secrets = split_runtime_env_for_azure(
             OrderedDict(
                 {
                     "BACKEND_PROFILE": "production",
