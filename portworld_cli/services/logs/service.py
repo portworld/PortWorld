@@ -70,11 +70,12 @@ def run_logs_gcp_cloud_run(
         if not target.service_name:
             raise LogsUsageError("Missing Cloud Run service name. Pass --service or configure it first.")
     except Exception as exc:
-        return map_command_exception(
+        mapped = map_command_exception(
             exc,
             policy=ErrorMappingPolicy(command_name=command_name),
             usage_error_types=(LogsUsageError,),
         )
+        return _with_target_payload(mapped, target="gcp-cloud-run")
 
     adapters = GCPAdapters.create()
     result = adapters.logging.read_cloud_run_logs(
@@ -139,11 +140,12 @@ def run_logs_aws_ecs_fargate(
         if not target.service_name:
             raise LogsUsageError("Missing AWS ECS service name. Pass --service or configure it first.")
     except Exception as exc:
-        return map_command_exception(
+        mapped = map_command_exception(
             exc,
             policy=ErrorMappingPolicy(command_name=command_name),
             usage_error_types=(LogsUsageError,),
         )
+        return _with_target_payload(mapped, target="aws-ecs-fargate")
 
     adapters = AWSAdapters.create()
     log_group_name = f"/ecs/{target.service_name}"
@@ -286,11 +288,12 @@ def run_logs_azure_container_apps(
         if not target.app_name:
             raise LogsUsageError("Missing Azure Container App name. Pass --app or configure it first.")
     except Exception as exc:
-        return map_command_exception(
+        mapped = map_command_exception(
             exc,
             policy=ErrorMappingPolicy(command_name=command_name),
             usage_error_types=(LogsUsageError,),
         )
+        return _with_target_payload(mapped, target="azure-container-apps")
 
     log_args = [
         "containerapp",
@@ -503,4 +506,17 @@ def _gcp_failure_result(*, error: GCPError, command_name: str) -> CommandResult:
         message=error.message,
         data=payload,
         exit_code=1,
+    )
+
+
+def _with_target_payload(result: CommandResult, *, target: str) -> CommandResult:
+    payload = dict(result.data)
+    payload["target"] = target
+    return CommandResult(
+        ok=result.ok,
+        command=result.command,
+        message=result.message,
+        data=payload,
+        checks=result.checks,
+        exit_code=result.exit_code,
     )

@@ -4,6 +4,7 @@ import click
 
 from portworld_cli.context import CLIContext
 from portworld_cli.output import exit_with_result
+from portworld_cli.services.cloud_contract import AWSCloudOptions, AzureCloudOptions, CloudProviderOptions, GCPCloudOptions
 from portworld_cli.services.update import run_update_cli, run_update_deploy
 from portworld_cli.services.update.service import UpdateDeployOptions
 
@@ -24,18 +25,18 @@ def update_cli_command(cli_context: CLIContext, json_output: bool) -> None:
 
 
 @update_group.command("deploy")
-@click.option("--project", default=None, help="Target GCP project id.")
-@click.option("--region", default=None, help="Target GCP region.")
-@click.option("--service", default=None, help="Cloud Run service name.")
-@click.option("--artifact-repo", default=None, help="Artifact Registry repository name.")
-@click.option("--sql-instance", default=None, help="Cloud SQL instance name.")
-@click.option("--database", default=None, help="Cloud SQL database name.")
-@click.option("--bucket", default=None, help="GCS bucket name for managed memory objects.")
-@click.option("--min-instances", type=int, default=None, help="Minimum Cloud Run instances.")
-@click.option("--max-instances", type=int, default=None, help="Maximum Cloud Run instances.")
-@click.option("--concurrency", type=int, default=None, help="Cloud Run request concurrency.")
-@click.option("--cpu", default=None, help="Cloud Run CPU setting, for example 1.")
-@click.option("--memory", default=None, help="Cloud Run memory setting, for example 1Gi.")
+@click.option("--gcp-project", default=None, help="Target GCP project id.")
+@click.option("--gcp-region", default=None, help="Target GCP region.")
+@click.option("--gcp-service", default=None, help="Cloud Run service name.")
+@click.option("--gcp-artifact-repo", default=None, help="Artifact Registry repository name.")
+@click.option("--gcp-sql-instance", default=None, help="Cloud SQL instance name.")
+@click.option("--gcp-database", default=None, help="Cloud SQL database name.")
+@click.option("--gcp-bucket", default=None, help="GCS bucket name for managed memory objects.")
+@click.option("--gcp-min-instances", type=int, default=None, help="Minimum Cloud Run instances.")
+@click.option("--gcp-max-instances", type=int, default=None, help="Maximum Cloud Run instances.")
+@click.option("--gcp-concurrency", type=int, default=None, help="Cloud Run request concurrency.")
+@click.option("--gcp-cpu", default=None, help="Cloud Run CPU setting, for example 1.")
+@click.option("--gcp-memory", default=None, help="Cloud Run memory setting, for example 1Gi.")
 @click.option("--aws-region", default=None, help="Target AWS region.")
 @click.option("--aws-service", default=None, help="AWS ECS service name.")
 @click.option("--aws-vpc-id", default=None, help="Override VPC id for RDS provisioning.", hidden=True)
@@ -58,18 +59,18 @@ def update_cli_command(cli_context: CLIContext, json_output: bool) -> None:
 @click.pass_obj
 def update_deploy_command(
     cli_context: CLIContext,
-    project: str | None,
-    region: str | None,
-    service: str | None,
-    artifact_repo: str | None,
-    sql_instance: str | None,
-    database: str | None,
-    bucket: str | None,
-    min_instances: int | None,
-    max_instances: int | None,
-    concurrency: int | None,
-    cpu: str | None,
-    memory: str | None,
+    gcp_project: str | None,
+    gcp_region: str | None,
+    gcp_service: str | None,
+    gcp_artifact_repo: str | None,
+    gcp_sql_instance: str | None,
+    gcp_database: str | None,
+    gcp_bucket: str | None,
+    gcp_min_instances: int | None,
+    gcp_max_instances: int | None,
+    gcp_concurrency: int | None,
+    gcp_cpu: str | None,
+    gcp_memory: str | None,
     aws_region: str | None,
     aws_service: str | None,
     aws_vpc_id: str | None,
@@ -96,37 +97,45 @@ def update_deploy_command(
         run_update_deploy(
             cli_context,
             UpdateDeployOptions(
-                project=project,
-                region=region,
-                service=service,
-                artifact_repo=artifact_repo,
-                sql_instance=sql_instance,
-                database=database,
-                bucket=bucket,
                 tag=tag,
-                min_instances=min_instances,
-                max_instances=max_instances,
-                concurrency=concurrency,
-                cpu=cpu,
-                memory=memory,
-                aws_region=aws_region,
-                aws_service=aws_service,
-                aws_vpc_id=aws_vpc_id,
-                aws_subnet_ids=aws_subnet_ids,
-                aws_database_url=aws_database_url,
-                aws_s3_bucket=aws_s3_bucket,
-                aws_ecr_repo=aws_ecr_repo,
-                azure_subscription=azure_subscription,
-                azure_resource_group=azure_resource_group,
-                azure_region=azure_region,
-                azure_environment=azure_environment,
-                azure_app=azure_app,
-                azure_database_url=azure_database_url,
-                azure_storage_account=azure_storage_account,
-                azure_blob_container=azure_blob_container,
-                azure_blob_endpoint=azure_blob_endpoint,
-                azure_acr_server=azure_acr_server,
-                azure_acr_repo=azure_acr_repo,
+                cloud=CloudProviderOptions(
+                    gcp=GCPCloudOptions(
+                        project=gcp_project,
+                        region=gcp_region,
+                        service=gcp_service,
+                        artifact_repo=gcp_artifact_repo,
+                        sql_instance=gcp_sql_instance,
+                        database=gcp_database,
+                        bucket=gcp_bucket,
+                        min_instances=gcp_min_instances,
+                        max_instances=gcp_max_instances,
+                        concurrency=gcp_concurrency,
+                        cpu=gcp_cpu,
+                        memory=gcp_memory,
+                    ),
+                    aws=AWSCloudOptions(
+                        region=aws_region,
+                        service=aws_service,
+                        vpc_id=aws_vpc_id,
+                        subnet_ids=aws_subnet_ids,
+                        database_url=aws_database_url,
+                        s3_bucket=aws_s3_bucket,
+                        ecr_repo=aws_ecr_repo,
+                    ),
+                    azure=AzureCloudOptions(
+                        subscription=azure_subscription,
+                        resource_group=azure_resource_group,
+                        region=azure_region,
+                        environment=azure_environment,
+                        app=azure_app,
+                        database_url=azure_database_url,
+                        storage_account=azure_storage_account,
+                        blob_container=azure_blob_container,
+                        blob_endpoint=azure_blob_endpoint,
+                        acr_server=azure_acr_server,
+                        acr_repo=azure_acr_repo,
+                    ),
+                ),
             ),
         ),
     )

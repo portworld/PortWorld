@@ -40,7 +40,7 @@ def build_next_steps(
     bearer_secret_name: str,
 ) -> list[str]:
     if service_url is None:
-        return [f"Run `portworld doctor --target gcp-cloud-run --project {project_id} --region {region}`"]
+        return [f"Run `portworld doctor --target gcp-cloud-run --gcp-project {project_id} --gcp-region {region}`"]
     base_url = service_url.rstrip("/")
     return [
         f"curl {base_url}/livez",
@@ -48,7 +48,7 @@ def build_next_steps(
             "curl -H \"Authorization: Bearer $(gcloud secrets versions access latest "
             f"--secret={bearer_secret_name} --project={project_id})\" {base_url}/readyz"
         ),
-        f"Run `portworld doctor --target gcp-cloud-run --project {project_id} --region {region}`",
+        f"Run `portworld doctor --target gcp-cloud-run --gcp-project {project_id} --gcp-region {region}`",
     ]
 
 

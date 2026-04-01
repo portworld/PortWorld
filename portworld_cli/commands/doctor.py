@@ -4,6 +4,7 @@ import click
 
 from portworld_cli.context import CLIContext
 from portworld_cli.output import exit_with_result
+from portworld_cli.services.cloud_contract import AWSCloudOptions, AzureCloudOptions, CloudProviderOptions, GCPCloudOptions
 from portworld_cli.services.doctor import DoctorOptions, run_doctor
 
 
@@ -21,8 +22,8 @@ from portworld_cli.services.doctor import DoctorOptions, run_doctor
     default=False,
     help="Run the storage bootstrap probe in addition to standard local checks.",
 )
-@click.option("--project", default=None, help="Target GCP project id for future gcp-cloud-run checks.")
-@click.option("--region", default=None, help="Target GCP region for future gcp-cloud-run checks.")
+@click.option("--gcp-project", default=None, help="Target GCP project id for gcp-cloud-run checks.")
+@click.option("--gcp-region", default=None, help="Target GCP region for gcp-cloud-run checks.")
 @click.option("--aws-region", default=None, help="Target AWS region for aws-ecs-fargate checks.")
 @click.option("--aws-service", default=None, help="Target ECS service name.")
 @click.option("--aws-vpc-id", default=None, help="Override VPC id for one-click RDS provisioning.", hidden=True)
@@ -43,8 +44,8 @@ def doctor_command(
     cli_context: CLIContext,
     target: str,
     full: bool,
-    project: str | None,
-    region: str | None,
+    gcp_project: str | None,
+    gcp_region: str | None,
     aws_region: str | None,
     aws_service: str | None,
     aws_vpc_id: str | None,
@@ -69,23 +70,28 @@ def doctor_command(
             DoctorOptions(
                 target=target,
                 full=full,
-                project=project,
-                region=region,
-                aws_region=aws_region,
-                aws_service=aws_service,
-                aws_vpc_id=aws_vpc_id,
-                aws_subnet_ids=aws_subnet_ids,
-                aws_database_url=aws_database_url,
-                aws_s3_bucket=aws_s3_bucket,
-                azure_subscription=azure_subscription,
-                azure_resource_group=azure_resource_group,
-                azure_region=azure_region,
-                azure_environment=azure_environment,
-                azure_app=azure_app,
-                azure_database_url=azure_database_url,
-                azure_storage_account=azure_storage_account,
-                azure_blob_container=azure_blob_container,
-                azure_blob_endpoint=azure_blob_endpoint,
+                cloud=CloudProviderOptions(
+                    gcp=GCPCloudOptions(project=gcp_project, region=gcp_region),
+                    aws=AWSCloudOptions(
+                        region=aws_region,
+                        service=aws_service,
+                        vpc_id=aws_vpc_id,
+                        subnet_ids=aws_subnet_ids,
+                        database_url=aws_database_url,
+                        s3_bucket=aws_s3_bucket,
+                    ),
+                    azure=AzureCloudOptions(
+                        subscription=azure_subscription,
+                        resource_group=azure_resource_group,
+                        region=azure_region,
+                        environment=azure_environment,
+                        app=azure_app,
+                        database_url=azure_database_url,
+                        storage_account=azure_storage_account,
+                        blob_container=azure_blob_container,
+                        blob_endpoint=azure_blob_endpoint,
+                    ),
+                ),
             ),
         ),
     )
