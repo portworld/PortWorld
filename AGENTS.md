@@ -1,101 +1,148 @@
 # AGENTS.md
 
 > Detailed iOS implementation guidance lives in `IOS/AGENTS.md`.
-> This root file contains stable repo-wide rules.
+> This root file contains stable repo-wide rules and current repo boundaries.
 
 ---
 
-## Platform Scope
+## Product Surface
 
-- Primary platform: **iOS 17.0+**
-- Target device: iPhone (primary); Meta Ray-Ban Gen 2 (future — deferred until near publishing)
-- Default to iOS-first decisions unless the task explicitly targets another platform
+PortWorld currently has four real product/code surfaces:
+
+- `IOS/PortWorld/`
+  Active iOS app runtime, including phone and Meta glasses routes
+- `backend/`
+  Active Python backend runtime, operator entrypoints, and deploy-facing server code
+- `portworld_cli/`
+  Active public CLI package published as `portworld`
+- `portworld_shared/`
+  Shared Python contract layer used by the CLI and backend
+
+Default to the subsystem the user is actually touching. Do not treat the repo as iOS-only.
 
 ---
 
-## Current Repo State
+## Current Reality
 
-The codebase is a hackathon MVP being cleaned up and stabilized for production.
-
-**Backend** — active focus: removing non-production code, fixing gaps and reliability issues, making the backend deployable. Next: a developer CLI for easy self-hosting and deployment.
-
-**iOS app** — active focus: clean UI/UX polish. Next: code cleanup and App Store publishing prep. Glasses / mock-device / phone-specific features will be removed or deferred as the app approaches publishing; Ray-Ban Meta Gen 2 hardware testing will happen once the app is close to ready.
-
-Historical context lives in git history. Use it only for migration context, historical rationale, or explicit user-requested research.
+- The repo is close to a release-shaped state, not just a hackathon prototype cleanup pass.
+- Meta glasses support is implemented in the iOS app and should be treated as active product surface, not deferred-only roadmap work.
+- The public CLI is a first-class release target. It is intended to be installable from PyPI and usable without cloning the repo.
+- The backend is a first-class release target. Published/container workflows are expected to use GHCR backend images.
+- `portworld_shared/` is the shared contract boundary. Do not recreate `backend` imports inside `portworld_cli` for metadata, versioning, or packaging glue.
+- Archived docs and git history are historical context only. They are not implementation authority for new work.
 
 Golden rules:
 
 1. Do not add features unless the user explicitly requests them.
-2. Always leave the app compilable after every change.
-3. No secrets in source. Use xcconfig or environment-based injection.
+2. Keep the touched subsystem working after every change.
+3. No secrets in source, examples, screenshots, or generated release artifacts.
+4. Prefer stable package/runtime boundaries over cross-import shortcuts.
 
 ---
 
-## Active Source Of Truth
+## Source Of Truth
 
 - Active iOS runtime: `IOS/PortWorld/`
-- Historical iOS runtime context: git history
-- Active backend: `backend/`
+- Active backend runtime: `backend/`
+- Active public CLI: `portworld_cli/`
+- Active shared Python contracts: `portworld_shared/`
+- Historical docs: `docs/archived/`
+- Historical runtime context: git history
 
-Do not treat legacy code or historical context as implementation authority over the active runtime.
+Use archived docs or old code only for migration context, rationale lookup, or explicit user-requested research.
 
 ---
 
 ## Verification Workflow
 
-Run these checks after any non-trivial change:
+Choose verification based on the subsystem you changed.
+
+### iOS changes
 
 ```text
-1. Build:       xcodebuild build — zero errors, zero new warnings
-2. Unit tests:  xcodebuild test (terminal) — DO NOT use test_sim
-3. UI smoke:    Manual-only gate, and only when the user explicitly asks for it
+1. Build:       xcodebuild build
+2. Unit tests:  xcodebuild test (terminal only)
+3. UI smoke:    manual-only and only when the user explicitly asks
 ```
 
-For small, localized fixes with no API or concurrency surface change, build-only verification is sufficient.
-
-### Backend Test Policy
-
-- Do not add backend pytest files by default.
-- Do not run backend pytest by default.
-- Backend regression tests are deferred unless the user explicitly asks for them.
-- For backend work, prefer implementation, source inspection, and manual/runtime validation over speculative pytest maintenance.
-
-### Simulator Guard
-
+- Build after any non-trivial iOS change.
 - Do not boot/install/launch Simulator unless the user explicitly asks for UI smoke validation.
-- Sub-agents must never run simulator launch commands.
-- In parallel work, default verification is build only.
-- `test_sim` is banned with no exceptions.
+- `test_sim` is banned.
+
+### Backend / CLI / shared Python changes
+
+- Run the smallest verification that proves the changed path still works.
+- Preferred checks:
+  - `python -m py_compile` on touched Python files
+  - `python -m build --sdist --wheel` when packaging, release, or install behavior changes
+  - targeted CLI smoke checks such as `portworld --help`, `portworld --version`, `portworld providers list`, `portworld ops ...`, or other directly affected commands
+  - targeted runtime/manual checks when touching backend behavior
+
+### Backend pytest policy
+
+- Existing backend tests live under `tests/backend/`.
+- Do not add backend pytest files by default.
+- Do not run the broad backend pytest suite by default.
+- Use targeted pytest only when the user explicitly asks for it or when a change clearly depends on a specific existing test-covered contract.
+- For most backend work, prefer implementation, source inspection, packaging checks, and focused runtime validation over speculative test churn.
+
+For small, localized docs or metadata changes, lightweight verification is enough.
 
 ---
 
-## Concurrency Rules
+## Release Hygiene
 
-| Where | Primitive |
+- Treat `portworld` PyPI packaging as a public interface.
+- The CLI wheel/sdist must not accidentally ship repo-local junk, generated artifacts, or backend source when the package boundary says it should not.
+- Published CLI workflows should work without a repo checkout.
+- Source-checkout workflows may depend on the local repo, but that boundary should stay explicit.
+- Do not commit:
+  - `.env` files with real values
+  - build outputs
+  - `__pycache__`
+  - `.DS_Store`
+  - local run logs or exported artifacts unless the user explicitly asks
+
+When touching release-sensitive files such as `pyproject.toml`, installer flows, package discovery, or build inputs, verify the resulting artifacts, not just the source diff.
+
+---
+
+## Concurrency And Code Quality
+
+### Swift / iOS
+
+| Context | Primitive |
 |---|---|
-| UI state, ViewModels, Coordinators, SessionOrchestrator | `@MainActor` |
+| UI state, ViewModels, Coordinators, session orchestration | `@MainActor` |
 | Thread-isolated services | `actor` |
 | AVAudioEngine tap callback | dedicated `DispatchQueue` only |
 | Network calls | `async/await` with `URLSession` |
 
-Banned patterns:
+Banned:
 
 - `DispatchQueue.sync` outside the AVAudioEngine tap context
 - bare `print()` outside `#if DEBUG`
 - `try?` that silently discards I/O errors
 - `@unchecked Sendable` without an explanatory comment
 
+### Python / backend / CLI
+
+- Prefer explicit package boundaries over hidden runtime coupling.
+- Keep `portworld_cli` repo-free for public install flows.
+- Keep shared contract logic in `portworld_shared`, not duplicated across backend and CLI.
+- Avoid broad re-export surfaces unless they provide real user value.
+
 ---
 
-## MCP Tools
+## Tool Preference
 
 Use these tools when available:
 
 | Tool | Use for |
 |---|---|
-| **xcodebuild / Xcode MCP** | Xcode build, test, simulator, and project inspection tasks |
-| **Ref MCP** | Third-party docs, package docs, and non-Apple APIs |
-| **Apple Docs MCP** | Apple framework/API documentation |
+| Xcode / xcodebuild MCP | iOS build, test, project inspection |
+| Apple Docs MCP | Apple framework/API documentation |
+| Ref MCP | third-party package/framework documentation |
 
 If a preferred tool is unavailable, use the closest substitute and note that in the response.
 
@@ -109,6 +156,8 @@ For non-trivial changes, state:
 2. **MCP tools used**
 3. **Assumptions made**
 
+If verification was limited or a release-sensitive path was not fully tested, say so explicitly.
+
 ---
 
-> See `IOS/AGENTS.md` for the iOS-specific operational guide.
+> See `IOS/AGENTS.md` for iOS-specific operational guidance.
