@@ -21,12 +21,7 @@ The codebase is a hackathon MVP being cleaned up and stabilized for production.
 
 **iOS app** — active focus: clean UI/UX polish. Next: code cleanup and App Store publishing prep. Glasses / mock-device / phone-specific features will be removed or deferred as the app approaches publishing; Ray-Ban Meta Gen 2 hardware testing will happen once the app is close to ready.
 
-Historical docs:
-
-- `docs/archived/ios-history/`
-- `docs/archived/maintainer-roadmaps/`
-
-Use archived docs only for migration context, historical rationale, or explicit user-requested research.
+Historical context lives in git history. Use it only for migration context, historical rationale, or explicit user-requested research.
 
 Golden rules:
 
@@ -39,10 +34,10 @@ Golden rules:
 ## Active Source Of Truth
 
 - Active iOS runtime: `IOS/PortWorld/`
-- Historical iOS runtime context: `docs/archived/ios-history/` and git history
+- Historical iOS runtime context: git history
 - Active backend: `backend/`
 
-Do not treat legacy code or archived docs as implementation authority over the active runtime.
+Do not treat legacy code or historical context as implementation authority over the active runtime.
 
 ---
 

@@ -12,7 +12,7 @@ iOS-specific implementation guide for work under `IOS/`.
 - Ray-Ban Meta Gen 2 hardware testing is deferred until the app is near publishing.
 - The active DAT / wearables runtime lives under `IOS/PortWorld/Runtime/Glasses/`.
 - Any leftover `IOS/PortWorld/FutureHardware/` content should be treated as cleanup debt, not implementation authority.
-- Historical iOS runtime context lives in `../docs/archived/ios-history/` and git history.
+- Historical iOS runtime context lives in git history.
 
 ---
 
@@ -32,7 +32,7 @@ iOS-specific implementation guide for work under `IOS/`.
   Phone audio bridge
 - `IOS/PortWorld/Runtime/Glasses/`
   Active DAT / wearables lifecycle, session, and vision capture runtime
-- `../docs/archived/ios-history/`
+- git history
   Historical runtime context — reference only
 
 ---
