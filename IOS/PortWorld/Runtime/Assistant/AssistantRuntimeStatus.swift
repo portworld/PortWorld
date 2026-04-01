@@ -3,7 +3,6 @@ import Foundation
 
 struct AssistantRuntimeStatus {
   var assistantRuntimeState: AssistantRuntimeState = .inactive
-  var canActivateSelectedRoute: Bool = true
   var activationButtonTitle: String = "Activate Assistant"
   var audioModeText: String = "inactive"
   var audioStatusText: String = "idle"
@@ -18,10 +17,6 @@ struct AssistantRuntimeStatus {
   var playbackRouteText: String = "-"
   var infoText: String = ""
   var errorText: String = ""
-
-  var canActivate: Bool {
-    assistantRuntimeState == .inactive
-  }
 
   var canDeactivate: Bool {
     switch assistantRuntimeState {

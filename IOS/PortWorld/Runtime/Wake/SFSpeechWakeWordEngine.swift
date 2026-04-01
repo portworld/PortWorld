@@ -38,9 +38,7 @@ private final class SFSpeechAudioBufferRecognitionRequestAdapter: WakeWordSpeech
     requiresOnDeviceRecognition: Bool
   ) {
     base.shouldReportPartialResults = shouldReportPartialResults
-    if #available(iOS 13.0, *) {
-      base.requiresOnDeviceRecognition = requiresOnDeviceRecognition
-    }
+    base.requiresOnDeviceRecognition = requiresOnDeviceRecognition
   }
 
   var baseRequest: SFSpeechAudioBufferRecognitionRequest {

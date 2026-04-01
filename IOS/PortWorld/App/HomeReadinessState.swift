@@ -47,10 +47,10 @@ struct HomeReadinessState {
 
     self.backendStatus = backendStatus
     self.glassesStatus = glassesStatus
-    self.canActivateAssistant = HomeReadinessState.canActivateSelectedRoute(
-      settings: settings,
+    self.canActivateAssistant = HomeReadinessState.canActivateAssistant(
       runtimeStatus: runtimeStatus,
-      wearablesRuntimeManager: wearablesRuntimeManager
+      backendStatus: backendStatus,
+      glassesStatus: glassesStatus
     )
 
     let hero = HomeReadinessState.makeHeroState(
@@ -65,14 +65,17 @@ struct HomeReadinessState {
 }
 
 private extension HomeReadinessState {
-  static func canActivateSelectedRoute(
-    settings: AppSettingsStore.Settings,
+  static func canActivateAssistant(
     runtimeStatus: AssistantRuntimeStatus,
-    wearablesRuntimeManager: WearablesRuntimeManager
+    backendStatus: HomeStatusRowState,
+    glassesStatus: HomeStatusRowState
   ) -> Bool {
-    guard settings.isBackendReady else { return false }
     guard runtimeStatus.assistantRuntimeState != .deactivating else { return false }
-    return wearablesRuntimeManager.isGlassesActivationReady
+    return isActivationReady(backendStatus) && isActivationReady(glassesStatus)
+  }
+
+  static func isActivationReady(_ status: HomeStatusRowState) -> Bool {
+    status.tone == .success && status.action == nil
   }
 
   static func makeBackendStatus(
@@ -387,7 +390,7 @@ private extension HomeReadinessState {
   ) -> (summary: String, detail: String) {
     switch runtimeStatus.assistantRuntimeState {
     case .inactive:
-      if backendStatus.label != "Ready" {
+      if isActivationReady(backendStatus) == false {
         return ("Backend needs attention", backendStatus.detail)
       }
 

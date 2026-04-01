@@ -55,7 +55,7 @@ private extension AgentView {
     } else {
       PWPrimaryButton(
         title: runtimeStatus.activationButtonTitle,
-        isDisabled: readiness.canActivateAssistant == false || runtimeStatus.canActivateSelectedRoute == false || isStopping
+        isDisabled: readiness.canActivateAssistant == false || isStopping
       ) {
         onActivateAssistant()
       }

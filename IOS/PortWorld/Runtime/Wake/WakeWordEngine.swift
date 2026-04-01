@@ -80,7 +80,6 @@ extension WakeWordEngine {
 
 enum WakeWordEngineError: LocalizedError {
   case notListening
-  case recognizerUnavailable
   case onDeviceRecognitionUnavailable
   case recognitionTaskCreationFailed
 
@@ -88,8 +87,6 @@ enum WakeWordEngineError: LocalizedError {
     switch self {
     case .notListening:
       return "Wake engine is not listening"
-    case .recognizerUnavailable:
-      return "Speech recognizer is unavailable"
     case .onDeviceRecognitionUnavailable:
       return "On-device speech recognition is unavailable for this locale/device"
     case .recognitionTaskCreationFailed:

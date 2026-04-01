@@ -1,35 +1,28 @@
 import MWDATCamera
 import MWDATCore
 import Foundation
-import SwiftUI
+import UIKit
 
 @MainActor
 final class DeviceSessionCoordinator {
   struct Hooks {
     var onVideoFrame: ((UIImage, Int64) -> Void)?
-    var onPhotoCaptured: ((UIImage, Int64) -> Void)?
     var onStreamError: ((StreamSessionError) -> Void)?
     var onStreamingStateChanged: ((StreamSessionState) -> Void)?
-    var onActiveDeviceChanged: ((Bool) -> Void)?
   }
 
   private let wearables: WearablesInterface
   private let deviceSelector: AutoDeviceSelector
   private var streamSession: StreamSession
-  private var deviceMonitorTask: Task<Void, Never>?
 
   private var stateListenerToken: AnyListenerToken?
   private var videoFrameListenerToken: AnyListenerToken?
   private var errorListenerToken: AnyListenerToken?
-  private var photoDataListenerToken: AnyListenerToken?
-
-  private let frameRate: UInt
   var hooks: Hooks
 
   init(wearables: WearablesInterface, frameRate: UInt = 24, hooks: Hooks? = nil) {
     self.wearables = wearables
     self.deviceSelector = AutoDeviceSelector(wearables: wearables)
-    self.frameRate = frameRate
     self.hooks = hooks ?? Hooks()
 
     let streamConfig = StreamSessionConfig(
@@ -40,11 +33,6 @@ final class DeviceSessionCoordinator {
     self.streamSession = StreamSession(streamSessionConfig: streamConfig, deviceSelector: deviceSelector)
 
     bindListeners()
-    startDeviceMonitor()
-  }
-
-  deinit {
-    deviceMonitorTask?.cancel()
   }
 
   func ensureCameraPermissionIfNeeded() async throws {
@@ -68,19 +56,6 @@ final class DeviceSessionCoordinator {
     await streamSession.stop()
   }
 
-  func capturePhoto() {
-    streamSession.capturePhoto(format: .jpeg)
-  }
-
-  private func startDeviceMonitor() {
-    deviceMonitorTask = Task { @MainActor [weak self] in
-      guard let self else { return }
-      for await device in deviceSelector.activeDeviceStream() {
-        hooks.onActiveDeviceChanged?(device != nil)
-      }
-    }
-  }
-
   private func bindListeners() {
     stateListenerToken = streamSession.statePublisher.listen { [weak self] state in
       Task { @MainActor [weak self] in
@@ -99,14 +74,6 @@ final class DeviceSessionCoordinator {
     errorListenerToken = streamSession.errorPublisher.listen { [weak self] error in
       Task { @MainActor [weak self] in
         self?.hooks.onStreamError?(error)
-      }
-    }
-
-    photoDataListenerToken = streamSession.photoDataPublisher.listen { [weak self] photoData in
-      Task { @MainActor [weak self] in
-        guard let self else { return }
-        guard let uiImage = UIImage(data: photoData.data) else { return }
-        hooks.onPhotoCaptured?(uiImage, Clocks.nowMs())
       }
     }
   }

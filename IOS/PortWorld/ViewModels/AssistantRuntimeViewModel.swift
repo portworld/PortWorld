@@ -334,7 +334,6 @@ final class AssistantRuntimeViewModel: ObservableObject {
 
   private func publishMergedStatus() {
     var mergedStatus = controllerStatus
-    mergedStatus.canActivateSelectedRoute = canActivateGlassesRoute
     mergedStatus.activationButtonTitle = activationButtonTitle()
 
     status = mergedStatus
