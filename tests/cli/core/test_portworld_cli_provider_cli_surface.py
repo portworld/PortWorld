@@ -72,6 +72,24 @@ class ProviderCLISurfaceTests(unittest.TestCase):
         self.assertIn("disable", result.output)
         self.assertIn("doctor", result.output)
 
+    def test_doctor_help_uses_gcp_prefixed_cloud_flags(self) -> None:
+        result = self.runner.invoke(cli, ["doctor", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("--gcp-project", result.output)
+        self.assertIn("--gcp-region", result.output)
+        self.assertNotIn("--project TEXT", result.output)
+        self.assertNotIn("--region TEXT", result.output)
+
+    def test_update_deploy_help_uses_gcp_prefixed_cloud_flags(self) -> None:
+        result = self.runner.invoke(cli, ["update", "deploy", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("--gcp-project", result.output)
+        self.assertIn("--gcp-region", result.output)
+        self.assertIn("--gcp-service", result.output)
+        self.assertIn("--gcp-artifact-repo", result.output)
+        self.assertNotIn("--project TEXT", result.output)
+        self.assertNotIn("--artifact-repo TEXT", result.output)
+
 
 if __name__ == "__main__":
     unittest.main()
