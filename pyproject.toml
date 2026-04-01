@@ -9,7 +9,7 @@ description = "PortWorld CLI for setup, self-hosting, and managed deploy workflo
 readme = "portworld_cli/README.md"
 requires-python = ">=3.11"
 license = "MIT"
-keywords = ["ai", "backend", "cli", "cloud-run", "portworld", "realtime", "self-hosting"]
+keywords = ["ai", "backend", "cli", "cloud-run", "meta", "rayban-meta", "glasses", "portworld", "realtime", "self-hosting"]
 authors = [
   {name = "PortWorld Maintainers"},
 ]
