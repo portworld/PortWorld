@@ -1,60 +1,11 @@
 from __future__ import annotations
 
-import json
 import re
 import shutil
-import subprocess
-from dataclasses import dataclass
 from urllib.parse import urlparse
-
-
-@dataclass(frozen=True, slots=True)
-class AzureCommandResult:
-    ok: bool
-    value: object | None
-    message: str | None = None
-
 
 def azure_cli_available() -> bool:
     return shutil.which("az") is not None
-
-
-def run_az_json(args: list[str]) -> AzureCommandResult:
-    completed = subprocess.run(
-        ["az", *args, "-o", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        return AzureCommandResult(
-            ok=False,
-            value=None,
-            message=(completed.stderr or completed.stdout).strip() or "Azure CLI command failed.",
-        )
-    text = (completed.stdout or "").strip()
-    if not text:
-        return AzureCommandResult(ok=True, value={})
-    try:
-        return AzureCommandResult(ok=True, value=json.loads(text))
-    except json.JSONDecodeError:
-        return AzureCommandResult(ok=False, value=None, message="Azure CLI returned non-JSON output.")
-
-
-def run_az_text(args: list[str]) -> AzureCommandResult:
-    completed = subprocess.run(
-        ["az", *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        return AzureCommandResult(
-            ok=False,
-            value=None,
-            message=(completed.stderr or completed.stdout).strip() or "Azure CLI command failed.",
-        )
-    return AzureCommandResult(ok=True, value=(completed.stdout or "").strip())
 
 
 def normalize_optional_text(value: str | None) -> str | None:

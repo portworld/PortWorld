@@ -3,12 +3,12 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
+from portworld_cli.azure.client import AzureAdapters
 from portworld_cli.azure.common import (
     azure_cli_available,
     is_postgres_url,
     normalize_optional_text,
     read_dict_string,
-    run_az_json,
     validate_blob_container_name,
     validate_blob_endpoint,
     validate_storage_account_name,
@@ -141,8 +141,10 @@ def evaluate_azure_container_apps_readiness(
     )
 
     tenant_id: str | None = None
+    azure_adapters = AzureAdapters.create() if cli_ok else None
     if cli_ok:
-        extension = run_az_json(["extension", "show", "--name", "containerapp"])
+        assert azure_adapters is not None
+        extension = azure_adapters.compute.run_json(["extension", "show", "--name", "containerapp"])
         checks.append(
             DiagnosticCheck(
                 id="az_containerapp_extension_ready",
@@ -160,7 +162,7 @@ def evaluate_azure_container_apps_readiness(
             )
         )
 
-        account = run_az_json(["account", "show"])
+        account = azure_adapters.compute.run_json(["account", "show"])
         if account.ok and isinstance(account.value, dict):
             if subscription_id is None:
                 subscription_id = read_dict_string(account.value, "id")
@@ -293,22 +295,35 @@ def evaluate_azure_container_apps_readiness(
         )
 
     fqdn: str | None = None
-    if cli_ok and subscription_id and resource_group and app_name and environment_name and storage_account and blob_container and postgres_server_name and acr_name:
-        checks.extend(_provider_registration_checks(subscription_id))
-        checks.append(_resource_group_exists_check(subscription_id, resource_group))
-        checks.append(_acr_exists_check(subscription_id, resource_group, acr_name))
-        checks.extend(_storage_checks(subscription_id, resource_group, storage_account, blob_container))
-        checks.append(_postgres_server_exists_check(subscription_id, resource_group, postgres_server_name))
+    if (
+        cli_ok
+        and subscription_id
+        and resource_group
+        and app_name
+        and environment_name
+        and storage_account
+        and blob_container
+        and postgres_server_name
+        and acr_name
+    ):
+        assert azure_adapters is not None
+        checks.extend(_provider_registration_checks(azure_adapters, subscription_id))
+        checks.append(_resource_group_exists_check(azure_adapters, subscription_id, resource_group))
+        checks.append(_acr_exists_check(azure_adapters, subscription_id, resource_group, acr_name))
+        checks.extend(_storage_checks(azure_adapters, subscription_id, resource_group, storage_account, blob_container))
+        checks.append(_postgres_server_exists_check(azure_adapters, subscription_id, resource_group, postgres_server_name))
         checks.append(
             _postgres_database_exists_check(
+                azure_adapters,
                 subscription_id,
                 resource_group,
                 postgres_server_name,
                 postgres_database_name,
             )
         )
-        checks.append(_container_apps_environment_exists_check(subscription_id, resource_group, environment_name))
+        checks.append(_container_apps_environment_exists_check(azure_adapters, subscription_id, resource_group, environment_name))
         app_check, fqdn, app_payload = _container_app_checks(
+            azure_adapters=azure_adapters,
             subscription_id=subscription_id,
             resource_group=resource_group,
             app_name=app_name,
@@ -340,7 +355,10 @@ def evaluate_azure_container_apps_readiness(
     )
 
 
-def _provider_registration_checks(subscription_id: str) -> list[DiagnosticCheck]:
+def _provider_registration_checks(
+    azure_adapters: AzureAdapters,
+    subscription_id: str,
+) -> list[DiagnosticCheck]:
     checks: list[DiagnosticCheck] = []
     for namespace in (
         "Microsoft.App",
@@ -348,7 +366,7 @@ def _provider_registration_checks(subscription_id: str) -> list[DiagnosticCheck]
         "Microsoft.Storage",
         "Microsoft.DBforPostgreSQL",
     ):
-        provider = run_az_json(
+        provider = azure_adapters.compute.run_json(
             [
                 "provider",
                 "show",
@@ -384,8 +402,12 @@ def _provider_registration_checks(subscription_id: str) -> list[DiagnosticCheck]
     return checks
 
 
-def _resource_group_exists_check(subscription_id: str, resource_group: str) -> DiagnosticCheck:
-    result = run_az_json(
+def _resource_group_exists_check(
+    azure_adapters: AzureAdapters,
+    subscription_id: str,
+    resource_group: str,
+) -> DiagnosticCheck:
+    result = azure_adapters.compute.run_json(
         [
             "group",
             "show",
@@ -417,8 +439,13 @@ def _resource_group_exists_check(subscription_id: str, resource_group: str) -> D
     )
 
 
-def _acr_exists_check(subscription_id: str, resource_group: str, acr_name: str) -> DiagnosticCheck:
-    result = run_az_json(
+def _acr_exists_check(
+    azure_adapters: AzureAdapters,
+    subscription_id: str,
+    resource_group: str,
+    acr_name: str,
+) -> DiagnosticCheck:
+    result = azure_adapters.image.run_json(
         [
             "acr",
             "show",
@@ -453,13 +480,14 @@ def _acr_exists_check(subscription_id: str, resource_group: str, acr_name: str) 
 
 
 def _storage_checks(
+    azure_adapters: AzureAdapters,
     subscription_id: str,
     resource_group: str,
     storage_account: str,
     blob_container: str,
 ) -> list[DiagnosticCheck]:
     checks: list[DiagnosticCheck] = []
-    account = run_az_json(
+    account = azure_adapters.storage.run_json(
         [
             "storage",
             "account",
@@ -501,7 +529,7 @@ def _storage_checks(
         )
     if not account_ok:
         return checks
-    keys = run_az_json(
+    keys = azure_adapters.storage.run_json(
         [
             "storage",
             "account",
@@ -526,7 +554,7 @@ def _storage_checks(
             )
         )
         return checks
-    exists = run_az_json(
+    exists = azure_adapters.storage.run_json(
         [
             "storage",
             "container",
@@ -569,8 +597,13 @@ def _storage_checks(
     return checks
 
 
-def _postgres_server_exists_check(subscription_id: str, resource_group: str, server_name: str) -> DiagnosticCheck:
-    result = run_az_json(
+def _postgres_server_exists_check(
+    azure_adapters: AzureAdapters,
+    subscription_id: str,
+    resource_group: str,
+    server_name: str,
+) -> DiagnosticCheck:
+    result = azure_adapters.database.run_json(
         [
             "postgres",
             "flexible-server",
@@ -606,12 +639,13 @@ def _postgres_server_exists_check(subscription_id: str, resource_group: str, ser
 
 
 def _postgres_database_exists_check(
+    azure_adapters: AzureAdapters,
     subscription_id: str,
     resource_group: str,
     server_name: str,
     database_name: str,
 ) -> DiagnosticCheck:
-    result = run_az_json(
+    result = azure_adapters.database.run_json(
         [
             "postgres",
             "flexible-server",
@@ -650,11 +684,12 @@ def _postgres_database_exists_check(
 
 
 def _container_apps_environment_exists_check(
+    azure_adapters: AzureAdapters,
     subscription_id: str,
     resource_group: str,
     environment_name: str,
 ) -> DiagnosticCheck:
-    result = run_az_json(
+    result = azure_adapters.compute.run_json(
         [
             "containerapp",
             "env",
@@ -691,12 +726,13 @@ def _container_apps_environment_exists_check(
 
 def _container_app_checks(
     *,
+    azure_adapters: AzureAdapters,
     subscription_id: str,
     resource_group: str,
     app_name: str,
 ) -> tuple[list[DiagnosticCheck], str | None, dict[str, object] | None]:
     checks: list[DiagnosticCheck] = []
-    app_result = run_az_json(
+    app_result = azure_adapters.compute.run_json(
         [
             "containerapp",
             "show",

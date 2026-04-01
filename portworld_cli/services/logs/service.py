@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 
 from portworld_cli.aws import AWSAdapters
-from portworld_cli.azure.common import run_az_json, run_az_text
+from portworld_cli.azure import AzureAdapters
 from portworld_cli.context import CLIContext
 from portworld_cli.gcp import GCPAdapters, GCPError
 from portworld_cli.output import CommandResult
@@ -305,12 +305,13 @@ def run_logs_azure_container_apps(
         "--tail",
         str(options.limit),
     ]
-    log_result = run_az_json(log_args)
+    adapters = AzureAdapters.create()
+    log_result = adapters.logging.run_json(log_args)
     entries: list[dict[str, object | None]] = []
     if log_result.ok:
         entries = _parse_azure_log_entries(log_result.value)
     else:
-        fallback = run_az_text(log_args)
+        fallback = adapters.logging.run_text(log_args)
         if not fallback.ok:
             return CommandResult(
                 ok=False,
