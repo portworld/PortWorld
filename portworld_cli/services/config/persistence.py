@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from backend.core.provider_requirements import (
-    build_provider_requirement_diagnostics,
-    compute_selected_provider_key_set,
-    resolve_selected_providers,
-)
 from portworld_cli.envfile import EnvWriteResult, parse_env_file, write_canonical_env
+from portworld_cli.services.config.types import ConfigWriteOutcome
+from portworld_cli.workspace.session import SecretReadiness, WorkspaceSession as ConfigSession
 from portworld_cli.workspace.project_config import (
     ProjectConfig,
     build_env_overrides_from_project_config,
     write_project_config,
 )
-from portworld_cli.services.config.types import ConfigWriteOutcome
-from portworld_cli.workspace.session import SecretReadiness, WorkspaceSession as ConfigSession
+from portworld_shared.providers import (
+    build_provider_requirement_diagnostics,
+    compute_selected_provider_key_set,
+    resolve_selected_providers,
+)
 
 
 def write_config_artifacts(

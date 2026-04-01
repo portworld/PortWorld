@@ -4,11 +4,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from backend.core.provider_requirements import (
-    build_provider_requirement_diagnostics,
-    compute_selected_provider_key_set,
-    resolve_selected_providers,
-)
 from portworld_cli.context import CLIContext
 from portworld_cli.deploy_state import DeployState
 from portworld_cli.envfile import EnvTemplate, ParsedEnvFile
@@ -33,6 +28,11 @@ from portworld_cli.workspace.discovery.locator import ResolvedWorkspace, resolve
 from portworld_cli.workspace.store import WorkspaceStoreSnapshot, load_workspace_store
 from portworld_cli.workspace.state.state_store import read_json_state
 from portworld_cli.workspace.state.state_store import CLIStateError
+from portworld_shared.providers import (
+    build_provider_requirement_diagnostics,
+    compute_selected_provider_key_set,
+    resolve_selected_providers,
+)
 
 
 @dataclass(frozen=True, slots=True)

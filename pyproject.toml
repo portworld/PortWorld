@@ -79,8 +79,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["backend*", "portworld_cli*"]
-exclude = ["backend.var*"]
+include = ["portworld_cli*", "portworld_shared*"]
 
 [tool.setuptools.package-data]
 portworld_cli = ["templates/*.template"]

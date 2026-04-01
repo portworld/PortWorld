@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-from backend.core.provider_requirements import (
+from portworld_cli.providers.types import ProviderEditOptions, ProviderSectionResult
+from portworld_cli.workspace.project_config import (
+    ProjectConfig,
+    ToolingConfig,
+    VisionProviderConfig,
+)
+from portworld_cli.workspace.session import WorkspaceSession as ConfigSession
+from portworld_shared.providers import (
     PROVIDER_KIND_REALTIME,
     PROVIDER_KIND_SEARCH,
     PROVIDER_KIND_VISION,
     compute_selected_provider_key_set,
     get_provider_requirement,
     resolve_effective_env_value,
+    resolve_selected_providers,
     supported_provider_ids,
 )
-from portworld_cli.workspace.project_config import (
-    ProjectConfig,
-    ToolingConfig,
-    VisionProviderConfig,
-)
-from portworld_cli.providers.types import ProviderEditOptions, ProviderSectionResult
-from portworld_cli.workspace.session import WorkspaceSession as ConfigSession
 
 
 def collect_provider_section(
@@ -261,8 +262,6 @@ def _validate_provider_toggle_dependencies(
 
 
 def _selected_providers(selection_inputs: dict[str, str]):
-    from backend.core.provider_requirements import resolve_selected_providers
-
     return resolve_selected_providers(selection_inputs)
 
 

@@ -4,15 +4,15 @@ import secrets
 import re
 from collections import OrderedDict
 
-from backend.core.provider_requirements import (
+from portworld_cli.deploy.config import DeployStageError, DeployUsageError, ResolvedDeployConfig
+from portworld_cli.deploy.gcp_errors import gcp_error_action, gcp_error_message
+from portworld_cli.gcp import GCPAdapters
+from portworld_shared.providers import (
     build_provider_requirement_diagnostics,
     compute_selected_provider_key_set,
     resolve_effective_env_value,
     resolve_selected_providers,
 )
-from portworld_cli.deploy.config import DeployStageError, DeployUsageError, ResolvedDeployConfig
-from portworld_cli.deploy.gcp_errors import gcp_error_action, gcp_error_message
-from portworld_cli.gcp import GCPAdapters
 
 
 def ensure_core_secrets(
@@ -207,4 +207,3 @@ def _generate_secure_token(*, length: int = 32) -> str:
 
 def _env_key_secret_suffix(env_key: str) -> str:
     return env_key.strip().lower().replace("_", "-")
-

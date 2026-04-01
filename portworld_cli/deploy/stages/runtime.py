@@ -5,10 +5,11 @@ from collections import OrderedDict
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from backend.core.provider_requirements import list_provider_requirements
 from portworld_cli.deploy.config import DeployStageError, ResolvedDeployConfig
 from portworld_cli.deploy.gcp_errors import gcp_error_action, gcp_error_message
 from portworld_cli.gcp import GCPAdapters, build_postgres_url
+from portworld_shared.backend_env import validate_backend_env_contract
+from portworld_shared.providers import list_provider_requirements
 
 
 _PROVIDER_SECRET_ENV_KEYS: tuple[str, ...] = tuple(
@@ -191,8 +192,6 @@ def validate_final_settings(
     env_values: OrderedDict[str, str],
     secret_placeholders: dict[str, str],
 ) -> None:
-    from backend.core.settings import Settings
-
     sensitive_env_keys = _effective_sensitive_env_keys(env_values)
     combined_env = dict(env_vars)
     for key in sensitive_env_keys:
@@ -200,18 +199,15 @@ def validate_final_settings(
         if local_value:
             combined_env[key] = local_value
     combined_env.update(secret_placeholders)
-    with _temporary_environ(combined_env):
-        settings = Settings.from_env()
-        settings.validate_production_posture()
-        settings.validate_storage_contract()
-        if settings.backend_storage_backend != "managed":
-            raise RuntimeError(
-                "Managed Cloud Run deploy requires BACKEND_STORAGE_BACKEND=managed."
-            )
-        if settings.backend_object_store_provider != "gcs":
-            raise RuntimeError(
-                "Managed Cloud Run deploy requires BACKEND_OBJECT_STORE_PROVIDER=gcs."
-            )
+    contract = validate_backend_env_contract(combined_env)
+    if contract.backend_storage_backend != "managed":
+        raise RuntimeError(
+            "Managed Cloud Run deploy requires BACKEND_STORAGE_BACKEND=managed."
+        )
+    if contract.backend_object_store_provider != "gcs":
+        raise RuntimeError(
+            "Managed Cloud Run deploy requires BACKEND_OBJECT_STORE_PROVIDER=gcs."
+        )
 
 
 def deploy_cloud_run_service(
