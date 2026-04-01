@@ -74,7 +74,7 @@ Do this before any functional test.
 
 ### Step 1. Sync `backend/.env` with the canonical template
 
-Use [backend/.env.example](/Users/pierrehaas/Desktop/Projects/Hackathon/PortWorld/backend/.env.example) as the source of truth.
+Use [backend/.env.example](../../backend/.env.example) as the source of truth.
 
 What to do:
 
@@ -91,7 +91,7 @@ Keys that were present in the local `backend/.env` but are legacy and should not
 
 ### Step 2. Treat source and published envs as the same contract
 
-The published workspace template at [published.env.template](/Users/pierrehaas/Desktop/Projects/Hackathon/PortWorld/portworld_cli/templates/published.env.template) matches `backend/.env.example`.
+The published workspace template at [published.env.template](../../portworld_cli/templates/published.env.template) matches `backend/.env.example`.
 
 That means:
 

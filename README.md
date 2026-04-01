@@ -6,11 +6,7 @@
 </p>
 
 <p align="center">
-  <b>Port:World🌍 has been built during Mistral Worlwide Hackathon 2026 with the (huge) help of Mistral Vibe 🥖🇫🇷</b>
-</p>
-
-<p align="center">
-  <b> It combines an iOS glasses client with a FastAPI backend for voice + vision + tool orchestration. You own the domain logic and prompts; Port provides the runtime, transport, and integration surface.</b>
+  <b>PortWorld combines an iOS glasses client with a FastAPI backend for voice + vision + tool orchestration. You own the domain logic and prompts; PortWorld provides the runtime, transport, and integration surface.</b>
 </p>
 
 

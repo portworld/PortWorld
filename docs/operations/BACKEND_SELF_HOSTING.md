@@ -49,8 +49,8 @@ portworld status
 
 Example filesystem MCP manifests:
 
-- local/source runtime: [mcp-filesystem-local.extensions.json](/Users/pierrehaas/.codex/worktrees/30fa/PortWorld/docs/operations/examples/mcp-filesystem-local.extensions.json)
-- published/container runtime: [mcp-filesystem-published.extensions.json](/Users/pierrehaas/.codex/worktrees/30fa/PortWorld/docs/operations/examples/mcp-filesystem-published.extensions.json)
+- local/source runtime: [mcp-filesystem-local.extensions.json](examples/mcp-filesystem-local.extensions.json)
+- published/container runtime: [mcp-filesystem-published.extensions.json](examples/mcp-filesystem-published.extensions.json)
 
 Manual install fallback for a pinned release version:
 
@@ -59,7 +59,7 @@ uv tool install "portworld==<version>"
 portworld init
 ```
 
-TestPyPI beta validation note:
+TestPyPI package-index validation note:
 
 - The TestPyPI project page currently shows a bare `pip install -i https://test.pypi.org/simple/ portworld` command.
 - That command can fail for `portworld`, because TestPyPI does not necessarily host every transitive dependency.
