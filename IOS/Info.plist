@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Port:🌍</string>
+	<string>PortWorld</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -65,7 +65,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access to test phone-based vision frame uploads to the backend.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>This app needs local network access to connect to the Port:🌍 mock backend.</string>
+	<string>This app needs local network access to connect to the PortWorld backend.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app needs microphone access to collect audio from your glasses sessions.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

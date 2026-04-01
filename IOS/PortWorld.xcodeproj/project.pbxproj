@@ -299,7 +299,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.2.0;
 				PORTWORLD_DAT_APP_LINK_URL_SCHEME = portworld;
 				PORTWORLD_DAT_CLIENT_TOKEN = "";
 				PORTWORLD_DAT_INFOPLIST_FLAGS = "";
@@ -335,7 +335,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.2.0;
 				PORTWORLD_DAT_APP_LINK_URL_SCHEME = portworld;
 				PORTWORLD_DAT_CLIENT_TOKEN = "";
 				PORTWORLD_DAT_INFOPLIST_FLAGS = "";
