@@ -2,6 +2,9 @@
 
 `portworld` is the command-line interface for bootstrapping PortWorld, validating local or cloud environments, and deploying PortWorld to supported managed targets.
 
+For first-time setup, start with [../docs/operations/GETTING_STARTED.md](../docs/operations/GETTING_STARTED.md).
+This README is the CLI/operator reference after the initial happy path is working.
+
 It supports two primary workflows:
 
 - published workspace: run PortWorld locally from a released backend image without cloning the repo
@@ -46,15 +49,13 @@ The bootstrap installer can install `uv`, provision Python 3.11+ when needed, an
 
 ## Quickstart
 
-The default public flow is a published workspace backed by a released backend image:
+The canonical quickstart lives in [../docs/operations/GETTING_STARTED.md](../docs/operations/GETTING_STARTED.md).
+Use that document for:
 
-```bash
-portworld init
-cd ~/.portworld/stacks/default
-docker compose up -d
-portworld doctor --target local
-portworld status
-```
+- the default published-workspace operator path
+- source-checkout contributor setup
+- backend-only setup and first-success validation
+- the summarized iOS onboarding path
 
 `portworld init` supports two setup modes:
 
@@ -75,16 +76,9 @@ Example extension manifests for the filesystem MCP server:
 
 ## Source Checkout Workflow
 
-Use a repo checkout when you are developing PortWorld itself:
-
-```bash
-git clone https://github.com/portworld/PortWorld.git
-cd PortWorld
-pipx install . --force
-portworld init
-```
-
-Source-checkout installs are intended for contributors, local development, and repo-backed debugging.
+Use a repo checkout when you are developing PortWorld itself.
+The source-checkout happy path is documented in [../docs/operations/GETTING_STARTED.md](../docs/operations/GETTING_STARTED.md).
+This README focuses on CLI behavior after that setup is complete.
 
 ## Managed Deploys
 

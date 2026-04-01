@@ -2,6 +2,9 @@
 
 This directory contains the active iOS client for PortWorld.
 
+For first-time setup, start with [../docs/operations/GETTING_STARTED.md](../docs/operations/GETTING_STARTED.md).
+This README keeps the iOS-specific runtime, Meta DAT, permissions, and validation details.
+
 The current app centers on:
 
 - onboarding contributors and testers into a working runtime
@@ -69,6 +72,10 @@ IOS/PortWorld/
 ```
 
 ## Setup
+
+The canonical contributor happy path is in [../docs/operations/GETTING_STARTED.md](../docs/operations/GETTING_STARTED.md).
+
+Use this README for the iOS-specific pieces that remain after that setup:
 
 1. Open `IOS/PortWorld.xcodeproj`.
 2. Let Xcode resolve Swift Package dependencies.

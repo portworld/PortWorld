@@ -2,6 +2,9 @@
 
 FastAPI + Uvicorn backend that relays realtime voice sessions through selectable realtime providers, with opt-in visual memory and realtime tooling.
 
+For first-time setup, start with [../docs/operations/GETTING_STARTED.md](../docs/operations/GETTING_STARTED.md).
+This README is the backend runtime reference after the initial happy path is working.
+
 ## Features
 
 - **Realtime voice relay** — bridges a WebSocket audio session to the selected realtime provider; streams assistant audio back to the client
@@ -23,108 +26,23 @@ FastAPI + Uvicorn backend that relays realtime voice sessions through selectable
   - `OPENAI_API_KEY` when `REALTIME_PROVIDER=openai`
   - `GEMINI_LIVE_API_KEY` when `REALTIME_PROVIDER=gemini_live`
 
-## CLI-first quick start
+## First-Time Setup
 
-Public install path:
+Use [../docs/operations/GETTING_STARTED.md](../docs/operations/GETTING_STARTED.md) for:
 
-```bash
-curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash
-```
+- the default operator path via `install.sh` and `portworld init`
+- source-checkout contributor setup
+- backend-only contributor setup
+- the minimum viable backend environment
+- first-success validation
 
-The bootstrap installs `uv` automatically, downloads Python 3.11+ when the machine does not
-already provide a suitable interpreter, and bootstraps Node.js/npm/npx in user space for MCP
-Node launchers when those tools are missing. For published/container runtimes, the backend image
-now carries its own Node runtime so stdio Node MCP servers do not depend on host PATH state. On
-a fresh machine, `portworld init` now defaults to the operator-friendly zero-clone workspace flow
-and can be run from any directory.
+This README keeps the backend-specific runtime and configuration reference.
 
-Default operator path after install:
+Useful related references:
 
-```bash
-portworld init
-cd ~/.portworld/stacks/default
-docker compose up -d
-portworld doctor --target local
-portworld status
-```
-
-Example extension manifests for the filesystem MCP server:
-
-- local/source runtime: [mcp-filesystem-local.extensions.json](../docs/operations/examples/mcp-filesystem-local.extensions.json)
-- published/container runtime: [mcp-filesystem-published.extensions.json](../docs/operations/examples/mcp-filesystem-published.extensions.json)
-
-Manual install fallback for a pinned release version:
-
-```bash
-uv tool install "portworld==<version>"
-portworld init
-```
-
-TestPyPI package-index validation note:
-
-- The TestPyPI project page currently shows a bare `pip install -i https://test.pypi.org/simple/ portworld` command.
-- That command can fail for `portworld`, because TestPyPI does not necessarily host every transitive dependency.
-- For TestPyPI validation, use one of these instead:
-
-```bash
-pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "portworld==<version>"
-```
-
-```bash
-uv tool install --default-index https://test.pypi.org/simple --index https://pypi.org/simple "portworld==<version>"
-```
-
-Source-checkout contributor path:
-
-```bash
-pipx install . --force
-portworld init
-```
-
-Run the contributor/source path from the repo root. The operator path is the default public flow.
-
-For managed deploys in the current MVP, use one of the public managed targets:
-
-```bash
-portworld doctor --target gcp-cloud-run --gcp-project <project> --gcp-region <region>
-portworld deploy gcp-cloud-run --project <project> --region <region>
-
-portworld doctor --target aws-ecs-fargate --aws-region <region>
-portworld deploy aws-ecs-fargate --region <region>
-
-portworld doctor --target azure-container-apps --azure-subscription <subscription> --azure-resource-group <resource-group> --azure-region <region>
-portworld deploy azure-container-apps --subscription <subscription> --resource-group <resource-group> --region <region>
-```
-
-Repeat deploys reuse the target state file under `.portworld/state/` after explicit flags and current cloud CLI auth/config:
-
-- `.portworld/state/gcp-cloud-run.json`
-- `.portworld/state/aws-ecs-fargate.json`
-- `.portworld/state/azure-container-apps.json`
-
-For CLI updates:
-
-```bash
-uv tool upgrade portworld
-```
-
-You can also rerun the installer or pin it to a specific tagged release:
-
-```bash
-curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash -s -- --version <tag>
-```
-
-Published backend runtime image for a tagged release:
-
-```bash
-docker pull ghcr.io/portworld/portworld-backend:v<version>
-```
-
-Public installer flags:
-
-- `--version <tag|latest>` installs a specific release tag or the latest GitHub release
-- `--no-init` installs the CLI without running `portworld init`
-- `--non-interactive` installs the CLI without attempting interactive setup
+- CLI/operator reference: [../portworld_cli/README.md](../portworld_cli/README.md)
+- local/source extension manifest example: [../docs/operations/examples/mcp-filesystem-local.extensions.json](../docs/operations/examples/mcp-filesystem-local.extensions.json)
+- published/container extension manifest example: [../docs/operations/examples/mcp-filesystem-published.extensions.json](../docs/operations/examples/mcp-filesystem-published.extensions.json)
 
 ## Running locally
 
