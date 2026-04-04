@@ -57,8 +57,6 @@ Install the CLI and bootstrap a local workspace:
 ```bash
 curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash
 portworld init
-cd ~/.portworld/stacks/default
-docker compose up -d
 ```
 
 Verify:
@@ -159,7 +157,7 @@ See the [CLI README](portworld_cli/README.md) for readiness checks, log streamin
 | [backend/README.md](backend/README.md) | Backend runtime, API reference, configuration, storage |
 | [portworld_cli/README.md](portworld_cli/README.md) | CLI installation, commands, deploy workflows |
 | [IOS/README.md](IOS/README.md) | iOS app setup, Meta DAT, permissions, architecture |
-| [docs/operations/GETTING_STARTED.md](docs/operations/GETTING_STARTED.md) | Extended onboarding guide with all setup paths |
+| [GETTING_STARTED.md](GETTING_STARTED.md) | Extended onboarding guide with all setup paths |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
 | [docs/operations/CLI_RELEASE_PROCESS.md](docs/operations/CLI_RELEASE_PROCESS.md) | CLI release and versioning process |
 

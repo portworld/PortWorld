@@ -266,5 +266,5 @@ python3 -m backend.cli export-memory --output /tmp/export.zip
 - [Root README](../README.md) — project overview, quickstart, provider tables
 - [CLI README](../portworld_cli/README.md) — CLI commands, deploy, update
 - [iOS README](../IOS/README.md) — iOS app setup, Meta DAT, permissions
-- [Getting Started](../docs/operations/GETTING_STARTED.md) — extended onboarding for all setup paths
+- [Getting Started](../GETTING_STARTED.md) — extended onboarding for all setup paths
 - [.env.example](.env.example) — full configuration reference with comments

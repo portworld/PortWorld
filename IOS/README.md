@@ -169,5 +169,5 @@ If you changed backend-facing behavior, validate the backend setup flow in-app a
 - [Root README](../README.md) — project overview, quickstart, provider tables
 - [Backend README](../backend/README.md) — backend runtime, API reference, configuration
 - [CLI README](../portworld_cli/README.md) — CLI commands, deploy, update
-- [Getting Started](../docs/operations/GETTING_STARTED.md) — extended onboarding for all setup paths
+- [Getting Started](../GETTING_STARTED.md) — extended onboarding for all setup paths
 - [IOS/AGENTS.md](AGENTS.md) — iOS-specific implementation and verification guidance

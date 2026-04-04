@@ -30,12 +30,10 @@ curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworl
 
 ## Quickstart
 
-Initialize a local workspace and start the backend:
+Initialize a local workspace, configure providers, and start the backend:
 
 ```bash
 portworld init
-cd ~/.portworld/stacks/default
-docker compose up -d
 ```
 
 Validate and inspect:
@@ -47,8 +45,8 @@ portworld status
 
 `portworld init` supports two setup modes:
 
-- `quickstart` — minimal prompts with safe defaults
-- `manual` — full explicit setup flow
+- `quickstart` — guided onboarding with beginner-friendly defaults
+- `manual` — guided onboarding with advanced choices like local source runtime
 
 Force either mode with `--setup-mode quickstart` or `--setup-mode manual`.
 
@@ -56,7 +54,7 @@ Force either mode with `--setup-mode quickstart` or `--setup-mode manual`.
 
 | Command | Description |
 |---------|-------------|
-| `portworld init` | Initialize or refresh a workspace (published or source checkout) |
+| `portworld init` | Run the onboarding wizard, write config, and execute the selected local or managed path |
 | `portworld doctor` | Validate local or managed deployment readiness |
 | `portworld deploy` | Deploy to a managed cloud target |
 | `portworld status` | Inspect workspace and deploy state |
@@ -157,7 +155,7 @@ Review and harden these defaults before exposing a deployment to the public inte
 - [Repository](https://github.com/portworld/PortWorld)
 - [Backend README](https://github.com/portworld/PortWorld/blob/main/backend/README.md) — runtime, API reference, configuration
 - [iOS README](https://github.com/portworld/PortWorld/blob/main/IOS/README.md) — iOS app setup, Meta DAT, permissions
-- [Getting Started](https://github.com/portworld/PortWorld/blob/main/docs/operations/GETTING_STARTED.md) — extended onboarding guide
+- [Getting Started](https://github.com/portworld/PortWorld/blob/main/GETTING_STARTED.md) — extended onboarding guide
 - [Changelog](https://github.com/portworld/PortWorld/blob/main/CHANGELOG.md)
 - [CLI Release Process](https://github.com/portworld/PortWorld/blob/main/docs/operations/CLI_RELEASE_PROCESS.md)
 
