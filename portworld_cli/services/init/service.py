@@ -18,7 +18,6 @@ from portworld_cli.output import CommandResult, DiagnosticCheck
 from portworld_cli.runtime.published import build_compose_command
 from portworld_cli.services.config.edit_service import confirm_apply
 from portworld_cli.services.config.errors import ConfigRuntimeError, ConfigUsageError
-from portworld_cli.services.config.messages import build_init_confirmation_lines
 from portworld_cli.services.config.persistence import preview_secret_readiness, write_config_artifacts
 from portworld_cli.services.config.prompts import (
     resolve_required_text_value,
@@ -311,16 +310,13 @@ def _run_source_init(
         ok=True,
         command=COMMAND_NAME,
         message=_build_final_success_message(
-            project_config=write_outcome.project_config,
-            secret_readiness=write_outcome.secret_readiness,
-            project_config_path=session.workspace_paths.project_config_file,
-            env_path=None if write_outcome.env_write_result is None else write_outcome.env_write_result.env_path,
-            backup_path=None if write_outcome.env_write_result is None else write_outcome.env_write_result.backup_path,
-            extra_lines=(
-                f"workspace_root: {session.workspace_root}",
-                f"project_root: {session.project_paths.project_root}",
-                *_execution_summary_lines(execution.data),
+            backend_url=str(execution.data.get("backend_url") or execution.data.get("service_url") or ""),
+            bearer_token=str(outcome.env_updates.get("BACKEND_BEARER_TOKEN", "")),
+            bearer_token_changed=_bearer_token_changed(
+                session=session,
+                final_bearer_token=str(outcome.env_updates.get("BACKEND_BEARER_TOKEN", "")),
             ),
+            ios_config_synced=bool(execution.data.get("ios_backend_config_synced")),
         ),
         data={
             "workspace_root": str(session.workspace_root),
@@ -341,6 +337,11 @@ def _run_source_init(
             "workspace_resolution_source": session.workspace_resolution_source,
             "active_workspace_root": (
                 None if session.active_workspace_root is None else str(session.active_workspace_root)
+            ),
+            "bearer_token": str(outcome.env_updates.get("BACKEND_BEARER_TOKEN", "")),
+            "bearer_token_changed": _bearer_token_changed(
+                session=session,
+                final_bearer_token=str(outcome.env_updates.get("BACKEND_BEARER_TOKEN", "")),
             ),
             **_public_execution_data(execution.data),
         },
@@ -479,26 +480,13 @@ def _run_published_init(
         ok=True,
         command=COMMAND_NAME,
         message=_build_final_success_message(
-            project_config=project_config,
-            secret_readiness=final_session.secret_readiness(),
-            project_config_path=workspace_paths.project_config_file,
-            env_path=env_write_result.env_path,
-            backup_path=env_write_result.backup_path,
-            extra_lines=(
-                f"workspace_root: {workspace_paths.workspace_root}",
-                f"compose_path: {workspace_paths.compose_file}",
-                (
-                    f"compose_backup_path: {compose_backup_path}"
-                    if compose_backup_path is not None
-                    else None
-                ),
-                (
-                    "active_workspace_default: yes"
-                    if machine_state.active_workspace_root == workspace_paths.workspace_root
-                    else None
-                ),
-                *_execution_summary_lines(execution.data),
+            backend_url=str(execution.data.get("backend_url") or execution.data.get("service_url") or ""),
+            bearer_token=str(outcome.env_updates.get("BACKEND_BEARER_TOKEN", "")),
+            bearer_token_changed=_bearer_token_changed(
+                session=session,
+                final_bearer_token=str(outcome.env_updates.get("BACKEND_BEARER_TOKEN", "")),
             ),
+            ios_config_synced=bool(execution.data.get("ios_backend_config_synced")),
         ),
         data={
             "workspace_root": str(workspace_paths.workspace_root),
@@ -520,6 +508,11 @@ def _run_published_init(
             "workspace_resolution_source": final_session.workspace_resolution_source,
             "active_workspace_root": (
                 None if machine_state.active_workspace_root is None else str(machine_state.active_workspace_root)
+            ),
+            "bearer_token": str(outcome.env_updates.get("BACKEND_BEARER_TOKEN", "")),
+            "bearer_token_changed": _bearer_token_changed(
+                session=session,
+                final_bearer_token=str(outcome.env_updates.get("BACKEND_BEARER_TOKEN", "")),
             ),
             **_public_execution_data(execution.data),
         },
@@ -1484,42 +1477,28 @@ def _build_optional_secret_checks(
 
 def _build_final_success_message(
     *,
-    project_config,
-    secret_readiness,
-    project_config_path: Path,
-    env_path: Path | None,
-    backup_path: Path | None,
-    extra_lines: tuple[str | None, ...],
+    backend_url: str,
+    bearer_token: str,
+    bearer_token_changed: bool,
+    ios_config_synced: bool,
 ) -> str:
-    lines = list(
-        build_init_confirmation_lines(
-            project_config=project_config,
-            secret_readiness=secret_readiness,
-        )
-    )
-    lines.append(f"project_config_path: {project_config_path}")
-    if env_path is not None:
-        lines.append(f"env_path: {env_path}")
-    if backup_path is not None:
-        lines.append(f"backup_path: {backup_path}")
-    lines.extend(line for line in extra_lines if line)
-    if project_config.project_mode == PROJECT_MODE_LOCAL:
-        lines.extend(
-            (
-                "next: portworld doctor --target local",
-                "next: portworld status",
-                "next: portworld config show",
-            )
-        )
-    else:
-        lines.extend(
-            (
-                f"next: portworld doctor --target {project_config.deploy.preferred_target}",
-                "next: portworld status",
-                "next: portworld config show",
-            )
-        )
+    lines: list[str] = []
+    if backend_url:
+        lines.append(f"backend_url: {backend_url}")
+    if bearer_token_changed and bearer_token:
+        lines.append(f"bearer_token: {bearer_token}")
+    if ios_config_synced:
+        lines.append("ios_config_sync: yes")
     return "\n".join(lines)
+
+
+def _bearer_token_changed(
+    *,
+    session: ConfigSession,
+    final_bearer_token: str,
+) -> bool:
+    existing_bearer_token = _existing_env_value(session, "BACKEND_BEARER_TOKEN").strip()
+    return final_bearer_token.strip() != existing_bearer_token
 
 
 def _default_provider_value(current_value: str | None, fallback: str) -> str:
