@@ -246,7 +246,6 @@ class Settings:
     backend_object_store_name: str | None
     backend_object_store_endpoint: str | None
     backend_object_store_prefix: str | None
-    backend_debug_trace_ws_messages: bool
     backend_max_vision_request_bytes: int
     backend_max_vision_frame_bytes: int
     backend_session_memory_retention_days: int
@@ -313,11 +312,6 @@ class Settings:
         if not self.backend_bearer_token:
             raise RuntimeError(
                 "BACKEND_BEARER_TOKEN must be set when BACKEND_PROFILE=production."
-            )
-        if self.backend_debug_trace_ws_messages:
-            raise RuntimeError(
-                "BACKEND_DEBUG_TRACE_WS_MESSAGES must be false when "
-                "BACKEND_PROFILE=production."
             )
 
     def validate_storage_contract(self) -> None:
@@ -695,10 +689,6 @@ def _load_storage_settings() -> dict[str, str | int | bool | Path]:
         "backend_object_store_name": backend_object_store_name,
         "backend_object_store_endpoint": backend_object_store_endpoint,
         "backend_object_store_prefix": backend_object_store_prefix,
-        "backend_debug_trace_ws_messages": _parse_bool_env(
-            "BACKEND_DEBUG_TRACE_WS_MESSAGES",
-            default=False,
-        ),
         "backend_max_vision_request_bytes": _parse_int_env(
             "BACKEND_MAX_VISION_REQUEST_BYTES",
             default=4_000_000,

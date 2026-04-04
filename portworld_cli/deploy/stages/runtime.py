@@ -167,7 +167,6 @@ def build_runtime_env_vars(
     final_env["BACKEND_OBJECT_STORE_PROVIDER"] = "gcs"
     final_env["BACKEND_OBJECT_STORE_NAME"] = bucket_name
     final_env["BACKEND_OBJECT_STORE_PREFIX"] = config.service_name
-    final_env["BACKEND_DEBUG_TRACE_WS_MESSAGES"] = "false"
     return dict(final_env)
 
 

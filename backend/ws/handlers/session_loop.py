@@ -6,7 +6,6 @@ from backend.ws.handlers.binary_dispatch import dispatch_binary_frame
 from backend.ws.handlers.control_dispatch import dispatch_control_envelope, parse_control_envelope
 from backend.ws.protocol.error_utils import send_error
 from backend.ws.session.session_context import SessionConnectionContext
-from backend.ws.session.session_runtime import trace_ws_message
 from backend.ws.session.transport_contracts import SendBinary, SendControl
 
 logger = logging.getLogger(__name__)
@@ -21,12 +20,6 @@ async def process_next_websocket_message(
     message = await context.websocket.receive()
     message_type = message.get("type")
     context.telemetry.log_receive_shape(message)
-    trace_ws_message(
-        message,
-        active_session=context.active_session,
-        connection_id=context.connection_id,
-        trace_ws_messages_enabled=context.runtime.settings.backend_debug_trace_ws_messages,
-    )
 
     if message_type == "websocket.disconnect":
         return False

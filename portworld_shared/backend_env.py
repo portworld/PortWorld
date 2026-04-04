@@ -19,7 +19,6 @@ class BackendEnvContract:
     backend_object_store_name: str | None
     backend_object_store_endpoint: str | None
     backend_object_store_prefix: str | None
-    backend_debug_trace_ws_messages: bool
 
     @property
     def is_production_profile(self) -> bool:
@@ -38,10 +37,6 @@ def build_backend_env_contract(values: Mapping[str, object]) -> BackendEnvContra
         backend_object_store_name=_normalize_text(values.get("BACKEND_OBJECT_STORE_NAME")),
         backend_object_store_endpoint=_normalize_text(values.get("BACKEND_OBJECT_STORE_ENDPOINT")),
         backend_object_store_prefix=_normalize_text(values.get("BACKEND_OBJECT_STORE_PREFIX")),
-        backend_debug_trace_ws_messages=_parse_bool(
-            values.get("BACKEND_DEBUG_TRACE_WS_MESSAGES"),
-            default=False,
-        ),
     )
 
 
@@ -51,10 +46,6 @@ def validate_production_posture(contract: BackendEnvContract) -> None:
     if not contract.backend_bearer_token:
         raise RuntimeError(
             "BACKEND_BEARER_TOKEN must be set when BACKEND_PROFILE=production."
-        )
-    if contract.backend_debug_trace_ws_messages:
-        raise RuntimeError(
-            "BACKEND_DEBUG_TRACE_WS_MESSAGES must be false when BACKEND_PROFILE=production."
         )
 
 

@@ -56,7 +56,6 @@ def build_openai_session_bridge(
         voice=settings.realtime_voice,
         instructions=effective_instructions,
         include_turn_detection=settings.realtime_include_turn_detection,
-        trace_events=settings.backend_debug_trace_ws_messages,
     )
     bridge = IOSRealtimeBridge(
         session_id=session_id,

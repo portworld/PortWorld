@@ -106,7 +106,6 @@ def build_gemini_live_session_bridge(
         instructions=effective_instructions,
         base_url=settings.resolve_realtime_base_url(provider="gemini_live"),
         endpoint=settings.resolve_realtime_endpoint(provider="gemini_live"),
-        trace_events=settings.backend_debug_trace_ws_messages,
     )
 
     bridge = IOSRealtimeBridge(

@@ -24,6 +24,7 @@ from portworld_cli.services.cloud_contract import (
 )
 from portworld_cli.services.config.errors import ConfigRuntimeError
 from portworld_cli.targets import TARGET_AWS_ECS_FARGATE, normalize_managed_target
+from portworld_cli.ux.progress import ProgressReporter
 from portworld_cli.workspace.discovery.paths import ProjectRootResolutionError
 from portworld_cli.workspace.state.state_store import CLIStateDecodeError, CLIStateTypeError
 from portworld_cli.workspace.session import load_workspace_session
@@ -40,25 +41,35 @@ class DoctorOptions:
 
 
 def run_doctor(cli_context: CLIContext, options: DoctorOptions) -> CommandResult:
+    progress = ProgressReporter(cli_context)
+    progress.start("Verifying setup and deployment readiness")
     normalized_target = normalize_managed_target(options.target) or options.target
-    issue = validate_cloud_flag_scope_for_doctor(
-        target=options.target,
-        cloud_options=options.cloud,
-    )
-    if issue is not None:
-        return _usage_error_result(
-            problem=issue.problem,
-            next_step=issue.next_step,
+    try:
+        issue = validate_cloud_flag_scope_for_doctor(
             target=options.target,
+            cloud_options=options.cloud,
         )
-
-    if options.target == "gcp-cloud-run":
-        return _run_gcp_cloud_run_doctor(cli_context, options=options)
-    if normalized_target == TARGET_AWS_ECS_FARGATE:
-        return _run_aws_ecs_fargate_doctor(cli_context, options=options)
-    if options.target == "azure-container-apps":
-        return _run_azure_container_apps_doctor(cli_context, options=options)
-    return _run_local_doctor(cli_context, full=options.full)
+        if issue is not None:
+            result = _usage_error_result(
+                problem=issue.problem,
+                next_step=issue.next_step,
+                target=options.target,
+            )
+        elif options.target == "gcp-cloud-run":
+            result = _run_gcp_cloud_run_doctor(cli_context, options=options)
+        elif normalized_target == TARGET_AWS_ECS_FARGATE:
+            result = _run_aws_ecs_fargate_doctor(cli_context, options=options)
+        elif options.target == "azure-container-apps":
+            result = _run_azure_container_apps_doctor(cli_context, options=options)
+        else:
+            result = _run_local_doctor(cli_context, full=options.full)
+        if result.ok:
+            progress.complete()
+        else:
+            progress.fail()
+        return _finalize_doctor_result(cli_context, result)
+    finally:
+        progress.close()
 
 
 def _run_local_doctor(cli_context: CLIContext, *, full: bool) -> CommandResult:
@@ -499,3 +510,42 @@ def _usage_error_result(*, problem: str, next_step: str, target: str) -> Command
         },
         exit_code=2,
     )
+
+
+def _finalize_doctor_result(cli_context: CLIContext, result: CommandResult) -> CommandResult:
+    if cli_context.json_output:
+        return result
+    if result.data.get("error_type") is not None:
+        return result
+
+    all_checks = tuple(result.checks)
+    filtered_checks = _doctor_non_pass_checks(all_checks)
+    if filtered_checks:
+        return CommandResult(
+            ok=result.ok,
+            command=result.command,
+            message=None,
+            data={
+                **result.data,
+                "all_checks": [check.to_dict() for check in all_checks],
+            },
+            checks=filtered_checks,
+            exit_code=result.exit_code,
+        )
+
+    target = str(result.data.get("target") or "local")
+    return CommandResult(
+        ok=result.ok,
+        command=result.command,
+        message=f"ready: target {target}",
+        data={
+            **result.data,
+            "all_checks": [check.to_dict() for check in all_checks],
+        },
+        checks=(),
+        exit_code=result.exit_code,
+    )
+
+
+def _doctor_non_pass_checks(checks: tuple[DiagnosticCheck, ...]) -> tuple[DiagnosticCheck, ...]:
+    return tuple(check for check in checks if check.status != "pass")

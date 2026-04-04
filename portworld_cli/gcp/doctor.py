@@ -72,13 +72,11 @@ class GCPDoctorSecretReadiness:
 class GCPDoctorProductionPosture:
     backend_profile: str
     profile_is_production: bool
-    debug_trace_disabled: bool
 
     def to_dict(self) -> dict[str, object]:
         return {
             "backend_profile": self.backend_profile,
             "profile_is_production": self.profile_is_production,
-            "debug_trace_disabled": self.debug_trace_disabled,
         }
 
 
@@ -675,7 +673,6 @@ def _build_production_posture(backend_contract) -> GCPDoctorProductionPosture:
     return GCPDoctorProductionPosture(
         backend_profile=backend_contract.backend_profile,
         profile_is_production=backend_contract.is_production_profile,
-        debug_trace_disabled=not backend_contract.backend_debug_trace_ws_messages,
     )
 
 
@@ -819,8 +816,7 @@ def _build_secret_checks(
 def _build_production_posture_checks(
     posture: GCPDoctorProductionPosture,
 ) -> tuple[DiagnosticCheck, ...]:
-    checks: list[DiagnosticCheck] = []
-    checks.append(
+    return (
         DiagnosticCheck(
             id="production_profile_ready",
             status="pass" if posture.profile_is_production else "warn",
@@ -832,19 +828,6 @@ def _build_production_posture_checks(
             action=None if posture.profile_is_production else "No local change is required; deploy will set BACKEND_PROFILE=production.",
         )
     )
-    checks.append(
-        DiagnosticCheck(
-            id="debug_trace_ready",
-            status="pass" if posture.debug_trace_disabled else "warn",
-            message=(
-                "BACKEND_DEBUG_TRACE_WS_MESSAGES is disabled for production use."
-                if posture.debug_trace_disabled
-                else "BACKEND_DEBUG_TRACE_WS_MESSAGES is enabled in backend/.env."
-            ),
-            action=None if posture.debug_trace_disabled else "Set BACKEND_DEBUG_TRACE_WS_MESSAGES=false before production deploy.",
-        )
-    )
-    return tuple(checks)
 
 
 def _coerce_text(value: object) -> str | None:
