@@ -826,7 +826,7 @@ def _build_production_posture_checks(
                 else f"BACKEND_PROFILE is '{posture.backend_profile}'; deploy will override it to production."
             ),
             action=None if posture.profile_is_production else "No local change is required; deploy will set BACKEND_PROFILE=production.",
-        )
+        ),
     )
 
 
