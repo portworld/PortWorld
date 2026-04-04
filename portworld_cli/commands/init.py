@@ -87,7 +87,13 @@ from portworld_cli.services.init import InitOptions, run_init
     "--runtime-source",
     type=click.Choice(["source", "published"]),
     default=None,
-    help="Runtime source mode for this workspace.",
+    help="Advanced runtime source override for this workspace.",
+)
+@click.option(
+    "--local-runtime",
+    type=click.Choice(["source", "published"]),
+    default=None,
+    help="Advanced local runtime override. Interactive init defaults to published.",
 )
 @click.option(
     "--cloud-provider",
@@ -150,6 +156,7 @@ def init_command(
     setup_mode: str | None,
     project_mode: str | None,
     runtime_source: str | None,
+    local_runtime: str | None,
     cloud_provider: str | None,
     target: str | None,
     stack_name: str | None,
@@ -177,7 +184,7 @@ def init_command(
     azure_environment: str | None,
     azure_app: str | None,
 ) -> None:
-    """Initialize local PortWorld backend configuration."""
+    """Guide PortWorld onboarding, configure the workspace, and run the selected setup path."""
     exit_with_result(
         cli_context,
         run_init(
@@ -201,6 +208,7 @@ def init_command(
                 setup_mode=setup_mode,
                 project_mode=project_mode,
                 runtime_source=runtime_source,
+                local_runtime=local_runtime,
                 cloud_provider=cloud_provider,
                 target=target,
                 stack_name=stack_name,

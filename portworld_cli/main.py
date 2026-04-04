@@ -10,7 +10,7 @@ from portworld_cli.version import __version__
 
 
 COMMAND_SPECS: dict[str, tuple[str, str, str]] = {
-    "init": ("portworld_cli.commands.init", "init_command", "Initialize local PortWorld backend configuration."),
+    "init": ("portworld_cli.commands.init", "init_command", "Guide onboarding, configure PortWorld, and run the selected setup path."),
     "doctor": ("portworld_cli.commands.doctor", "doctor_command", "Validate local or managed deployment readiness."),
     "deploy": ("portworld_cli.commands.deploy", "deploy_group", "Deploy PortWorld to a managed target."),
     "status": ("portworld_cli.commands.status", "status_command", "Inspect workspace and deployment state."),

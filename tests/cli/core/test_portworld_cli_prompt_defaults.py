@@ -47,6 +47,7 @@ def _base_init_options() -> InitOptions:
         setup_mode=None,
         project_mode=None,
         runtime_source=None,
+        local_runtime=None,
         cloud_provider=None,
         target=None,
         stack_name=None,
