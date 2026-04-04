@@ -1,15 +1,15 @@
 # PortWorld Getting Started
 
-This is the canonical onboarding and setup path for PortWorld.
+This is the canonical onboarding document for PortWorld.
 
-Use this document if you want to:
+PortWorld currently has two practical setup paths:
 
-- run PortWorld locally through the supported operator flow
-- contribute from a source checkout
-- work on the backend only
-- build the iOS app against a reachable PortWorld backend
+1. install the published CLI with `install.sh`
+2. clone the repo and set everything up from source
 
-For subsystem-specific detail after first setup:
+If you want to use the iOS app, use the source path. The iOS app is not currently distributed through the App Store because the Wearables DAT SDK blocks that route, so iOS setup requires a repo checkout and Xcode.
+
+For subsystem-specific detail after initial setup:
 
 - backend runtime reference: [backend/README.md](backend/README.md)
 - CLI/operator reference: [portworld_cli/README.md](portworld_cli/README.md)
@@ -17,183 +17,140 @@ For subsystem-specific detail after first setup:
 
 ## Minimum Supported Platforms And Tools
 
-### Backend and CLI
+### CLI and backend
 
 - macOS or Linux
 - Python 3.11+
-- Docker and Docker Compose for the default local operator path
-- Node.js/npm/npx only when using Node-based MCP extensions outside the published/container path
+- Docker and Docker Compose for local backend runs
 
 ### iOS
 
-- iPhone-focused app targeting iOS 17.0+
+- macOS
 - Xcode with iOS 17 support
-- a reachable PortWorld backend for meaningful runtime validation
+- iPhone-focused app targeting iOS 17.0+
+- a reachable PortWorld backend for meaningful app validation
 
-## Supported Setup Paths
+## Path 1. Install With `install.sh`
 
-### 1. Default operator path
-
-This is the recommended path if you want to run PortWorld locally without developing the repo itself.
+Use this path if you want the published CLI and PortWorld-managed setup flow without cloning the repo first.
 
 ```bash
 curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash
 portworld init
+```
+
+Then validate the result:
+
+```bash
 portworld doctor --target local
 portworld status
 ```
 
-Expected result:
+Use this path when:
 
-- the local workspace initializes successfully
-- the backend container becomes healthy
-- `portworld doctor --target local` reports the local runtime as ready enough to continue
-- `portworld status` shows the local workspace/runtime state
+- you want the published CLI experience
+- you want PortWorld to manage the local workspace for you
+- you do not need the iOS app from this machine yet
 
-### 2. Source-checkout contributor path
+Notes:
 
-Use this when you are editing PortWorld itself.
+- this path is centered on the CLI and backend runtime
+- if you later want to work with the iOS app, switch to the source path below
 
-```bash
-git clone https://github.com/portworld/PortWorld.git
-cd PortWorld
-pipx install . --force
-portworld init
-```
+## Path 2. Set Up From Source
 
-Use this path for:
+Use this path if you want the full product setup from one repo checkout, especially backend plus iOS app together.
 
-- backend development
-- CLI development
-- repo-backed debugging
-
-### 3. Backend-only contributor path
-
-Use this when you want the fastest route to a local backend from a repo checkout.
+### 1. Clone the repo
 
 ```bash
 git clone https://github.com/portworld/PortWorld.git
 cd PortWorld
-cp backend/.env.example backend/.env
-docker compose up --build
 ```
 
-Then validate liveness:
+If you need a specific branch, check it out after entering the repo.
+
+### 2. Create a local Python environment
 
 ```bash
+uv venv
+source .venv/bin/activate
+uv pip install -e .
+```
+
+Optional sanity check:
+
+```bash
+portworld --version
+```
+
+### 3. Run repo-backed init
+
+Use explicit flags so setup stays in the repo checkout instead of switching to a published workspace:
+
+```bash
+portworld init --project-mode local --runtime-source source --setup-mode manual
+```
+
+This path is the source-backed setup flow. It is the right choice when you want:
+
+- the backend config written into the repo checkout
+- the local backend started from the source checkout
+- repo-local iOS defaults synced from the setup result
+
+### 4. Validate the local backend
+
+```bash
+portworld doctor --target local
+portworld status
 curl http://127.0.0.1:8080/livez
 ```
 
-### 4. iOS contributor path
-
-Use this when you want to build the iOS app against a local backend.
-
-```bash
-git clone https://github.com/portworld/PortWorld.git
-cd PortWorld
-cp backend/.env.example backend/.env
-docker compose up --build
-open IOS/PortWorld.xcodeproj
-```
-
-Then:
-
-1. Build the `PortWorld` scheme.
-2. Use the backend URL and bearer token written by `portworld init`, or update the local iOS config if you need a different backend.
-3. Validate backend setup in-app against the running local deployment.
-
-The iOS-specific configuration, Meta DAT setup, permissions, and build constraints remain in [IOS/README.md](IOS/README.md).
-
-## Minimum Viable Backend Environment
-
-The exhaustive backend environment reference is [backend/.env.example](backend/.env.example).
-Use that file as the source of truth for supported variables and defaults.
-
-### Realtime-only path
-
-Start from:
-
-```bash
-cp backend/.env.example backend/.env
-```
-
-Then keep these defaults unless you intentionally want more features:
-
-- `VISION_MEMORY_ENABLED=false`
-- `REALTIME_TOOLING_ENABLED=false`
-- `MEMORY_CONSOLIDATION_ENABLED=` left unset
-
-Choose one realtime provider:
-
-- `REALTIME_PROVIDER=openai` requires `OPENAI_API_KEY`
-- `REALTIME_PROVIDER=gemini_live` requires `GEMINI_LIVE_API_KEY`
-
-Optional production/local-hardening settings:
-
-- `BACKEND_PROFILE=production` requires `BACKEND_BEARER_TOKEN`
-- internet-exposed deployments should use explicit `CORS_ORIGINS` and `BACKEND_ALLOWED_HOSTS`
-
-If you enable optional features, use the provider-scoped keys documented in [backend/README.md](backend/README.md) and [backend/.env.example](backend/.env.example).
-
-## First Success
-
-### Backend
-
-Liveness:
-
-```bash
-curl http://127.0.0.1:8080/livez
-```
-
-Expected response:
+Expected liveness response:
 
 ```json
 {"status":"ok","service":"portworld-backend"}
 ```
 
-Readiness:
-
-- `/livez` confirms process liveness only
-- authenticated `/readyz` checks storage and provider configuration
-- `portworld ops check-config --full-readiness` is the stricter CLI preflight
-
-Example readiness probe:
+### 5. Open the iOS project
 
 ```bash
-curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/readyz
+open IOS/PortWorld.xcodeproj
 ```
 
-### CLI
+Then:
 
-After the default operator path:
+1. let Xcode resolve Swift Package dependencies
+2. select the `PortWorld` scheme
+3. build the app
+4. validate backend setup in-app against the backend you started locally
 
-- `portworld doctor --target local` should complete without a fatal local-runtime failure
-- `portworld status` should show the initialized local workspace/runtime state
+The iOS-specific Meta DAT setup, permissions, and runtime constraints remain in [IOS/README.md](IOS/README.md).
 
-### iOS
+## First Success
 
-The first meaningful iOS success state is:
+The first meaningful success state for the source path is:
 
-1. the app builds successfully in Xcode
-2. backend setup/validation succeeds against a reachable PortWorld deployment
-3. the app can proceed through the current onboarding/runtime flow supported by your setup
-
-For iOS-specific runtime expectations and constraints, continue with [IOS/README.md](IOS/README.md).
+1. `portworld init --project-mode local --runtime-source source --setup-mode manual` completes successfully
+2. `portworld doctor --target local` completes without a fatal local-runtime failure
+3. `curl http://127.0.0.1:8080/livez` returns `{"status":"ok","service":"portworld-backend"}`
+4. Xcode opens `IOS/PortWorld.xcodeproj` and the `PortWorld` scheme builds
+5. the app can validate a reachable PortWorld backend in its onboarding flow
 
 ## What To Read Next
 
 - Read [backend/README.md](backend/README.md) for:
-  - provider/env reference
+  - provider and env reference
   - backend runtime details
   - API and storage details
   - backend-specific verification guidance
 - Read [portworld_cli/README.md](portworld_cli/README.md) for:
   - CLI commands
   - managed deploy flows
-  - install/update specifics
+  - install and update specifics
   - production cautions for managed targets
 - Read [IOS/README.md](IOS/README.md) for:
   - iOS project layout
   - Meta DAT setup
   - runtime configuration inputs
-  - permissions, capabilities, and build/validate constraints
+  - permissions, capabilities, and build constraints
