@@ -1,0 +1,407 @@
+name: CLI Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      version: ${{ steps.metadata.outputs.version }}
+      package_name: ${{ steps.metadata.outputs.package_name }}
+      repo_owner: ${{ steps.metadata.outputs.repo_owner }}
+      repo_owner_lower: ${{ steps.metadata.outputs.repo_owner_lower }}
+      repo_name: ${{ steps.metadata.outputs.repo_name }}
+      repo_url: ${{ steps.metadata.outputs.repo_url }}
+      image_name: ${{ steps.metadata.outputs.image_name }}
+      image_ref: ${{ steps.metadata.outputs.image_ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate release metadata
+        id: metadata
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+          import tomllib
+
+          from backend import __version__ as backend_version
+          from portworld_cli.version import __version__ as cli_version
+
+          tag = os.environ["GITHUB_REF_NAME"].strip()
+          version = cli_version.strip()
+          mirrored_backend_version = backend_version.strip()
+          if version != mirrored_backend_version:
+              raise SystemExit(
+                  "Version mismatch: portworld_cli.version.__version__ is "
+                  f"{version}, backend.__version__ is {mirrored_backend_version}"
+              )
+          expected_tag = f"v{version}"
+          if tag != expected_tag:
+              raise SystemExit(
+                  f"Tag/version mismatch: git tag is {tag}, portworld_cli.version.__version__ expects {expected_tag}"
+              )
+          repo_owner = os.environ["GITHUB_REPOSITORY_OWNER"].strip()
+          repo_owner_lower = repo_owner.lower()
+          repo_name = os.environ["GITHUB_REPOSITORY"].strip().split("/", 1)[1]
+          repo_url = f'{os.environ["GITHUB_SERVER_URL"].rstrip("/")}/{os.environ["GITHUB_REPOSITORY"].strip()}'
+          image_name = f"ghcr.io/{repo_owner_lower}/portworld-backend"
+          with open("pyproject.toml", "rb") as fh:
+              project = tomllib.load(fh)["project"]
+          package_name = project["name"].strip()
+          if not package_name:
+              raise SystemExit("pyproject.toml project.name must be set for release publishing")
+          print(f"tag={tag}")
+          print(f"version={version}")
+          print(f"package_name={package_name}")
+          print(f"repo_owner={repo_owner}")
+          print(f"repo_owner_lower={repo_owner_lower}")
+          print(f"repo_name={repo_name}")
+          print(f"repo_url={repo_url}")
+          print(f"image_name={image_name}")
+          print(f"image_ref={image_name}:{tag}")
+          PY
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install packaging tools
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Check distributions
+        run: python -m twine check dist/*
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish_testpypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v5
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist
+          print-hash: true
+
+  smoke_testpypi:
+    needs:
+      - validate
+      - publish_testpypi
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install uv
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
+
+      - name: Wait for TestPyPI index propagation
+        env:
+          PACKAGE_NAME: ${{ needs.validate.outputs.package_name }}
+          PACKAGE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          import urllib.error
+          import urllib.request
+
+          package_name = os.environ["PACKAGE_NAME"].strip()
+          package_version = os.environ["PACKAGE_VERSION"].strip()
+          simple_index_url = f"https://test.pypi.org/simple/{package_name}/"
+          deadline = time.time() + 300
+          poll_interval_seconds = 5
+
+          while True:
+              try:
+                  with urllib.request.urlopen(simple_index_url, timeout=15) as response:
+                      html = response.read().decode("utf-8", errors="replace")
+              except urllib.error.URLError as exc:
+                  if time.time() >= deadline:
+                      raise SystemExit(
+                          f"Timed out waiting for TestPyPI index {simple_index_url}: {exc}"
+                      ) from exc
+                  print(f"TestPyPI index not reachable yet: {exc}; retrying in {poll_interval_seconds}s")
+                  time.sleep(poll_interval_seconds)
+                  continue
+
+              if package_version in html:
+                  print(f"Found {package_name}=={package_version} on TestPyPI.")
+                  break
+
+              if time.time() >= deadline:
+                  raise SystemExit(
+                      f"Timed out waiting for {package_name}=={package_version} to appear on TestPyPI."
+                  )
+
+              print(
+                  f"{package_name}=={package_version} not visible on TestPyPI yet; "
+                  f"retrying in {poll_interval_seconds}s"
+              )
+              time.sleep(poll_interval_seconds)
+          PY
+
+      - name: Install package from TestPyPI
+        env:
+          PACKAGE_NAME: ${{ needs.validate.outputs.package_name }}
+          PACKAGE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          uv tool install \
+            --default-index https://test.pypi.org/simple \
+            --index https://pypi.org/simple \
+            "${PACKAGE_NAME}==${PACKAGE_VERSION}"
+
+      - name: Smoke installed CLI
+        run: |
+          portworld --help
+          portworld init --help
+          portworld providers list
+          portworld update cli --json
+
+  publish_backend_image:
+    needs:
+      - validate
+      - smoke_testpypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ needs.validate.outputs.image_name }}
+          tags: |
+            type=raw,value=${{ needs.validate.outputs.tag }}
+          labels: |
+            org.opencontainers.image.title=portworld-backend
+            org.opencontainers.image.version=${{ needs.validate.outputs.version }}
+            org.opencontainers.image.source=${{ needs.validate.outputs.repo_url }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build and push backend image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: backend/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  attest_sign_scan_backend_image:
+    needs:
+      - validate
+      - publish_backend_image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.0
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4.1.0
+        with:
+          subject-name: ${{ needs.validate.outputs.image_name }}
+          subject-digest: ${{ needs.publish_backend_image.outputs.image_digest }}
+          push-to-registry: true
+
+      - name: Sign backend image with Cosign
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          IMAGE_NAME: ${{ needs.validate.outputs.image_name }}
+          IMAGE_DIGEST: ${{ needs.publish_backend_image.outputs.image_digest }}
+        run: cosign sign --yes "${IMAGE_NAME}@${IMAGE_DIGEST}"
+
+      - name: Run vulnerability scan
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ needs.validate.outputs.image_name }}@${{ needs.publish_backend_image.outputs.image_digest }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Write backend image manifest
+        env:
+          IMAGE_NAME: ${{ needs.validate.outputs.image_name }}
+          IMAGE_REF: ${{ needs.validate.outputs.image_ref }}
+          IMAGE_DIGEST: ${{ needs.publish_backend_image.outputs.image_digest }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = {
+              "image_name": os.environ["IMAGE_NAME"],
+              "image_ref": os.environ["IMAGE_REF"],
+              "image_digest": os.environ["IMAGE_DIGEST"],
+              "release_tag": os.environ["RELEASE_TAG"],
+              "release_version": os.environ["RELEASE_VERSION"],
+              "platforms": ["linux/amd64", "linux/arm64"],
+              "signing": {"cosign_keyless": "ok"},
+              "provenance": {"github_attestation": "ok"},
+              "vulnerability_scan": {
+                  "tool": "trivy",
+                  "severity_filter": ["HIGH", "CRITICAL"],
+                  "blocking_policy": "warn_only",
+                  "report": "trivy-results.sarif",
+              },
+          }
+          Path("backend-image-manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="ascii",
+          )
+          PY
+
+      - name: Upload backend image artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-image-artifacts
+          path: |
+            backend-image-manifest.json
+            trivy-results.sarif
+          if-no-files-found: error
+          retention-days: 7
+
+  publish_pypi:
+    needs:
+      - build
+      - smoke_testpypi
+      - attest_sign_scan_backend_image
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v5
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          print-hash: true
+
+  github_release:
+    needs:
+      - validate
+      - publish_pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v5
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Download backend image artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: backend-image-artifacts
+          path: release
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* release/backend-image-manifest.json --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/* release/backend-image-manifest.json --verify-tag --notes-from-tag
+          fi

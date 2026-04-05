@@ -1,47 +1,99 @@
-import AVFAudio
+// Coordinates the shared audio engine, microphone capture, and realtime frame delivery for the assistant runtime.
+
+@preconcurrency import AVFAudio
 import Combine
 import Foundation
+import OSLog
 
 @MainActor
 final class AudioCollectionManager: ObservableObject {
+    private enum StartError: LocalizedError {
+        case invalidInputFormat(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidInputFormat(let detail):
+                return "Invalid recording tap format: \(detail)"
+            }
+        }
+    }
+
+    struct HFPRouteAvailability: Equatable {
+        let isSelectable: Bool
+        let isActive: Bool
+    }
+
     @Published private(set) var state: AudioCollectionState = .idle
     @Published private(set) var stats: AudioCollectionStats = .default
     @Published private(set) var isAudioSessionReady: Bool = false
-    @Published private(set) var currentSessionDirectory: URL?
     @Published private(set) var lastSpeechActivityTimestampMs: Int64?
     var onWakePCMFrame: ((WakeWordPCMFrame) -> Void)?
+    var onRealtimePCMFrame: (@Sendable (Data, Int64) -> Void)? {
+        didSet {
+            realtimePCMSinkRelay.setSink(onRealtimePCMFrame)
+        }
+    }
+    var isPlaybackPendingProvider: (() -> Bool)?
 
     /// Shared audio engine for both capture and playback. Exposed so that
     /// AssistantPlaybackEngine can attach its player node to the same engine.
-    let sharedAudioEngine = AVAudioEngine()
+    let sharedAudioEngine: AVAudioEngine
 
-    private let audioSession = AVAudioSession.sharedInstance()
-    private let processor = AudioChunkProcessor()
-    private let chunkDurationMs = 500
+    private let audioSessionClient: AudioSessionControlling
+    private let observerCenter: NotificationObserving
+    private let tapController: AudioTapControlling
+    private let realtimePCMSinkRelay = RealtimePCMSinkRelay()
+    private let realtimePCMChunkDurationMs = 40
+    private let realtimePCMMaximumChunkBytes = 4_080
     private let speechRMSActivityThreshold: Float
     private let speechActivityDebounceMs: Int64
+    private let preferSpeakerOutput: Bool
+    private let allowBuiltInMicInput: Bool
 
     private var routeObserver: NSObjectProtocol?
     private var interruptionObserver: NSObjectProtocol?
     private var isTapInstalled = false
     private var lastSpeechEmissionTimestampMs: Int64 = 0
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "PortWorld",
+        category: "AudioCollectionManager"
+    )
 
-    init(speechRMSThreshold: Float = 0.02, speechActivityDebounceMs: Int64 = 250) {
+    init(
+        speechRMSThreshold: Float = 0.02,
+        speechActivityDebounceMs: Int64 = 250,
+        preferSpeakerOutput: Bool = false,
+        allowBuiltInMicInput: Bool = true,
+        audioSessionClient: AudioSessionControlling? = nil,
+        observerCenter: NotificationObserving? = nil,
+        sharedAudioEngine: AVAudioEngine? = nil,
+        tapControllerFactory: ((AVAudioEngine) -> AudioTapControlling)? = nil
+    ) {
         self.speechRMSActivityThreshold = speechRMSThreshold
         self.speechActivityDebounceMs = speechActivityDebounceMs
-        routeObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.routeChangeNotification,
-            object: audioSession,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.refreshDeviceAvailabilityState()
-            }
+        self.preferSpeakerOutput = preferSpeakerOutput
+        self.allowBuiltInMicInput = allowBuiltInMicInput
+        self.audioSessionClient = audioSessionClient ?? SystemAudioSessionClient()
+        self.observerCenter = observerCenter ?? SystemNotificationCenter()
+        self.sharedAudioEngine = sharedAudioEngine ?? AVAudioEngine()
+        let resolvedTapFactory = tapControllerFactory ?? { engine in
+            EngineAudioTapController(engine: engine)
         }
-
-        interruptionObserver = NotificationCenter.default.addObserver(
+        self.tapController = resolvedTapFactory(self.sharedAudioEngine)
+        self.realtimePCMSinkRelay.configureChunking(
+            minimumChunkSizeBytes: min(
+                Self.realtimePCMChunkSizeBytes(
+                    durationMs: realtimePCMChunkDurationMs,
+                    sampleRate: 24_000,
+                    channels: 1
+                ),
+                realtimePCMMaximumChunkBytes
+            ),
+            logChunkEmission: { _, _, _ in }
+        )
+        interruptionObserver = self.observerCenter.addObserver(
             forName: AVAudioSession.interruptionNotification,
-            object: audioSession,
+            object: self.audioSessionClient.notificationObject,
             queue: .main
         ) { [weak self] notification in
             let interruptionType = Self.interruptionType(from: notification)
@@ -52,11 +104,13 @@ final class AudioCollectionManager: ObservableObject {
     }
 
     deinit {
-        if let routeObserver {
-            NotificationCenter.default.removeObserver(routeObserver)
-        }
-        if let interruptionObserver {
-            NotificationCenter.default.removeObserver(interruptionObserver)
+        MainActor.assumeIsolated {
+            if let routeObserver {
+                observerCenter.removeObserver(routeObserver)
+            }
+            if let interruptionObserver {
+                observerCenter.removeObserver(interruptionObserver)
+            }
         }
     }
 
@@ -71,10 +125,14 @@ final class AudioCollectionManager: ObservableObject {
         }
 
         do {
-            // Use .default mode and .allowBluetoothHFP per DAT SDK recommendations for HFP.
-            // .voiceChat mode can apply aggressive audio processing that interferes with TTS playback.
-            try audioSession.setCategory(.playAndRecord, mode: .default, options: [.allowBluetoothHFP])
-            try audioSession.setActive(true, options: [.notifyOthersOnDeactivation])
+            var categoryOptions: AVAudioSession.CategoryOptions = [.allowBluetoothHFP]
+            if allowBuiltInMicInput || preferSpeakerOutput {
+                categoryOptions.insert(.defaultToSpeaker)
+            }
+            let sessionMode: AVAudioSession.Mode = preferSpeakerOutput ? .voiceChat : .default
+            try audioSessionClient.setCategory(.playAndRecord, mode: sessionMode, options: categoryOptions)
+            try audioSessionClient.setActive(true, options: [.notifyOthersOnDeactivation])
+            registerRouteObserverIfNeeded()
             isAudioSessionReady = true
             refreshDeviceAvailabilityState()
         } catch {
@@ -89,51 +147,30 @@ final class AudioCollectionManager: ObservableObject {
             return
         }
 
-        if hasBluetoothHFPInput() == false {
+        if hasRequiredInputRoute() == false {
             state = .waitingForDevice
             return
         }
 
         do {
-            let sessionId = UUID().uuidString
-            let startedAtMs = Self.nowMs()
-            let sessionDirectory = try createSessionDirectory(sessionId: sessionId)
-            let indexURL = sessionDirectory.appendingPathComponent("index.jsonl")
-            FileManager.default.createFile(atPath: indexURL.path, contents: nil)
+            configureVoiceProcessingIfNeeded()
 
-            let inputNode = sharedAudioEngine.inputNode
-            let inputFormat = inputNode.inputFormat(forBus: 0)
-
-            try processor.configure(
-                sessionId: sessionId,
-                sessionDirectory: sessionDirectory,
-                indexFileURL: indexURL,
-                inputFormat: inputFormat,
-                chunkTargetDurationMs: chunkDurationMs,
-                startTimestampMs: startedAtMs,
-                onChunkWritten: { [weak self] metadata, bytesWritten in
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.stats.chunksWritten += 1
-                        self.stats.bytesWritten += bytesWritten
-                        self.stats.lastChunkDurationMs = metadata.durationMs
-                    }
-                },
-                onError: { [weak self] message in
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.markFailed(message)
-                    }
-                }
-            )
+            guard let inputFormat = tapController.inputFormat() else {
+                throw StartError.invalidInputFormat("audio input format is unavailable")
+            }
+            guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+                throw StartError.invalidInputFormat(
+                    "sampleRate=\(inputFormat.sampleRate) channelCount=\(inputFormat.channelCount)"
+                )
+            }
 
             if isTapInstalled {
-                inputNode.removeTap(onBus: 0)
+                tapController.removeTap()
                 isTapInstalled = false
             }
 
-            let processor = self.processor
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+            let realtimePCMSinkRelay = self.realtimePCMSinkRelay
+            tapController.installTap(format: inputFormat) { [weak self] buffer, _ in
                 let rms = Self.computeRMS(buffer)
                 let timestampMs = Self.nowMs()
                 Task { @MainActor in
@@ -143,26 +180,29 @@ final class AudioCollectionManager: ObservableObject {
                     }
                 }
 
-                guard let copied = Self.copyPCMBuffer(buffer) else {
-                    processor.enqueueError("Failed to copy captured audio buffer.")
+                guard realtimePCMSinkRelay.hasSink else { return }
+
+                guard let payload = Self.copyRealtimePCMPayload(buffer) else {
+                    Task { @MainActor [weak self] in
+                        self?.markFailed("Failed to convert realtime audio payload to pcm_s16le mono 24kHz.")
+                    }
                     return
                 }
-                processor.enqueue(buffer: copied)
+
+                realtimePCMSinkRelay.emit(payload: payload, timestampMs: timestampMs)
             }
             isTapInstalled = true
 
-            sharedAudioEngine.prepare()
-            try sharedAudioEngine.start()
+            tapController.prepareEngine()
+            try tapController.startEngine()
 
-            currentSessionDirectory = sessionDirectory
             stats = .default
-            stats.startTimestampMs = startedAtMs
             lastSpeechActivityTimestampMs = nil
             lastSpeechEmissionTimestampMs = 0
             state = .recording
         } catch {
             teardownEngineIfNeeded()
-            processor.stopAndFlush()
+            realtimePCMSinkRelay.flush()
             markFailed("Failed to start audio capture: \(error.localizedDescription)")
         }
     }
@@ -180,10 +220,10 @@ final class AudioCollectionManager: ObservableObject {
         }
 
         teardownEngineIfNeeded()
-        processor.stopAndFlush()
+        realtimePCMSinkRelay.flush()
 
         if case .failed = state {
-            return
+            stats.lastError = nil
         }
 
         lastSpeechActivityTimestampMs = nil
@@ -191,19 +231,75 @@ final class AudioCollectionManager: ObservableObject {
         state = .idle
     }
 
-    /// Flushes any buffered audio data to disk without stopping recording.
-    /// Call this before exporting clips to ensure partial chunks are available.
-    func flushPendingAudioChunks() {
-        processor.flushPartialChunk()
+    func hfpRouteAvailability() -> HFPRouteAvailability {
+        let routeDiagnostics = audioSessionClient.routeDiagnostics()
+        return HFPRouteAvailability(
+            isSelectable: routeDiagnostics.hasSelectableBluetoothHFPInput,
+            isActive: routeDiagnostics.isCurrentRouteBluetoothHFP
+        )
+    }
+
+    func selectBluetoothHFPInputIfAvailable() throws -> Bool {
+        try audioSessionClient.selectBluetoothHFPInputIfAvailable()
+    }
+
+    func logRouteDiagnostics(context: String) {
+        let routeDiagnostics = audioSessionClient.routeDiagnostics()
+        let preferredInput = routeDiagnostics.preferredInput ?? "-"
+        let currentInputs = routeDiagnostics.currentInputs.joined(separator: ", ")
+        let currentOutputs = routeDiagnostics.currentOutputs.joined(separator: ", ")
+        let availableInputs = routeDiagnostics.availableInputs.joined(separator: ", ")
+        logger.debug(
+            "Route diagnostics (\(context, privacy: .public)): category=\(routeDiagnostics.category, privacy: .public), mode=\(routeDiagnostics.mode, privacy: .public), selectable=\(routeDiagnostics.hasSelectableBluetoothHFPInput, privacy: .public), active=\(routeDiagnostics.isCurrentRouteBluetoothHFP, privacy: .public), preferredInput=\(preferredInput, privacy: .public), currentInputs=[\(currentInputs, privacy: .public)], currentOutputs=[\(currentOutputs, privacy: .public)], availableInputs=[\(availableInputs, privacy: .public)]"
+        )
+    }
+
+    private func configureVoiceProcessingIfNeeded() {
+        guard preferSpeakerOutput else { return }
+
+        do {
+            if sharedAudioEngine.inputNode.isVoiceProcessingEnabled == false {
+                try sharedAudioEngine.inputNode.setVoiceProcessingEnabled(true)
+                logger.debug("Enabled voice processing on shared input node")
+            }
+        } catch {
+            logger.error("Failed to enable input voice processing: \(error.localizedDescription, privacy: .public)")
+        }
+
+        do {
+            if sharedAudioEngine.outputNode.isVoiceProcessingEnabled == false {
+                try sharedAudioEngine.outputNode.setVoiceProcessingEnabled(true)
+                logger.debug("Enabled voice processing on shared output node")
+            }
+        } catch {
+            logger.error("Failed to enable output voice processing: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func teardownEngineIfNeeded() {
-        let inputNode = sharedAudioEngine.inputNode
         if isTapInstalled {
-            inputNode.removeTap(onBus: 0)
+            tapController.removeTap()
             isTapInstalled = false
         }
-        sharedAudioEngine.stop()
+
+        if isPlaybackPendingProvider?() == true {
+            return
+        }
+
+        tapController.stopEngine()
+    }
+
+    private func registerRouteObserverIfNeeded() {
+        guard routeObserver == nil else { return }
+        routeObserver = observerCenter.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: audioSessionClient.notificationObject,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshDeviceAvailabilityState()
+            }
+        }
     }
 
     private func refreshDeviceAvailabilityState() {
@@ -216,7 +312,7 @@ final class AudioCollectionManager: ObservableObject {
             return
         }
 
-        state = hasBluetoothHFPInput() ? .idle : .waitingForDevice
+        state = hasRequiredInputAvailable() ? .idle : .waitingForDevice
     }
 
     private func handleInterruption(_ interruptionType: AVAudioSession.InterruptionType?) {
@@ -231,7 +327,7 @@ final class AudioCollectionManager: ObservableObject {
             }
         case .ended:
             do {
-                try audioSession.setActive(true, options: [])
+                try audioSessionClient.setActive(true, options: [])
                 refreshDeviceAvailabilityState()
             } catch {
                 markFailed("Failed to reactivate audio session after interruption: \(error.localizedDescription)")
@@ -255,13 +351,25 @@ final class AudioCollectionManager: ObservableObject {
     }
 
     private func hasBluetoothHFPInput() -> Bool {
-        audioSession.currentRoute.inputs.contains { input in
-            input.portType == .bluetoothHFP
+        audioSessionClient.hasCurrentBluetoothHFPInput()
+    }
+
+    private func hasRequiredInputAvailable() -> Bool {
+        if allowBuiltInMicInput || preferSpeakerOutput {
+            return true
         }
+        return audioSessionClient.hasSelectableBluetoothHFPInput()
+    }
+
+    private func hasRequiredInputRoute() -> Bool {
+        if allowBuiltInMicInput || preferSpeakerOutput {
+            return true
+        }
+        return hasBluetoothHFPInput()
     }
 
     private func requestRecordPermission() async -> Bool {
-        await AVAudioApplication.requestRecordPermission()
+        await audioSessionClient.requestRecordPermission()
     }
 
     private nonisolated static func interruptionType(from notification: Notification) -> AVAudioSession.InterruptionType? {
@@ -274,25 +382,17 @@ final class AudioCollectionManager: ObservableObject {
         return interruptionType
     }
 
-    private func createSessionDirectory(sessionId: String) throws -> URL {
-        let documents = try documentsDirectoryURL()
-        let root = documents.appendingPathComponent("AudioSessions", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-
-        let sessionDirectory = root.appendingPathComponent(sessionId, isDirectory: true)
-        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
-        return sessionDirectory
+    private nonisolated static func nowMs() -> Int64 {
+        Clocks.nowMs()
     }
 
-    private func documentsDirectoryURL() throws -> URL {
-        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            throw NSError(domain: "AudioCollectionManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not locate Documents directory."])
-        }
-        return documentsURL
-    }
-
-    private static func nowMs() -> Int64 {
-        Int64((Date().timeIntervalSince1970 * 1000.0).rounded())
+    private nonisolated static func realtimePCMChunkSizeBytes(
+        durationMs: Int,
+        sampleRate: Int,
+        channels: Int
+    ) -> Int {
+        let frames = max(1, (sampleRate * durationMs) / 1000)
+        return max(2, frames * max(1, channels) * MemoryLayout<Int16>.size)
     }
 
     private static func computeRMS(_ buffer: AVAudioPCMBuffer) -> Float {
@@ -332,29 +432,97 @@ final class AudioCollectionManager: ObservableObject {
         return 0
     }
 
-    private static func copyPCMBuffer(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        guard let copied = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) else {
+    private static func copyPCMPayload(_ buffer: AVAudioPCMBuffer) -> Data? {
+        let sourceList = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
+        var totalSize = 0
+        for source in sourceList {
+            totalSize += Int(source.mDataByteSize)
+        }
+        guard totalSize > 0 else { return nil }
+
+        var payload = Data()
+        payload.reserveCapacity(totalSize)
+
+        for source in sourceList {
+            let size = Int(source.mDataByteSize)
+            guard size > 0, let sourceData = source.mData else {
+                continue
+            }
+            payload.append(contentsOf: UnsafeRawBufferPointer(start: sourceData, count: size))
+        }
+
+        return payload.isEmpty ? nil : payload
+    }
+
+    private static func copyRealtimePCMPayload(_ buffer: AVAudioPCMBuffer) -> Data? {
+        let targetSampleRate = 24_000.0
+        let inputFormat = buffer.format
+        let isTargetFormat =
+            inputFormat.commonFormat == .pcmFormatInt16 &&
+            inputFormat.channelCount == 1 &&
+            abs(inputFormat.sampleRate - targetSampleRate) < 0.001
+        if isTargetFormat {
+            return copyPCMPayload(buffer)
+        }
+
+        guard let outputFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate: targetSampleRate,
+            channels: 1,
+            interleaved: false
+        ) else {
             return nil
         }
 
-        copied.frameLength = buffer.frameLength
-
-        let srcList = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
-        let dstList = UnsafeMutableAudioBufferListPointer(copied.mutableAudioBufferList)
-        let count = min(srcList.count, dstList.count)
-
-        for i in 0 ..< count {
-            let src = srcList[i]
-            let maxSize = Int(dstList[i].mDataByteSize)
-            let size = min(Int(src.mDataByteSize), maxSize)
-            guard let srcData = src.mData, let dstData = dstList[i].mData else {
-                continue
-            }
-            memcpy(dstData, srcData, size)
-            dstList[i].mDataByteSize = UInt32(size)
+        guard let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else {
+            return nil
         }
 
-        return copied
+        let ratio = outputFormat.sampleRate / max(inputFormat.sampleRate, 1)
+        let capacity = AVAudioFrameCount(max(1, Int((Double(buffer.frameLength) * ratio).rounded(.up)) + 32))
+        guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else {
+            return nil
+        }
+
+        var consumed = false
+        var convertedPayload = Data()
+
+        while true {
+            var conversionError: NSError?
+            let status = converter.convert(to: convertedBuffer, error: &conversionError) { _, outStatus in
+                if consumed {
+                    outStatus.pointee = .noDataNow
+                    return nil
+                }
+                consumed = true
+                outStatus.pointee = .haveData
+                return buffer
+            }
+
+            if conversionError != nil {
+                return nil
+            }
+
+            let producedFrames = Int(convertedBuffer.frameLength)
+            if producedFrames > 0 {
+                guard let channelData = convertedBuffer.int16ChannelData else {
+                    return nil
+                }
+                let byteCount = producedFrames * MemoryLayout<Int16>.size
+                convertedPayload.append(contentsOf: UnsafeRawBufferPointer(start: channelData[0], count: byteCount))
+            }
+
+            switch status {
+            case .haveData:
+                continue
+            case .inputRanDry, .endOfStream:
+                return convertedPayload.isEmpty ? nil : convertedPayload
+            case .error:
+                return nil
+            @unknown default:
+                return convertedPayload.isEmpty ? nil : convertedPayload
+            }
+        }
     }
 
     private static func makeWakePCMFrame(from buffer: AVAudioPCMBuffer, timestampMs: Int64) -> WakeWordPCMFrame? {
@@ -403,380 +571,285 @@ final class AudioCollectionManager: ObservableObject {
             timestampMs: timestampMs
         )
     }
-
-    func exportWAVClip(
-        window: AudioClipExportWindow,
-        from sessionDirectory: URL? = nil
-    ) throws -> URL {
-        guard window.endTimestampMs > window.startTimestampMs else {
-            throw AudioClipExportError.invalidWindow
-        }
-
-        let targetDirectory = sessionDirectory ?? currentSessionDirectory
-        guard let targetDirectory else {
-            throw AudioClipExportError.sessionDirectoryUnavailable
-        }
-
-        let chunks = try loadChunkIndex(from: targetDirectory)
-        var mergedPCM = Data()
-        var clipSampleRate: Int?
-        var clipChannels: Int?
-
-        for chunk in chunks {
-            let chunkStart = chunk.startedAtMs
-            let chunkEnd = chunk.startedAtMs + Int64(chunk.durationMs)
-            if chunkEnd <= window.startTimestampMs || chunkStart >= window.endTimestampMs {
-                continue
-            }
-
-            let chunkURL = targetDirectory.appendingPathComponent(chunk.fileName)
-            guard FileManager.default.fileExists(atPath: chunkURL.path) else {
-                continue
-            }
-
-            let chunkPCM: Data
-            do {
-                chunkPCM = try Self.readPCM16Payload(from: chunkURL)
-            } catch {
-                continue
-            }
-
-            if chunkPCM.isEmpty {
-                continue
-            }
-
-            if clipSampleRate == nil {
-                clipSampleRate = chunk.sampleRate
-                clipChannels = chunk.channels
-            } else if clipSampleRate != chunk.sampleRate || clipChannels != chunk.channels {
-                // Best effort: skip incompatible chunks from mixed-format captures.
-                continue
-            }
-
-            let overlapStart = max(window.startTimestampMs, chunkStart)
-            let overlapEnd = min(window.endTimestampMs, chunkEnd)
-            if overlapEnd <= overlapStart {
-                continue
-            }
-
-            let bytesPerFrame = max(1, chunk.channels * 2)
-            let startOffsetMs = Double(overlapStart - chunkStart)
-            let endOffsetMs = Double(overlapEnd - chunkStart)
-            let startFrame = Int((startOffsetMs * Double(chunk.sampleRate) / 1000.0).rounded(.down))
-            let endFrame = Int((endOffsetMs * Double(chunk.sampleRate) / 1000.0).rounded(.up))
-
-            let startByte = max(0, min(chunkPCM.count, startFrame * bytesPerFrame))
-            let endByte = max(startByte, min(chunkPCM.count, endFrame * bytesPerFrame))
-            if endByte > startByte {
-                mergedPCM.append(chunkPCM.subdata(in: startByte ..< endByte))
-            }
-        }
-
-        guard !mergedPCM.isEmpty else {
-            // Diagnostic logging: print requested window vs available chunks
-            let chunkRanges = chunks.map { "[\($0.startedAtMs)-\($0.startedAtMs + Int64($0.durationMs))]" }.joined(separator: ", ")
-            print("[AudioCollectionManager] No audio data in window. Requested: [\(window.startTimestampMs)-\(window.endTimestampMs)], Available chunks: \(chunkRanges.isEmpty ? "none" : chunkRanges)")
-            throw AudioClipExportError.noAudioDataInWindow
-        }
-
-        guard let clipSampleRate, let clipChannels else {
-            throw AudioClipExportError.noAudioDataInWindow
-        }
-
-        let fileName = "clip_\(window.startTimestampMs)_\(window.endTimestampMs).wav"
-        let outputURL = targetDirectory.appendingPathComponent(fileName)
-        _ = try WavFileWriter.writePCM16(
-            samples: mergedPCM,
-            sampleRate: clipSampleRate,
-            channels: clipChannels,
-            to: outputURL
-        )
-        return outputURL
-    }
-
-    private func loadChunkIndex(from sessionDirectory: URL) throws -> [AudioChunkMetadata] {
-        let indexURL = sessionDirectory.appendingPathComponent("index.jsonl")
-        guard FileManager.default.fileExists(atPath: indexURL.path) else {
-            throw AudioClipExportError.indexFileUnavailable
-        }
-
-        let indexContents = try String(contentsOf: indexURL, encoding: .utf8)
-        let decoder = JSONDecoder()
-
-        let chunks: [AudioChunkMetadata] = indexContents
-            .split(whereSeparator: \.isNewline)
-            .compactMap { line in
-                guard !line.isEmpty else { return nil }
-                return try? decoder.decode(AudioChunkMetadata.self, from: Data(line.utf8))
-            }
-            .sorted(by: { $0.startedAtMs < $1.startedAtMs })
-
-        return chunks
-    }
-
-    private static func readPCM16Payload(from wavURL: URL) throws -> Data {
-        let wavData = try Data(contentsOf: wavURL)
-        guard wavData.count > 44 else { return Data() }
-        return wavData.subdata(in: 44 ..< wavData.count)
-    }
 }
 
-private enum AudioChunkProcessorError: Error {
-    case invalidInputFormat
-    case converterInitializationFailed
-    case outputBufferAllocationFailed
-    case missingConvertedChannelData
+protocol AudioSessionControlling {
+    var notificationObject: AnyObject? { get }
+    func requestRecordPermission() async -> Bool
+    func setCategory(
+        _ category: AVAudioSession.Category,
+        mode: AVAudioSession.Mode,
+        options: AVAudioSession.CategoryOptions
+    ) throws
+    func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws
+    func hasCurrentBluetoothHFPInput() -> Bool
+    func hasSelectableBluetoothHFPInput() -> Bool
+    func selectBluetoothHFPInputIfAvailable() throws -> Bool
+    func routeDiagnostics() -> AudioSessionRouteDiagnostics
 }
 
-private final class AudioChunkProcessor: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "PortWorld.AudioChunkProcessor")
-    private let encoder = JSONEncoder()
+struct AudioSessionRouteDiagnostics {
+    let category: String
+    let mode: String
+    let currentInputs: [String]
+    let currentOutputs: [String]
+    let availableInputs: [String]
+    let preferredInput: String?
+    let hasSelectableBluetoothHFPInput: Bool
+    let isCurrentRouteBluetoothHFP: Bool
+}
 
-    private let outputSampleRate = 8_000
-    private let outputChannels: AVAudioChannelCount = 1
-    private let bitsPerSample = 16
+private final class SystemAudioSessionClient: AudioSessionControlling {
+    private let session: AVAudioSession
 
-    private var targetFramesPerChunk = 4_000
-    private var converter: AVAudioConverter?
-    private var outputFormat: AVAudioFormat?
+    init(session: AVAudioSession? = nil) {
+        self.session = session ?? .sharedInstance()
+    }
 
-    private var sessionId = ""
-    private var sessionDirectory: URL?
-    private var indexFileHandle: FileHandle?
+    var notificationObject: AnyObject? {
+        session
+    }
 
-    private var chunkSequence = 0
-    private var nextChunkStartMs: Int64 = 0
-    private var accumulatedPCMData = Data()
-    private var accumulatedFrames = 0
+    func requestRecordPermission() async -> Bool {
+        await AVAudioApplication.requestRecordPermission()
+    }
 
-    private var onChunkWritten: (@Sendable (AudioChunkMetadata, Int64) -> Void)?
-    private var onError: (@Sendable (String) -> Void)?
-    private var hasFailed = false
-
-    func configure(
-        sessionId: String,
-        sessionDirectory: URL,
-        indexFileURL: URL,
-        inputFormat: AVAudioFormat,
-        chunkTargetDurationMs: Int,
-        startTimestampMs: Int64,
-        onChunkWritten: @escaping @Sendable (AudioChunkMetadata, Int64) -> Void,
-        onError: @escaping @Sendable (String) -> Void
+    func setCategory(
+        _ category: AVAudioSession.Category,
+        mode: AVAudioSession.Mode,
+        options: AVAudioSession.CategoryOptions
     ) throws {
-        try queue.sync {
-            try resetStateUnsafe()
+        try session.setCategory(category, mode: mode, options: options)
+    }
 
-            guard inputFormat.sampleRate > 0 else {
-                throw AudioChunkProcessorError.invalidInputFormat
-            }
+    func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws {
+        try session.setActive(active, options: options)
+    }
 
-            guard let outputFormat = AVAudioFormat(
-                commonFormat: .pcmFormatInt16,
-                sampleRate: Double(outputSampleRate),
-                channels: outputChannels,
-                interleaved: false
-            ) else {
-                throw AudioChunkProcessorError.invalidInputFormat
-            }
-
-            guard let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else {
-                throw AudioChunkProcessorError.converterInitializationFailed
-            }
-
-            self.converter = converter
-            self.outputFormat = outputFormat
-            self.sessionId = sessionId
-            self.sessionDirectory = sessionDirectory
-            self.indexFileHandle = try FileHandle(forWritingTo: indexFileURL)
-            try self.indexFileHandle?.seekToEnd()
-            self.targetFramesPerChunk = max(1, Int((Double(outputSampleRate) * Double(chunkTargetDurationMs)) / 1000.0))
-            self.nextChunkStartMs = startTimestampMs
-            self.chunkSequence = 0
-            self.accumulatedPCMData = Data()
-            self.accumulatedFrames = 0
-            self.onChunkWritten = onChunkWritten
-            self.onError = onError
-            self.hasFailed = false
+    func hasCurrentBluetoothHFPInput() -> Bool {
+        session.currentRoute.inputs.contains { input in
+            input.portType == .bluetoothHFP
         }
     }
 
-    func enqueue(buffer: AVAudioPCMBuffer) {
-        queue.async {
-            guard !self.hasFailed, self.converter != nil else { return }
-
-            do {
-                let (convertedBytes, frames) = try self.convertToPCM16Mono8k(buffer)
-                guard frames > 0 else { return }
-
-                self.accumulatedPCMData.append(convertedBytes)
-                self.accumulatedFrames += frames
-
-                let bytesPerFrame = self.bitsPerSample / 8
-                while self.accumulatedFrames >= self.targetFramesPerChunk {
-                    let chunkBytes = self.targetFramesPerChunk * bytesPerFrame
-                    let chunkData = self.accumulatedPCMData.prefix(chunkBytes)
-                    self.accumulatedPCMData.removeSubrange(0 ..< chunkBytes)
-                    try self.writeChunk(Data(chunkData), frameCount: self.targetFramesPerChunk)
-                    self.accumulatedFrames -= self.targetFramesPerChunk
-                }
-            } catch {
-                self.handleError("Audio chunk processing failed: \(error.localizedDescription)")
-            }
+    func hasSelectableBluetoothHFPInput() -> Bool {
+        guard let availableInputs = session.availableInputs else { return false }
+        return availableInputs.contains { input in
+            input.portType == .bluetoothHFP
         }
     }
 
-    func stopAndFlush() {
-        queue.sync {
-            guard !self.hasFailed else {
-                try? self.resetStateUnsafe()
-                return
-            }
-
-            do {
-                if self.accumulatedFrames > 0 {
-                    try self.writeChunk(self.accumulatedPCMData, frameCount: self.accumulatedFrames)
-                }
-                try self.resetStateUnsafe()
-            } catch {
-                self.handleError("Failed while flushing audio chunks: \(error.localizedDescription)")
-                try? self.resetStateUnsafe()
-            }
+    func selectBluetoothHFPInputIfAvailable() throws -> Bool {
+        guard let availableInputs = session.availableInputs else { return false }
+        guard let bluetoothInput = availableInputs.first(where: { $0.portType == .bluetoothHFP }) else {
+            return false
         }
+
+        if session.preferredInput?.uid != bluetoothInput.uid {
+            try session.setPreferredInput(bluetoothInput)
+        }
+
+        return true
     }
 
-    /// Flushes any buffered audio as a partial chunk without stopping recording.
-    /// Call this before exporting clips to ensure all captured audio is available.
-    func flushPartialChunk() {
-        queue.sync {
-            guard !self.hasFailed, self.accumulatedFrames > 0 else { return }
-            do {
-                try self.writeChunk(self.accumulatedPCMData, frameCount: self.accumulatedFrames)
-                self.accumulatedPCMData = Data()
-                self.accumulatedFrames = 0
-            } catch {
-                self.handleError("Failed to flush partial audio chunk: \(error.localizedDescription)")
-            }
-        }
-    }
+    func routeDiagnostics() -> AudioSessionRouteDiagnostics {
+        let currentRoute = session.currentRoute
+        let currentInputs = currentRoute.inputs.map { "\($0.portType.rawValue):\($0.portName)" }
+        let currentOutputs = currentRoute.outputs.map { "\($0.portType.rawValue):\($0.portName)" }
+        let availableInputs = session.availableInputs ?? []
+        let availableInputDescriptions = availableInputs.map { "\($0.portType.rawValue):\($0.portName)" }
+        let preferredInput = session.preferredInput.map { "\($0.portType.rawValue):\($0.portName)" }
+        let hasSelectableBluetoothHFPInput =
+            availableInputs.contains(where: { $0.portType == .bluetoothHFP })
+        let isCurrentRouteBluetoothHFP =
+            currentRoute.inputs.contains(where: { $0.portType == .bluetoothHFP }) &&
+            currentRoute.outputs.contains(where: { $0.portType == .bluetoothHFP })
 
-    func enqueueError(_ message: String) {
-        queue.async {
-            self.handleError(message)
-        }
-    }
-
-    private func handleError(_ message: String) {
-        guard !hasFailed else { return }
-        hasFailed = true
-        onError?(message)
-    }
-
-    private func convertToPCM16Mono8k(_ inputBuffer: AVAudioPCMBuffer) throws -> (Data, Int) {
-        guard let converter, let outputFormat else {
-            return (Data(), 0)
-        }
-
-        let ratio = outputFormat.sampleRate / max(inputBuffer.format.sampleRate, 1)
-        let capacity = AVAudioFrameCount(max(1, Int((Double(inputBuffer.frameLength) * ratio).rounded(.up)) + 32))
-
-        guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else {
-            throw AudioChunkProcessorError.outputBufferAllocationFailed
-        }
-
-        var convertedData = Data()
-        var totalFrames = 0
-        var consumed = false
-
-        while true {
-            var localError: NSError?
-            let status = converter.convert(to: convertedBuffer, error: &localError) { _, outStatus in
-                if consumed {
-                    outStatus.pointee = .noDataNow
-                    return nil
-                }
-                consumed = true
-                outStatus.pointee = .haveData
-                return inputBuffer
-            }
-
-            if let localError {
-                throw localError
-            }
-
-            let producedFrames = Int(convertedBuffer.frameLength)
-            if producedFrames > 0 {
-                guard let channelData = convertedBuffer.int16ChannelData else {
-                    throw AudioChunkProcessorError.missingConvertedChannelData
-                }
-                let bytes = producedFrames * (bitsPerSample / 8)
-                convertedData.append(contentsOf: UnsafeRawBufferPointer(start: channelData[0], count: bytes))
-                totalFrames += producedFrames
-            }
-
-            switch status {
-            case .haveData:
-                continue
-            case .inputRanDry, .endOfStream, .error:
-                return (convertedData, totalFrames)
-            @unknown default:
-                return (convertedData, totalFrames)
-            }
-        }
-    }
-
-    private func writeChunk(_ pcmData: Data, frameCount: Int) throws {
-        guard let sessionDirectory, let indexFileHandle else {
-            throw NSError(domain: "AudioChunkProcessor", code: 2, userInfo: [NSLocalizedDescriptionKey: "Session directory or index file is unavailable."])
-        }
-
-        let startedAtMs = nextChunkStartMs
-        let durationMs = Int((Double(frameCount) / Double(outputSampleRate) * 1000.0).rounded())
-        let fileName = "chunk_\(chunkSequence)_\(startedAtMs).wav"
-        let fileURL = sessionDirectory.appendingPathComponent(fileName)
-
-        let bytesWritten = try WavFileWriter.writePCM16(
-            samples: pcmData,
-            sampleRate: outputSampleRate,
-            channels: Int(outputChannels),
-            to: fileURL
+        return AudioSessionRouteDiagnostics(
+            category: session.category.rawValue,
+            mode: session.mode.rawValue,
+            currentInputs: currentInputs,
+            currentOutputs: currentOutputs,
+            availableInputs: availableInputDescriptions,
+            preferredInput: preferredInput,
+            hasSelectableBluetoothHFPInput: hasSelectableBluetoothHFPInput,
+            isCurrentRouteBluetoothHFP: isCurrentRouteBluetoothHFP
         )
+    }
+}
 
-        let metadata = AudioChunkMetadata(
-            chunkId: "\(sessionId)-\(chunkSequence)",
-            sessionId: sessionId,
-            startedAtMs: startedAtMs,
-            durationMs: durationMs,
-            sampleRate: outputSampleRate,
-            channels: Int(outputChannels),
-            codec: "wav_pcm_s16le",
-            fileName: fileName
-        )
+protocol NotificationObserving {
+    func addObserver(
+        forName name: NSNotification.Name?,
+        object obj: Any?,
+        queue: OperationQueue?,
+        using block: @escaping (Notification) -> Void
+    ) -> NSObjectProtocol
+    func removeObserver(_ observer: NSObjectProtocol)
+}
 
-        let metadataLine = try encoder.encode(metadata)
-        indexFileHandle.write(metadataLine)
-        indexFileHandle.write(Data([0x0A]))
+private final class SystemNotificationCenter: NotificationObserving {
+    private let center: NotificationCenter
 
-        onChunkWritten?(metadata, bytesWritten)
-
-        chunkSequence += 1
-        nextChunkStartMs += Int64(durationMs)
+    init(center: NotificationCenter? = nil) {
+        self.center = center ?? .default
     }
 
-    private func resetStateUnsafe() throws {
-        if let indexFileHandle {
-            try indexFileHandle.close()
-        }
+    func addObserver(
+        forName name: NSNotification.Name?,
+        object obj: Any?,
+        queue: OperationQueue?,
+        using block: @escaping (Notification) -> Void
+    ) -> NSObjectProtocol {
+        center.addObserver(forName: name, object: obj, queue: queue, using: block)
+    }
 
-        indexFileHandle = nil
-        converter = nil
-        outputFormat = nil
-        sessionId = ""
-        sessionDirectory = nil
-        chunkSequence = 0
-        nextChunkStartMs = 0
-        accumulatedPCMData = Data()
-        accumulatedFrames = 0
-        onChunkWritten = nil
-        onError = nil
+    func removeObserver(_ observer: NSObjectProtocol) {
+        center.removeObserver(observer)
+    }
+}
+
+protocol AudioTapControlling {
+    func inputFormat() -> AVAudioFormat?
+    func installTap(format: AVAudioFormat, block: @escaping AVAudioNodeTapBlock)
+    func removeTap()
+    func prepareEngine()
+    func startEngine() throws
+    func stopEngine()
+}
+
+private final class EngineAudioTapController: AudioTapControlling {
+    private let engine: AVAudioEngine
+
+    init(engine: AVAudioEngine) {
+        self.engine = engine
+    }
+
+    func inputFormat() -> AVAudioFormat? {
+        let format = engine.inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            return nil
+        }
+        return format
+    }
+
+    func installTap(format: AVAudioFormat, block: @escaping AVAudioNodeTapBlock) {
+        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: block)
+    }
+
+    func removeTap() {
+        engine.inputNode.removeTap(onBus: 0)
+    }
+
+    func prepareEngine() {
+        engine.prepare()
+    }
+
+    func startEngine() throws {
+        try engine.start()
+    }
+
+    func stopEngine() {
+        engine.stop()
+    }
+}
+
+// SAFETY: `RealtimePCMSinkRelay` is manually marked `@unchecked Sendable` because
+// mutable state is protected with `lock`, and sink invocation is dispatched on the
+// private serial `callbackQueue`.
+private final class RealtimePCMSinkRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private let callbackQueue = DispatchQueue(label: "PortWorld.RealtimePCMSinkRelay")
+    private var sink: (@Sendable (Data, Int64) -> Void)?
+    private var accumulatedPayload = Data()
+    private var minimumChunkSizeBytes = 0
+    private var nextChunkIndex = 0
+    private var logChunkEmission: (@Sendable (Int, Int, Int64) -> Void)?
+
+    var hasSink: Bool {
+        lock.lock()
+        let hasSink = sink != nil
+        lock.unlock()
+        return hasSink
+    }
+
+    func configureChunking(
+        minimumChunkSizeBytes: Int,
+        logChunkEmission: (@Sendable (Int, Int, Int64) -> Void)? = nil
+    ) {
+        lock.lock()
+        self.minimumChunkSizeBytes = max(2, minimumChunkSizeBytes)
+        self.logChunkEmission = logChunkEmission
+        lock.unlock()
+    }
+
+    func setSink(_ sink: (@Sendable (Data, Int64) -> Void)?) {
+        lock.lock()
+        self.sink = sink
+        if sink == nil {
+            accumulatedPayload.removeAll(keepingCapacity: false)
+            nextChunkIndex = 0
+        }
+        lock.unlock()
+    }
+
+    func emit(payload: Data, timestampMs: Int64) {
+        let emissions: [(Data, Int64, Int)]
+        lock.lock()
+        guard sink != nil else {
+            lock.unlock()
+            return
+        }
+        accumulatedPayload.append(payload)
+        emissions = dequeueReadyChunksLocked(timestampMs: timestampMs)
+        lock.unlock()
+        dispatch(emissions)
+    }
+
+    func flush() {
+        let emissions: [(Data, Int64, Int)]
+        lock.lock()
+        guard sink != nil, !accumulatedPayload.isEmpty else {
+            accumulatedPayload.removeAll(keepingCapacity: false)
+            lock.unlock()
+            return
+        }
+        let chunkIndex = nextChunkIndex
+        nextChunkIndex += 1
+        emissions = [(accumulatedPayload, Clocks.nowMs(), chunkIndex)]
+        accumulatedPayload = Data()
+        lock.unlock()
+        dispatch(emissions)
+    }
+
+    private func dequeueReadyChunksLocked(timestampMs: Int64) -> [(Data, Int64, Int)] {
+        let chunkSize = max(2, minimumChunkSizeBytes)
+        guard accumulatedPayload.count >= chunkSize else { return [] }
+
+        var emissions: [(Data, Int64, Int)] = []
+        while accumulatedPayload.count >= chunkSize {
+            let chunk = accumulatedPayload.prefix(chunkSize)
+            let chunkIndex = nextChunkIndex
+            nextChunkIndex += 1
+            emissions.append((Data(chunk), timestampMs, chunkIndex))
+            accumulatedPayload.removeFirst(chunkSize)
+        }
+        return emissions
+    }
+
+    private func dispatch(_ emissions: [(Data, Int64, Int)]) {
+        guard !emissions.isEmpty else { return }
+        lock.lock()
+        let sink = self.sink
+        let logChunkEmission = self.logChunkEmission
+        lock.unlock()
+
+        guard let sink else { return }
+        callbackQueue.async {
+            for (payload, timestampMs, chunkIndex) in emissions {
+                logChunkEmission?(chunkIndex, payload.count, timestampMs)
+                sink(payload, timestampMs)
+            }
+        }
     }
 }

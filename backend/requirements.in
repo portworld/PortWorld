@@ -1,0 +1,16 @@
+# Transitional dependency artifact kept for compatibility.
+# The authoritative dependency source of truth now lives in pyproject.toml.
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic
+websockets
+certifi
+httpx
+boto3
+botocore
+azure-identity
+azure-storage-blob
+google-cloud-storage
+Pillow
+psycopg[binary]

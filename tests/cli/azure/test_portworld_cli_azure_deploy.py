@@ -1,0 +1,247 @@
+from __future__ import annotations
+
+from collections import OrderedDict
+from pathlib import Path
+import unittest
+import unittest.mock as mock
+
+from portworld_cli.azure.deploy import DeployAzureContainerAppsOptions, run_deploy_azure_container_apps
+from portworld_cli.azure.stages.config import ResolvedAzureDeployConfig
+from portworld_cli.azure.stages.container_app_runtime import (
+    AzureDeployMutationResult,
+    run_azure_deploy_mutations,
+    split_runtime_env_for_azure,
+)
+from portworld_cli.context import CLIContext
+from portworld_cli.deploy.config import DeployStageError
+from portworld_cli.deploy_artifacts import IMAGE_SOURCE_MODE_SOURCE_BUILD
+from portworld_cli.ux.progress import ProgressReporter
+
+
+def _base_config() -> ResolvedAzureDeployConfig:
+    return ResolvedAzureDeployConfig(
+        runtime_source="source",
+        image_source_mode=IMAGE_SOURCE_MODE_SOURCE_BUILD,
+        subscription_id="sub-1",
+        tenant_id="tenant-1",
+        resource_group="rg",
+        region="westeurope",
+        environment_name="env",
+        app_name="app",
+        database_url="postgresql://user:pass@db:5432/app",
+        storage_account="pwstorage123",
+        blob_container="pw-artifacts",
+        blob_endpoint="https://pwstorage123.blob.core.windows.net",
+        acr_name="pwapp123",
+        acr_server="pw.azurecr.io",
+        acr_repo="app-backend",
+        postgres_server_name="pwpgapp123",
+        postgres_database_name="portworld",
+        postgres_admin_username="pwadmin",
+        image_tag="abc123",
+        image_uri="pw.azurecr.io/app-backend:abc123",
+        published_release_tag=None,
+        published_image_ref=None,
+    )
+
+
+def _disabled_progress() -> ProgressReporter:
+    return ProgressReporter(
+        CLIContext(
+            project_root_override=None,
+            verbose=False,
+            json_output=False,
+            non_interactive=True,
+            yes=False,
+        ),
+        enabled=False,
+    )
+
+
+class AzureDeployTests(unittest.TestCase):
+    @mock.patch("portworld_cli.azure.deploy.write_deploy_state")
+    @mock.patch("portworld_cli.azure.deploy.probe_ws", return_value=True)
+    @mock.patch("portworld_cli.azure.deploy.probe_livez", return_value=True)
+    @mock.patch(
+        "portworld_cli.azure.deploy.run_azure_deploy_mutations",
+        return_value=AzureDeployMutationResult(
+            fqdn="app.westeurope.azurecontainerapps.io",
+            database_url="postgresql://user:pass@db:5432/app",
+            image_uri="pw.azurecr.io/app-backend:abc123",
+        ),
+    )
+    @mock.patch("portworld_cli.azure.deploy._confirm_mutations")
+    @mock.patch("portworld_cli.azure.deploy.resolve_azure_deploy_config")
+    @mock.patch("portworld_cli.azure.deploy.load_deploy_session")
+    @mock.patch("portworld_cli.azure.deploy.azure_cli_available", return_value=True)
+    def test_success_runs_mutations_then_writes_state(
+        self,
+        _azure_cli_available: mock.Mock,
+        load_session: mock.Mock,
+        resolve_config: mock.Mock,
+        _confirm: mock.Mock,
+        run_mutations: mock.Mock,
+        _probe_livez: mock.Mock,
+        _probe_ws: mock.Mock,
+        write_state: mock.Mock,
+    ) -> None:
+        session = mock.Mock()
+        session.merged_env_values.return_value = {"BACKEND_BEARER_TOKEN": "token"}
+        session.project_config = mock.Mock()
+        session.effective_runtime_source = "source"
+        session.project_paths = mock.Mock(project_root=Path("/tmp/project"))
+        session.workspace_paths = mock.Mock()
+        session.workspace_paths.state_file_for_target.return_value = Path("/tmp/state/azure-container-apps.json")
+        load_session.return_value = session
+        resolve_config.return_value = _base_config()
+
+        result = run_deploy_azure_container_apps(
+            CLIContext(project_root_override=None, verbose=False, json_output=False, non_interactive=True, yes=True),
+            DeployAzureContainerAppsOptions(
+                subscription=None,
+                resource_group=None,
+                region=None,
+                environment=None,
+                app=None,
+                database_url=None,
+                storage_account=None,
+                blob_container=None,
+                blob_endpoint=None,
+                acr_server=None,
+                acr_repo=None,
+                tag=None,
+            ),
+        )
+
+        self.assertTrue(result.ok)
+        run_mutations.assert_called_once()
+        write_state.assert_called_once()
+        self.assertIn("stages", result.data)
+        stages = result.data["stages"]
+        self.assertTrue(any(stage.get("stage") == "mutation_plan" for stage in stages))
+
+    @mock.patch("portworld_cli.azure.deploy.write_deploy_state")
+    @mock.patch("portworld_cli.azure.deploy.run_azure_deploy_mutations")
+    @mock.patch("portworld_cli.azure.deploy._confirm_mutations")
+    @mock.patch("portworld_cli.azure.deploy.resolve_azure_deploy_config")
+    @mock.patch("portworld_cli.azure.deploy.load_deploy_session")
+    @mock.patch("portworld_cli.azure.deploy.azure_cli_available", return_value=True)
+    def test_failure_during_mutation_does_not_write_state(
+        self,
+        _azure_cli_available: mock.Mock,
+        load_session: mock.Mock,
+        resolve_config: mock.Mock,
+        _confirm: mock.Mock,
+        run_mutations: mock.Mock,
+        write_state: mock.Mock,
+    ) -> None:
+        session = mock.Mock()
+        session.merged_env_values.return_value = {}
+        session.project_config = mock.Mock()
+        session.effective_runtime_source = "source"
+        session.project_paths = mock.Mock(project_root=Path("/tmp/project"))
+        session.workspace_paths = mock.Mock()
+        load_session.return_value = session
+        resolve_config.return_value = _base_config()
+        run_mutations.side_effect = DeployStageError(
+            stage="container_app_update",
+            message="Unable to update Azure Container App.",
+        )
+
+        result = run_deploy_azure_container_apps(
+            CLIContext(project_root_override=None, verbose=False, json_output=False, non_interactive=True, yes=True),
+            DeployAzureContainerAppsOptions(
+                subscription=None,
+                resource_group=None,
+                region=None,
+                environment=None,
+                app=None,
+                database_url=None,
+                storage_account=None,
+                blob_container=None,
+                blob_endpoint=None,
+                acr_server=None,
+                acr_repo=None,
+                tag=None,
+            ),
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("container_app_update", result.message or "")
+        self.assertIn("problem:", result.message or "")
+        self.assertIn("next:", result.message or "")
+        write_state.assert_not_called()
+
+    @mock.patch(
+        "portworld_cli.azure.stages.container_app_runtime.wait_for_container_app_readiness",
+        return_value="app.westeurope.azurecontainerapps.io",
+    )
+    @mock.patch(
+        "portworld_cli.azure.stages.container_app_runtime.ensure_postgres_and_database_url",
+        return_value="postgresql://user:pass@db:5432/app",
+    )
+    @mock.patch("portworld_cli.azure.stages.container_app_runtime.ensure_container_apps_environment")
+    @mock.patch("portworld_cli.azure.stages.container_app_runtime.ensure_storage")
+    @mock.patch(
+        "portworld_cli.azure.stages.container_app_runtime.ensure_acr",
+        return_value=("pw.azurecr.io", "acr-user", "acr-password"),
+    )
+    @mock.patch("portworld_cli.azure.stages.container_app_runtime.set_container_app_registry_credentials")
+    @mock.patch("portworld_cli.azure.stages.container_app_runtime.ensure_resource_provider")
+    @mock.patch("portworld_cli.azure.stages.container_app_runtime.ensure_resource_group")
+    def test_mutations_use_secretrefs_for_sensitive_env_values(
+        self,
+        _ensure_resource_group: mock.Mock,
+        _ensure_resource_provider: mock.Mock,
+        _set_container_app_registry_credentials: mock.Mock,
+        _ensure_acr: mock.Mock,
+        _ensure_storage: mock.Mock,
+        _ensure_container_apps_environment: mock.Mock,
+        _ensure_postgres_and_database_url: mock.Mock,
+        _wait_ready: mock.Mock,
+    ) -> None:
+        adapters = mock.Mock()
+        adapters.compute.run_json.side_effect = [
+            mock.Mock(ok=True, value={}, message=None),  # account set
+            mock.Mock(ok=True, value={"name": "app"}, message=None),  # app show
+            mock.Mock(ok=True, value={"name": "app"}, message=None),  # app update
+        ]
+        stages: list[dict[str, object]] = []
+        env_values = OrderedDict(
+            {
+                "OPENAI_API_KEY": "secret",
+                "BACKEND_BEARER_TOKEN": "token",
+            }
+        )
+        result = run_azure_deploy_mutations(
+            config=_base_config(),
+            env_values=env_values,
+            stage_records=stages,
+            adapters=adapters,
+            progress=_disabled_progress(),
+        )
+        self.assertEqual(result.fqdn, "app.westeurope.azurecontainerapps.io")
+        update_call = adapters.compute.run_json.call_args_list[2].args[0]
+        self.assertIn("--secrets", update_call)
+        self.assertIn("--set-env-vars", update_call)
+        self.assertTrue(any(value.startswith("BACKEND_DATABASE_URL=secretref:") for value in update_call))
+        self.assertTrue(any(value.startswith("OPENAI_API_KEY=secretref:") for value in update_call))
+
+    def test_split_runtime_env_for_azure_classifies_sensitive_keys(self) -> None:
+        plain, secrets = split_runtime_env_for_azure(
+            OrderedDict(
+                {
+                    "BACKEND_PROFILE": "production",
+                    "OPENAI_API_KEY": "secret",
+                    "BACKEND_DATABASE_URL": "postgresql://user:pass@db:5432/app",
+                }
+            )
+        )
+        self.assertIn("BACKEND_PROFILE", plain)
+        self.assertIn("OPENAI_API_KEY", secrets)
+        self.assertIn("BACKEND_DATABASE_URL", secrets)
+
+
+if __name__ == "__main__":
+    unittest.main()

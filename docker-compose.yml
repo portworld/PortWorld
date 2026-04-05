@@ -1,0 +1,30 @@
+# Canonical Step 4E self-host path for one PortWorld backend instance.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - backend/.env
+    restart: unless-stopped
+    init: true
+    environment:
+      # Use the certifi CA bundle inside the slim image for outbound HTTPS calls.
+      SSL_CERT_FILE: /usr/local/lib/python3.11/site-packages/certifi/cacert.pem
+    ports:
+      # Single HTTP entrypoint for health, REST routes, and websocket sessions.
+      - "8080:8080"
+    volumes:
+      # Expose workspace extension manifest/install artifacts to the container.
+      - ./.portworld:/app/.portworld:ro
+      # Persist SQLite and filesystem-backed memory artifacts across restarts.
+      - portworld_backend_var:/app/backend/var
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/livez').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  portworld_backend_var:

@@ -1,0 +1,153 @@
+name: CLI Smoke
+
+on:
+  push:
+    tags-ignore:
+      - "v*"
+  pull_request:
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python test dependencies
+        run: python -m pip install .[dev]
+
+      - name: Run Python test suite
+        run: python -m pytest tests -q
+
+  cli-smoke:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pipx
+        run: |
+          python -m pip install --user pipx
+          python -m pipx ensurepath
+          echo "$(python -m pipx environment --value PIPX_BIN_DIR)" >> "$GITHUB_PATH"
+
+      - name: Package install smoke
+        run: |
+          python -m pipx install .
+          portworld --help
+          portworld init --help
+          portworld providers list
+          portworld update cli --json
+
+      - name: Remove pipx install before installer smoke
+        run: python -m pipx uninstall portworld
+
+      - name: Installer syntax check
+        run: bash -n install.sh
+
+      - name: Installer smoke
+        run: |
+          PORTWORLD_INSTALL_SOURCE_URL="$GITHUB_WORKSPACE" \
+          PORTWORLD_NO_INIT=1 \
+          PORTWORLD_NON_INTERACTIVE=1 \
+          PORTWORLD_NODE_BOOTSTRAP=require \
+          bash install.sh --no-init --non-interactive
+          portworld --help
+          command -v node >/dev/null 2>&1 || test -x "$HOME/.local/bin/node"
+          command -v npm >/dev/null 2>&1 || test -x "$HOME/.local/bin/npm"
+          command -v npx >/dev/null 2>&1 || test -x "$HOME/.local/bin/npx"
+
+      - name: Package build smoke
+        run: |
+          python -m pip install --user build twine
+          python -m build
+          python -m twine check dist/*
+
+  backend-image-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Build backend image
+        run: docker build -f backend/Dockerfile -t portworld-backend-smoke:${{ github.sha }} .
+
+      - name: Run backend image smoke
+        env:
+          TEST_IMAGE: portworld-backend-smoke:${{ github.sha }}
+        run: |
+          docker run --detach --rm \
+            --name portworld-backend-smoke \
+            -e OPENAI_API_KEY=test-key \
+            -p 18080:8080 \
+            "$TEST_IMAGE"
+
+          cleanup() {
+            docker logs portworld-backend-smoke || true
+            docker stop portworld-backend-smoke || true
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18080/livez >/tmp/portworld-backend-smoke.json; then
+              cat /tmp/portworld-backend-smoke.json
+              break
+            fi
+            sleep 2
+          done
+
+          if ! test -s /tmp/portworld-backend-smoke.json; then
+            echo "Backend image did not become healthy in time." >&2
+            exit 1
+          fi
+
+          docker exec portworld-backend-smoke node --version
+          docker exec portworld-backend-smoke npm --version
+          docker exec portworld-backend-smoke npx --version
+
+          docker run --rm \
+            -e OPENAI_API_KEY=test-key \
+            -e REALTIME_TOOLING_ENABLED=true \
+            -e PORTWORLD_EXTENSIONS_MANIFEST=/app/.portworld/container-mcp-filesystem.extensions.json \
+            -v "$GITHUB_WORKSPACE/tests/fixtures/extensions:/app/.portworld:ro" \
+            -v "$GITHUB_WORKSPACE:/workspace:ro" \
+            "$TEST_IMAGE" \
+            python -m backend.cli check-config --full-readiness >/tmp/portworld-backend-check-config.json
+
+          cat /tmp/portworld-backend-check-config.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/portworld-backend-check-config.json").read_text(encoding="utf-8"))
+          if not payload.get("ok"):
+              raise SystemExit("backend check-config did not report ok=true")
+          extension_health = payload.get("extension_health") or {}
+          runtime_prerequisites = extension_health.get("runtime_prerequisites") or {}
+          if runtime_prerequisites.get("missing_binaries"):
+              raise SystemExit(f"missing backend runtime binaries: {runtime_prerequisites.get('missing_binaries')}")
+          records = extension_health.get("records") or []
+          if not any(
+              record.get("extension_id") == "mcp-filesystem-node" and record.get("ok") is True
+              for record in records
+          ):
+              raise SystemExit("mcp-filesystem-node did not report an active extension record")
+          PY

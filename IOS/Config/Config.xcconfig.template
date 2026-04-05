@@ -1,0 +1,10 @@
+// Copy this file to Debug.xcconfig or Release.xcconfig and set environment-specific values.
+BACKEND_BASE_URL = http://127.0.0.1:8080
+
+// DAT developer mode defaults
+PORTWORLD_DAT_META_APP_ID =
+
+// Uncomment for registered-project DAT configuration.
+// PORTWORLD_DAT_INFOPLIST_FLAGS = -DPORTWORLD_DAT_REGISTERED_MODE=1
+// PORTWORLD_DAT_META_APP_ID = <Meta Developer Center App ID>
+// PORTWORLD_DAT_CLIENT_TOKEN = AR|<Meta App ID>|<Client Token>

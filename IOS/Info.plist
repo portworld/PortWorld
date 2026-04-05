@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Port:🌍</string>
+	<string>PortWorld</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -40,13 +40,20 @@
 	<key>MWDAT</key>
 	<dict>
 		<key>AppLinkURLScheme</key>
-		<string>portworld://</string>
-		<key>ClientToken</key>
-		<string>$(CLIENT_TOKEN)</string>
+		<string>$(PORTWORLD_DAT_APP_LINK_URL_SCHEME)://</string>
+#if PORTWORLD_DAT_REGISTERED_MODE
 		<key>MetaAppID</key>
-		<string>$(META_APP_ID)</string>
+		<string>$(PORTWORLD_DAT_META_APP_ID)</string>
+		<key>ClientToken</key>
+		<string>$(PORTWORLD_DAT_CLIENT_TOKEN)</string>
 		<key>TeamID</key>
 		<string>$(DEVELOPMENT_TEAM)</string>
+#else
+		<key>MetaAppID</key>
+		<string>$(PORTWORLD_DAT_META_APP_ID)</string>
+		<key>TeamID</key>
+		<string>$(DEVELOPMENT_TEAM)</string>
+#endif
 	</dict>
 	<key>NSAppTransportSecurity</key>
 	<dict>
@@ -55,8 +62,10 @@
 	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Needed to connect to Meta Wearables.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs camera access to capture and stream images for glasses camera features.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>This app needs local network access to connect to the Port:🌍 mock backend.</string>
+	<string>This app needs local network access to connect to the PortWorld backend.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app needs microphone access to collect audio from your glasses sessions.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
@@ -66,19 +75,15 @@
 	<key>SON_API_KEY</key>
 	<string></string>
 	<key>SON_BACKEND_BASE_URL</key>
-	<string>http://172.16.0.104:8082</string>
+	<string>$(BACKEND_BASE_URL)</string>
 	<key>SON_BEARER_TOKEN</key>
-	<string></string>
+	<string>$(BACKEND_BEARER_TOKEN)</string>
 	<key>SON_PHOTO_FPS</key>
 	<real>1</real>
-	<key>SON_QUERY_PATH</key>
-	<string>/v1/query</string>
-	<key>SON_QUERY_URL</key>
-	<string></string>
+	<key>SON_SLEEP_PHRASE</key>
+	<string>goodbye mario</string>
 	<key>SON_VISION_PATH</key>
 	<string>/vision/frame</string>
-	<key>SON_VISION_URL</key>
-	<string></string>
 	<key>SON_WAKE_DETECTION_COOLDOWN_MS</key>
 	<integer>1500</integer>
 	<key>SON_WAKE_LOCALE</key>
@@ -89,18 +94,26 @@
 	<true/>
 	<key>SON_WS_PATH</key>
 	<string>/ws/session</string>
-	<key>SON_WS_URL</key>
-	<string></string>
-	<key>UILaunchScreen</key>
-	<dict/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-peripheral</string>
 		<string>external-accessory</string>
+		<string>audio</string>
+		<string>fetch</string>
+		<string>processing</string>
 	</array>
+	<key>UILaunchStoryboardName</key>
+	<string>StartupLaunchScreen</string>
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<key>UISupportedExternalAccessoryProtocols</key>
 	<array>
 		<string>com.meta.ar.wearable</string>
+	</array>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
 </dict>
 </plist>

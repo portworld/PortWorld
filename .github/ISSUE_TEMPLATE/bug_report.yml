@@ -1,0 +1,77 @@
+name: Bug report
+description: Report a reproducible defect in runtime behavior, CLI flow, or docs.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug.
+        For security-sensitive issues, use the Security report template and follow SECURITY.md redaction rules.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - backend
+        - iOS
+        - CLI
+        - docs
+        - release/CI
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and why it is incorrect.
+      placeholder: After running `portworld init`, the command exits with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: List exact steps, commands, and environment assumptions.
+      placeholder: |
+        1. Run ...
+        2. Set ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: The command should ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, errors, screenshots
+      description: Redact tokens, secrets, personal data, and private URLs.
+      placeholder: Paste relevant logs or screenshots.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version/tag tested
+      description: Example: v0.2.0 or latest stable release
+      placeholder: v0.2.0
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I searched for existing issues covering this bug.
+          required: true
+        - label: I redacted sensitive information from logs and screenshots.
+          required: true

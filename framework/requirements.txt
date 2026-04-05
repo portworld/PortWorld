@@ -1,8 +1,0 @@
-# Core runtime dependencies for Port:🌍
-fastapi
-uvicorn[standard]
-httpx
-websockets
-python-dotenv
-python-multipart
-pydantic

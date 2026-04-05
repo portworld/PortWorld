@@ -1,0 +1,48 @@
+name: Support question
+description: Ask for help with setup, local run, or expected usage.
+title: "support: "
+labels:
+  - question
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: What do you need help with?
+      placeholder: I am trying to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: What have you tried?
+      description: Include commands, docs followed, and observed output.
+      placeholder: |
+        I followed README section ...
+        I ran ...
+        I saw ...
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS + relevant tool versions (Python, Xcode, Docker, etc.)
+      placeholder: macOS 15.x, Python 3.11, Docker 27.x
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs/errors
+      description: Redact secrets, tokens, and private data before posting.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I reviewed README and docs/operations first.
+          required: true
+        - label: I removed sensitive information from output/logs.
+          required: true

@@ -1,4 +1,0 @@
-# Optional tracing/plugin dependencies for Port:🌍
-# Install only if you need these integrations.
-weave
-strands-agents

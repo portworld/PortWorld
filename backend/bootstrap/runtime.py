@@ -1,0 +1,318 @@
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+
+from backend.core.settings import Settings
+from backend.core.storage import BackendStorage, StorageInfo, StoragePaths
+from backend.infrastructure.storage.object_store import build_object_store
+from backend.infrastructure.storage.local import LocalBackendStorage
+from backend.infrastructure.storage.managed import ManagedBackendStorage
+from backend.memory.consolidation import DurableMemoryConsolidationRuntime
+from backend.realtime.factory import RealtimeProviderFactory
+from backend.tools.runtime import RealtimeToolingRuntime
+from backend.vision.factory import VisionAnalyzerFactory
+from backend.vision.runtime import VisionBudgetManager, VisionMemoryRuntime
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeDependencies:
+    storage_info: StorageInfo
+    storage: BackendStorage
+    realtime_provider_factory: RealtimeProviderFactory
+    vision_memory_runtime: VisionMemoryRuntime | None
+    realtime_tooling_runtime: RealtimeToolingRuntime | None
+    durable_memory_runtime: DurableMemoryConsolidationRuntime | None
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigCheckResult:
+    ok: bool
+    storage_backend: str
+    storage_details: dict[str, str | bool]
+    storage_paths: dict[str, str] | None
+    realtime_provider: str
+    vision_provider: str | None
+    realtime_tooling_enabled: bool
+    web_search_provider: str | None
+    extension_health: dict[str, object] | None
+    check_mode: str
+    storage_bootstrap_probe: bool | None
+    warnings: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "ok": self.ok,
+            "storage_backend": self.storage_backend,
+            "storage_details": dict(self.storage_details),
+            "realtime_provider": self.realtime_provider,
+            "vision_provider": self.vision_provider,
+            "realtime_tooling_enabled": self.realtime_tooling_enabled,
+            "web_search_provider": self.web_search_provider,
+            "extension_health": self.extension_health,
+            "check_mode": self.check_mode,
+            "storage_bootstrap_probe": self.storage_bootstrap_probe,
+            "warnings": list(self.warnings),
+        }
+        if self.storage_paths is not None:
+            payload["storage_paths"] = dict(self.storage_paths)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class DoctorRuntimeDetails:
+    storage_backend: str
+    storage_details: dict[str, str | bool]
+    storage_paths: dict[str, str] | None
+    realtime_provider: str
+    vision_provider: str | None
+    realtime_tooling_enabled: bool
+    web_search_provider: str | None
+    web_search_enabled: bool
+    extension_health: dict[str, object] | None
+    storage_bootstrap_probe: bool | None
+
+    def to_dict(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "storage_backend": self.storage_backend,
+            "storage_details": dict(self.storage_details),
+            "realtime_provider": self.realtime_provider,
+            "vision_provider": self.vision_provider,
+            "realtime_tooling_enabled": self.realtime_tooling_enabled,
+            "web_search_provider": self.web_search_provider,
+            "web_search_enabled": self.web_search_enabled,
+            "extension_health": self.extension_health,
+            "storage_bootstrap_probe": self.storage_bootstrap_probe,
+        }
+        if self.storage_paths is not None:
+            payload["storage_paths"] = dict(self.storage_paths)
+        return payload
+
+
+def build_backend_storage(settings: Settings) -> tuple[StorageInfo, BackendStorage]:
+    settings.validate_storage_contract()
+    if settings.backend_storage_backend == "local":
+        storage_paths = build_storage_paths(settings)
+        storage = LocalBackendStorage(paths=storage_paths)
+        return storage.storage_info, storage
+
+    storage = ManagedBackendStorage(
+        database_url=settings.backend_database_url or "",
+        object_store=build_object_store(
+            provider=settings.backend_object_store_provider,
+            store_name=settings.backend_object_store_name or "",
+            endpoint=settings.backend_object_store_endpoint,
+            key_prefix=settings.backend_object_store_prefix or "",
+        ),
+    )
+    return storage.storage_info, storage
+
+
+def build_storage_paths(settings: Settings) -> StoragePaths:
+    if settings.backend_storage_backend != "local":
+        raise RuntimeError(
+            "Local storage paths are only defined when "
+            "BACKEND_STORAGE_BACKEND=local."
+        )
+    memory_root = settings.backend_data_dir / "memory"
+    user_memory_path = memory_root / "USER.md"
+    cross_session_memory_path = memory_root / "CROSS_SESSION.md"
+    return StoragePaths(
+        data_root=settings.backend_data_dir,
+        memory_root=memory_root,
+        user_root=memory_root,
+        session_root=memory_root / "sessions",
+        vision_frames_root=settings.backend_data_dir / "vision_frames",
+        sqlite_path=settings.backend_sqlite_path,
+        user_memory_path=user_memory_path,
+        cross_session_memory_path=cross_session_memory_path,
+        user_profile_markdown_path=user_memory_path,
+    )
+
+
+def build_runtime_dependencies(settings: Settings) -> RuntimeDependencies:
+    settings.validate_production_posture()
+    settings.validate_storage_contract()
+    storage_info, storage = build_backend_storage(settings)
+    realtime_provider_factory = RealtimeProviderFactory(settings=settings)
+    realtime_provider_factory.validate_startup_configuration()
+
+    vision_memory_runtime = None
+    analyzer_factory = None
+    if settings.vision_memory_enabled or settings.memory_consolidation_enabled:
+        analyzer_factory = VisionAnalyzerFactory(settings=settings)
+        analyzer_factory.validate_configuration()
+
+    if settings.vision_memory_enabled:
+        assert analyzer_factory is not None
+        vision_memory_runtime = VisionMemoryRuntime(
+            settings=settings,
+            storage=storage,
+            analyzer=analyzer_factory.build_analyzer(),
+            provider_budget=VisionBudgetManager(
+                max_rps=settings.vision_provider_max_rps,
+                backoff_initial_seconds=settings.vision_provider_backoff_initial_seconds,
+                backoff_max_seconds=settings.vision_provider_backoff_max_seconds,
+            ),
+        )
+
+    realtime_tooling_runtime = None
+    if settings.realtime_tooling_enabled:
+        realtime_tooling_runtime = RealtimeToolingRuntime.from_settings(
+            settings,
+            storage=storage,
+        )
+
+    durable_memory_runtime = None
+    if settings.memory_consolidation_enabled:
+        durable_memory_runtime = DurableMemoryConsolidationRuntime(
+            settings=settings,
+            storage=storage,
+        )
+
+    return RuntimeDependencies(
+        storage_info=storage_info,
+        storage=storage,
+        realtime_provider_factory=realtime_provider_factory,
+        vision_memory_runtime=vision_memory_runtime,
+        realtime_tooling_runtime=realtime_tooling_runtime,
+        durable_memory_runtime=durable_memory_runtime,
+    )
+
+
+def check_runtime_configuration(
+    settings: Settings,
+    *,
+    full_readiness: bool = False,
+) -> ConfigCheckResult:
+    dependencies = build_runtime_dependencies(settings)
+    warnings: list[str] = []
+    check_mode = "full_readiness" if full_readiness else "basic"
+    storage_bootstrap_probe: bool | None = None
+
+    if full_readiness:
+        dependencies.storage.bootstrap()
+        storage_bootstrap_probe = True
+        if dependencies.realtime_tooling_runtime is not None:
+            _probe_tooling_runtime_extensions(dependencies.realtime_tooling_runtime)
+
+    dependencies.realtime_provider_factory.validate_configuration()
+
+    vision_provider = None
+    if settings.vision_memory_enabled or settings.memory_consolidation_enabled:
+        vision_factory = VisionAnalyzerFactory(settings=settings)
+        vision_factory.validate_configuration()
+        vision_provider = vision_factory.provider_name
+
+    web_search_provider = None
+    extension_health: dict[str, object] | None = None
+    if settings.realtime_tooling_enabled:
+        tooling_runtime = dependencies.realtime_tooling_runtime
+        assert tooling_runtime is not None
+        web_search_provider = tooling_runtime.web_search_provider
+        extension_health = tooling_runtime.extension_health.to_dict()
+        if not tooling_runtime.web_search_enabled:
+            warnings.append(
+                "REALTIME_TOOLING_ENABLED is true but web_search is disabled because the configured search provider is not enabled by current credentials."
+            )
+        runtime_prerequisites = tooling_runtime.extension_health.runtime_prerequisites
+        if not runtime_prerequisites.ok and runtime_prerequisites.node_launcher_enabled_count > 0:
+            warnings.append(
+                "Enabled Node MCP extensions require node/npm/npx in the backend runtime environment."
+            )
+        if not tooling_runtime.extension_health.ok:
+            warnings.append(
+                "One or more enabled extensions failed to load. See extension_health.records for details."
+            )
+
+    storage_paths = None
+    if dependencies.storage.is_local_backend:
+        storage_paths = dependencies.storage.local_storage_paths().to_dict()
+
+    extensions_ok = True
+    if extension_health is not None:
+        extensions_ok = bool(extension_health.get("ok"))
+
+    return ConfigCheckResult(
+        ok=extensions_ok,
+        storage_backend=dependencies.storage_info.backend,
+        storage_details=dict(dependencies.storage_info.details),
+        storage_paths=storage_paths,
+        realtime_provider=dependencies.realtime_provider_factory.provider_name,
+        vision_provider=vision_provider,
+        realtime_tooling_enabled=settings.realtime_tooling_enabled,
+        web_search_provider=web_search_provider,
+        extension_health=extension_health,
+        check_mode=check_mode,
+        storage_bootstrap_probe=storage_bootstrap_probe,
+        warnings=tuple(warnings),
+    )
+
+
+def collect_doctor_runtime_details(
+    settings: Settings,
+    *,
+    full_readiness: bool = False,
+) -> DoctorRuntimeDetails:
+    settings.validate_production_posture()
+    storage_info, storage = build_backend_storage(settings)
+
+    realtime_provider_factory = RealtimeProviderFactory(settings=settings)
+    realtime_provider_factory.validate_configuration()
+
+    vision_provider = None
+    if settings.vision_memory_enabled:
+        vision_factory = VisionAnalyzerFactory(settings=settings)
+        vision_factory.validate_configuration()
+        vision_provider = vision_factory.provider_name
+
+    web_search_provider = None
+    web_search_enabled = False
+    extension_health: dict[str, object] | None = None
+    if settings.realtime_tooling_enabled:
+        tooling_runtime = RealtimeToolingRuntime.from_settings(
+            settings,
+            storage=storage,
+        )
+        if full_readiness:
+            _probe_tooling_runtime_extensions(tooling_runtime)
+        web_search_provider = settings.realtime_web_search_provider
+        web_search_enabled = tooling_runtime.web_search_enabled
+        extension_health = tooling_runtime.extension_health.to_dict()
+
+    storage_bootstrap_probe: bool | None = None
+    if full_readiness:
+        storage.bootstrap()
+        storage_bootstrap_probe = True
+
+    storage_paths = None
+    if storage.is_local_backend:
+        storage_paths = storage.local_storage_paths().to_dict()
+
+    return DoctorRuntimeDetails(
+        storage_backend=storage_info.backend,
+        storage_details=dict(storage_info.details),
+        storage_paths=storage_paths,
+        realtime_provider=realtime_provider_factory.provider_name,
+        vision_provider=vision_provider,
+        realtime_tooling_enabled=settings.realtime_tooling_enabled,
+        web_search_provider=web_search_provider,
+        web_search_enabled=web_search_enabled,
+        extension_health=extension_health,
+        storage_bootstrap_probe=storage_bootstrap_probe,
+    )
+
+
+def _probe_tooling_runtime_extensions(tooling_runtime: RealtimeToolingRuntime) -> None:
+    async def _probe() -> None:
+        await tooling_runtime.startup()
+        await tooling_runtime.shutdown()
+
+    try:
+        asyncio.run(_probe())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(_probe())
+        finally:
+            loop.close()

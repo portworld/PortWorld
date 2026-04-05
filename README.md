@@ -2,216 +2,207 @@
   <img src="Port World logo.png" width="100%" alt="Port:World Logo">
 </p>
 
+<p align="center">
+  <strong>Open-source runtime for voice-and-vision AI assistants connected to the real world.</strong>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
+  <a href="#quickstart"><img src="https://img.shields.io/badge/CLI-installer-3775A9" alt="PortWorld CLI installer" /></a>
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+" />
+  <img src="https://img.shields.io/badge/iOS-17%2B-black" alt="iOS 17+" />
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey" alt="Platform" />
+</p>
+
+---
+
 ## What if AI could see the world the way we do?
 
 **Port:World** is an open source framework that lets anyone connect their Meta glasses to any AI.
 The AI sees exactly what the wearer sees and can respond with voice, reasoning, or actions.
 
-The uses cases are infinite, connect your AI agents, customize them, prompt them, link your MCP, connect your Openclaw...
+The use cases are infinite: connect your AI agents, customize them, prompt them, link your MCP, connect your OpenClaw…
 
 It connects an iOS app running on Meta glasses to a FastAPI backend that handles video streaming, AI inference, voice responses, and tool execution. You define the prompts and domain logic. Port:World handles the streaming, model routing, and real-time communication.
 
-Built during the Mistral Worldwide Hackathon 2026 by **Pierre Haas, Vassili de Rosen, Arman Artola.** 
+Built during the Mistral Worldwide Hackathon 2026 by **Pierre Haas, Vassili de Rosen, Arman Artola.**
 
-🏆**We finished top 10 out of 600 teams worldwide + won the Giant Venture prize "futur unicorn prize"**.🏆
+<p align="center">
+  🏆 <strong>We finished top 10 out of 600 teams worldwide + won the Giant Venture prize "futur unicorn prize".</strong> 🏆
+</p>
 
-
-
-
-
-## Highlights
-
-- Voice in with Voxtral-compatible STT.
-- Vision/video understanding with Nemotron-compatible endpoints (NVIDIA GPU BREV Deployments and OpenAI API Compatible.
-- Agent presets + runtime overrides
-- Live token-to-audio relay (`/v1/pipeline/tts-stream`) with ElevenLabs streaming.
-- iOS app (`PortWorld`) with "test backend" flow for end-to-end smoke testing.
-
-## Table Of Contents
-
-- [Architecture](#architecture)
-- [Repository Layout](#repository-layout)
-- [Quick Start (5 Minutes)](#quick-start-5-minutes)
-- [iOS Setup (Simulator + Real iPhone)](#ios-setup-simulator--real-iphone)
-- [Run End-to-End Test From The App](#run-end-to-end-test-from-the-app)
-- [Backend API Surface](#backend-api-surface)
-- [Troubleshooting](#troubleshooting)
-- [Security Notes](#security-notes)
-- [Additional Docs](#additional-docs)
+---
 
 ## Architecture
 
-1. Glasses + iOS app capture audio/video/photo context.
-2. Backend resolves runtime profile, selected agent, and provider routing.
-3. Main LLM generates response using transcript + visual context + optional tools.
-4. TTS endpoint streams assistant audio back to the client.
+```mermaid
+graph LR
+  iOS["iOS App"] -->|"WebSocket audio"| Backend["FastAPI Backend"]
+  iOS -->|"Vision frames"| Backend
+  CLI["portworld CLI"] -->|"init / deploy / doctor"| Backend
+  Backend -->|"Realtime relay"| Providers["AI Providers"]
+  Backend -->|"Persistent memory"| Storage["Local / Cloud Storage"]
+```
 
-### MistralAI Worldwide Hackathon Architecture Example
+| Surface | Description |
+|---------|-------------|
+| **[backend/](backend/)** | FastAPI server — realtime voice relay, memory, vision processing, tooling |
+| **[portworld_cli/](portworld_cli/)** | CLI — bootstrap, validate, deploy, and operate PortWorld |
+| **[portworld_shared/](portworld_shared/)** | Shared Python contracts between CLI and backend |
+| **[IOS/](IOS/)** | SwiftUI iOS app — connects Meta smart glasses to your backend |
 
-<img width="2600" height="1200" alt="image" src="https://github.com/user-attachments/assets/b025ab6a-47a9-420f-ae9e-288207df02d7" />
+## Features
 
-## Repository Layout
+- **Realtime voice relay** — bridges WebSocket audio sessions to OpenAI Realtime or Gemini Live
+- **Persistent memory** — per-session and cross-session markdown memory with configurable retention
+- **Visual memory** — ingests camera frames from Meta glasses, runs adaptive scene-change gating, and builds semantic memory via pluggable vision providers
+- **Durable-memory consolidation** — rewrites long-term user memory at session close
+- **Realtime tooling** — memory recall and web search tools injected into the active AI session
+- **Multi-provider support** — 8 vision providers, 2 realtime providers, web search via Tavily
+- **Cloud deployment** — one-command deploy to GCP Cloud Run, AWS ECS/Fargate, or Azure Container Apps
+- **Meta smart glasses** — full DAT integration for audio I/O and vision capture through Ray-Ban Meta glasses
+- **Bearer token auth and rate limiting** — production-ready security defaults
 
-- `framework/`: backend framework (FastAPI, runtime config, providers, agents, tracing).
-- `IOS/`: iOS client app (`PortWorld`) for Meta Wearables DAT integration.
+## Quickstart
 
-## Quick Start (5 Minutes)
+### Run PortWorld (without cloning)
 
-### 1) Clone And Install
+Install the CLI and bootstrap a local workspace:
 
 ```bash
-git clone https://github.com/armapidus/PortWorld.git
+curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash
+portworld init
+```
+
+Verify:
+
+```bash
+portworld doctor --target local
+portworld status
+```
+
+### Backend contributor
+
+Clone the repo and start the backend with Docker:
+
+```bash
+git clone https://github.com/portworld/PortWorld.git
 cd PortWorld
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -r framework/requirements.txt
+cp backend/.env.example backend/.env
+# Edit backend/.env — set OPENAI_API_KEY or GEMINI_LIVE_API_KEY
+docker compose up --build
 ```
 
-### 2) Configure Backend Environment
+Verify:
 
 ```bash
-cp framework/.env.example .env
+curl http://127.0.0.1:8080/livez
+# → {"status":"ok","service":"portworld-backend"}
 ```
 
-Update `.env` with your keys (minimum recommended):
+### iOS contributor
 
-- `MAIN_LLM_API_KEY` (agents other STT)
-- `VOXTRAL_API_KEY` (or other STT)
-- `NEMOTRON_BASE_URL` (or other VTT)
-- `NEMOTRON_API_KEY`
-- `ELEVENLABS_API_KEY` 
-- optional: `EDGE_API_KEY` (for BREV NVIDIA token deployment - for Mistral Worlwide Hackathon)
-
-### 3) Run Backend
-
-```bash
-HOST=0.0.0.0 PORT=8082 python framework/app.py
-```
-
-### 4) Smoke Test Backend
-
-```bash
-curl -sS http://127.0.0.1:8082/healthz | jq
-curl -sS http://127.0.0.1:8082/v1/agents | jq
-curl -sS http://127.0.0.1:8082/v1/config/quickstart-template | jq
-```
-
-## iOS Setup (Simulator + Real iPhone)
-
-### 1) Open Project
+Start the backend (see above), then open the iOS project:
 
 ```bash
 open IOS/PortWorld.xcodeproj
 ```
 
-### 2) Configure Backend URL In `Info.plist`
+1. Let Xcode resolve Swift Package dependencies.
+2. Build the **PortWorld** scheme.
+3. Configure the backend URL in the app and validate the connection.
 
-Edit `SON_BACKEND_BASE_URL` in [`IOS/Info.plist`](IOS/Info.plist):
+## Minimum Viable Environment
 
-- iOS Simulator: `http://172.16.0.104:8082`
-- real iPhone: `http://<YOUR_MAC_LAN_IP>:8082`
+You only need **one API key** to get started. Pick a realtime provider:
 
-Get your Mac LAN IP:
+| Provider | Set in `backend/.env` |
+|----------|----------------------|
+| OpenAI Realtime | `REALTIME_PROVIDER=openai` and `OPENAI_API_KEY=sk-...` |
+| Gemini Live | `REALTIME_PROVIDER=gemini_live` and `GEMINI_LIVE_API_KEY=...` |
+
+Everything else (vision, tooling, consolidation) is off by default and can be enabled incrementally. See [backend/README.md](backend/README.md) for the full configuration reference.
+
+## Supported Providers
+
+### Realtime
+
+| Provider | ID | Required Key |
+|----------|----|--------------|
+| OpenAI Realtime | `openai` | `OPENAI_API_KEY` |
+| Gemini Live | `gemini_live` | `GEMINI_LIVE_API_KEY` |
+
+### Vision (opt-in)
+
+| Provider | ID | Required Key(s) |
+|----------|----|-----------------|
+| Mistral | `mistral` | `VISION_MISTRAL_API_KEY` |
+| NVIDIA Integrate | `nvidia_integrate` | `VISION_NVIDIA_API_KEY` |
+| OpenAI | `openai` | `VISION_OPENAI_API_KEY` |
+| Azure OpenAI | `azure_openai` | `VISION_AZURE_OPENAI_API_KEY` + `VISION_AZURE_OPENAI_ENDPOINT` |
+| Gemini | `gemini` | `VISION_GEMINI_API_KEY` |
+| Claude | `claude` | `VISION_CLAUDE_API_KEY` |
+| AWS Bedrock | `bedrock` | `VISION_BEDROCK_REGION` (+ optional IAM credentials) |
+| Groq | `groq` | `VISION_GROQ_API_KEY` |
+
+### Search (opt-in)
+
+| Provider | ID | Required Key |
+|----------|----|--------------|
+| Tavily | `tavily` | `TAVILY_API_KEY` |
+
+Use `portworld providers list` and `portworld providers show <id>` to inspect providers from the CLI.
+
+## Cloud Deployment
+
+Deploy to managed cloud targets with the CLI:
 
 ```bash
-ipconfig getifaddr en0 || ipconfig getifaddr en1
+portworld deploy gcp-cloud-run   --project <project> --region <region>
+portworld deploy aws-ecs-fargate --region <region>
+portworld deploy azure-container-apps --subscription <sub> --resource-group <rg> --region <region>
 ```
 
-Keep default paths:
+See the [CLI README](portworld_cli/README.md) for readiness checks, log streaming, and redeployment.
 
-- `SON_WS_PATH=/ws/session`
-- `SON_VISION_PATH=/vision/frame`
-- `SON_QUERY_PATH=/query`
+## Documentation
 
-### 3) Signing For Personal Team
+| Document | Description |
+|----------|-------------|
+| [backend/README.md](backend/README.md) | Backend runtime, API reference, configuration, storage |
+| [portworld_cli/README.md](portworld_cli/README.md) | CLI installation, commands, deploy workflows |
+| [IOS/README.md](IOS/README.md) | iOS app setup, Meta DAT, permissions, architecture |
+| [GETTING_STARTED.md](GETTING_STARTED.md) | Extended onboarding guide with all setup paths |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [docs/operations/CLI_RELEASE_PROCESS.md](docs/operations/CLI_RELEASE_PROCESS.md) | CLI release and versioning process |
 
-If you use a free/personal Apple team:
+## Status
 
-1. `TARGETS > PortWorld > Signing & Capabilities`
-2. Enable `Automatically manage signing`
-3. Select your `Personal Team`
-4. Use a unique bundle id (for example `com.yourname.PortWorld`)
-5. Remove `Associated Domains` capability for local testing
-6. In `Build Settings`, clear `Code Signing Entitlements` if still pointing to `PortWorld.entitlements`
+PortWorld is in its first stable release cutover. The core product surfaces are release-ready, while managed deploy hardening and operator-facing documentation continue to improve.
 
-### 4) Real iPhone Prerequisites
+**Stable-targeted:** backend self-hosting, CLI bootstrap and deploy workflows, and the iOS app with Meta glasses integration.
 
-1. Enable iPhone Developer Mode:
-   - `Settings > Privacy & Security > Developer Mode`
-2. Keep iPhone and Mac on the same Wi-Fi.
-3. Allow local network access for PortWorld in iPhone settings.
+**Release rollout:** the first public PyPI publication and GitHub release packaging land with the `v0.2.0` release cut.
 
-## Run End-to-End Test From The App
+**Hardening:** managed cloud deploy defaults, public-facing operator documentation, production security posture for one-click deploys.
 
-You can validate backend integration without glasses by using the built-in example media flow.
+### Known Limitations
 
-1. Launch the app from Xcode (`Cmd+R`).
-2. Tap `TEST BACKEND (Example Media)`:
-   - available on Home screen
-   - available on Runtime setup screen
-3. App posts to `POST /v1/pipeline/tts-stream` and plays returned audio.
+- Provider API keys are required for runtime use — there is no keyless demo mode.
+- AWS and Azure one-click deploys provision databases with public access by default. Review and tighten before production use.
+- Full iOS runtime validation requires a reachable backend and, for glasses features, supported Meta hardware with the Meta AI app.
+- The shared Xcode schemes do not currently include a maintained test action.
 
-Backend should log a `POST /v1/pipeline/tts-stream` request.
+## Contributing
 
-## Backend API Surface
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
-- `GET /healthz`
-- `GET /v1/debug/endpoints`
-- `GET /v1/agents`
-- `GET /v1/config/quickstart-template`
-- `GET /v1/config/runtime-template`
-- `POST /v1/pipeline`
-- `POST /v1/pipeline/tts-stream`
-- `POST /v1/elevenlabs/stream`
-- `POST /v1/debug/ios/simulate`
-- `POST /v1/debug/vision/frame`
+- Bug reports and feature requests: [open an issue](https://github.com/portworld/PortWorld/issues)
+- Security vulnerabilities: see [SECURITY.md](SECURITY.md)
+- Community expectations: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
-## Troubleshooting
-
-### `Connection refused` to `127.0.0.1:8080`
-
-Cause: app points to port `8080` while backend runs on `8082`.  
-Fix: set `SON_BACKEND_BASE_URL` to correct host/port.
-
-### `The Internet connection appears to be offline` with `Local network prohibited`
-
-Cause: iOS blocked local network permission.  
-Fix:
-
-1. `Settings > PortWorld > Local Network` -> enable.
-2. Reinstall app if needed to trigger permission prompt again.
-
-### Can open server in Safari but app still fails
-
-Check:
-
-- `SON_BACKEND_BASE_URL` is exactly correct.
-- iPhone and Mac are on same subnet.
-- backend running with `HOST=0.0.0.0`.
-
-### App call works but backend audio does not play
-
-Update to latest code on `main`.  
-`ExampleMediaPipelineTester` now requests `mp3_44100_128` and includes playback fallbacks.
-
-### `Invalid profile 'uRGB'` warnings
-
-Non-blocking image/profile warning in logs. Usually unrelated to network/audio flow.
-
-## Security Notes
-
-- Never commit real API keys to Git.
-- Use `.env` locally and rotate keys if accidentally shared.
-- Use `EDGE_API_KEY` when exposing backend beyond local/private network.
-
-
-## Additional Docs
-
-- Backend details: [`framework/README.md`](framework/README.md)
-- iOS details: [`IOS/README.md`](IOS/README.md)
+Do not post secrets, tokens, private URLs, or unredacted production logs in public issues.
 
 ## License
 
-Recommended for open-source release: Apache-2.0 or MIT.
+MIT — see [LICENSE](LICENSE).

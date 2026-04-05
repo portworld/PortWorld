@@ -1,0 +1,56 @@
+name: Security report
+description: Report a potential vulnerability or unsafe default behavior.
+title: "security: "
+labels:
+  - security
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Follow SECURITY.md before submitting:
+        - Do not include secrets, tokens, personal data, or private URLs.
+        - Redact logs and screenshots.
+        - For accidental secret exposure, rotate/revoke immediately.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - backend
+        - iOS
+        - CLI
+        - docs/process
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Security impact
+      description: Explain what an attacker could do and who is affected.
+      placeholder: An unauthenticated user can...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction or proof-of-concept
+      description: Provide concise steps without exposing private data.
+    validations:
+      required: true
+
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Suggested mitigation
+      description: Optional but helpful.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I reviewed SECURITY.md and removed sensitive information.
+          required: true

@@ -1,0 +1,227 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass
+
+from fastapi import WebSocket
+
+from backend.core.settings import MissingOpenAIAPIKeyError
+from backend.core.storage import BackendStorage
+from backend.memory.consolidation import DurableMemoryConsolidationRuntime
+from backend.realtime.client import RealtimeClientError
+from backend.realtime.factory import BridgeBinding
+from backend.vision.runtime import VisionMemoryRuntime
+from backend.ws.protocol.audio_format import validate_client_audio_format_payload
+from backend.ws.protocol.contracts import IOSEnvelope
+from backend.ws.protocol.error_utils import send_error
+from backend.ws.session.session_registry import (
+    SessionAlreadyActiveError,
+    SessionRecord,
+    session_registry,
+)
+from backend.ws.session.session_runtime import deactivate_and_unregister_session
+from backend.ws.session.transport_contracts import SendBinary, SendControl
+
+logger = logging.getLogger(__name__)
+
+BuildSessionBridge = Callable[..., BridgeBinding]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionActivationDeps:
+    build_session_bridge: BuildSessionBridge
+    storage: BackendStorage
+    vision_memory_runtime: VisionMemoryRuntime | None
+    durable_memory_runtime: DurableMemoryConsolidationRuntime | None
+
+
+async def activate_session(
+    *,
+    envelope: IOSEnvelope,
+    active_session: SessionRecord | None,
+    websocket: WebSocket,
+    send_control: SendControl,
+    send_server_audio: SendBinary,
+    deps: SessionActivationDeps,
+) -> SessionRecord | None:
+    fallback_session = active_session
+
+    format_error = validate_client_audio_format_payload(envelope.payload)
+    if format_error is not None:
+        await send_control(
+            "error",
+            format_error,
+            fallback_session_id=envelope.session_id,
+        )
+        return fallback_session
+
+    raw_instructions = envelope.payload.get("instructions")
+    session_instructions = (
+        raw_instructions.strip()
+        if isinstance(raw_instructions, str) and raw_instructions.strip()
+        else None
+    )
+    raw_mode = envelope.payload.get("mode")
+    session_mode = (
+        raw_mode.strip()
+        if isinstance(raw_mode, str) and raw_mode.strip()
+        else "default"
+    )
+    auto_start_response = bool(envelope.payload.get("auto_start_response"))
+
+    try:
+        binding = deps.build_session_bridge(
+            session_id=envelope.session_id,
+            send_control=send_control,
+            send_server_audio=send_server_audio,
+            session_mode=session_mode,
+            session_instructions=session_instructions,
+            auto_start_response=auto_start_response,
+        )
+    except MissingOpenAIAPIKeyError:
+        await send_error(
+            send_control,
+            code="MISSING_OPENAI_API_KEY",
+            message="Server missing OPENAI_API_KEY",
+            retriable=False,
+            fallback_session_id=envelope.session_id,
+        )
+        return fallback_session
+    except ValueError as exc:
+        await send_error(
+            send_control,
+            code="INVALID_SESSION_MODE",
+            message=str(exc),
+            retriable=False,
+            fallback_session_id=envelope.session_id,
+        )
+        return fallback_session
+
+    existing = session_registry.get(envelope.session_id)
+    if existing is not None and existing.websocket is not websocket:
+        await _send_session_already_active(
+            send_control=send_control,
+            session_id=envelope.session_id,
+        )
+        return fallback_session
+
+    record = SessionRecord(
+        session_id=envelope.session_id,
+        websocket=websocket,
+        bridge=binding.bridge,
+    )
+    binding.bind_record(record)
+
+    try:
+        await binding.bridge.connect_and_start()
+    except RealtimeClientError as exc:
+        logger.warning(
+            "Failed to activate session=%s: %s",
+            envelope.session_id,
+            exc,
+        )
+        await _handle_connect_failure(
+            send_control=send_control,
+            session_id=envelope.session_id,
+            binding=binding,
+        )
+        return fallback_session
+    except Exception:
+        logger.exception(
+            "Unexpected activation failure session=%s",
+            envelope.session_id,
+        )
+        await _handle_connect_failure(
+            send_control=send_control,
+            session_id=envelope.session_id,
+            binding=binding,
+        )
+        return fallback_session
+
+    if active_session is not None and active_session.session_id == envelope.session_id:
+        await deactivate_and_unregister_session(
+            active_session=active_session,
+            websocket=websocket,
+            send_control=send_control,
+            storage=deps.storage,
+            vision_memory_runtime=deps.vision_memory_runtime,
+            durable_memory_runtime=deps.durable_memory_runtime,
+        )
+        fallback_session = None
+
+    try:
+        record = await session_registry.register(record=record)
+    except SessionAlreadyActiveError:
+        await _close_bridge_safely(binding=binding, session_id=envelope.session_id)
+        await _send_session_already_active(
+            send_control=send_control,
+            session_id=envelope.session_id,
+        )
+        return fallback_session
+
+    if active_session is not None and active_session.session_id != envelope.session_id:
+        await deactivate_and_unregister_session(
+            active_session=active_session,
+            websocket=websocket,
+            send_control=send_control,
+            storage=deps.storage,
+            vision_memory_runtime=deps.vision_memory_runtime,
+            durable_memory_runtime=deps.durable_memory_runtime,
+        )
+
+    await asyncio.to_thread(deps.storage.ensure_session_storage, session_id=envelope.session_id)
+    await asyncio.to_thread(
+        deps.storage.upsert_session_status,
+        session_id=envelope.session_id,
+        status="active",
+    )
+
+    await send_control(
+        "session.state",
+        {"state": "active"},
+        target=record,
+    )
+    logger.info("Session activated session=%s", envelope.session_id)
+    return record
+
+
+async def _handle_connect_failure(
+    *,
+    send_control: SendControl,
+    session_id: str,
+    binding: BridgeBinding,
+) -> None:
+    await send_error(
+        send_control,
+        code="UPSTREAM_CONNECT_FAILED",
+        message="Failed to connect upstream realtime session",
+        retriable=True,
+        fallback_session_id=session_id,
+    )
+    await _close_bridge_safely(binding=binding, session_id=session_id)
+
+
+async def _send_session_already_active(
+    *,
+    send_control: SendControl,
+    session_id: str,
+) -> None:
+    await send_error(
+        send_control,
+        code="SESSION_ALREADY_ACTIVE",
+        message="Session is already active on another connection",
+        retriable=True,
+        fallback_session_id=session_id,
+    )
+
+
+async def _close_bridge_safely(*, binding: BridgeBinding, session_id: str) -> None:
+    try:
+        await binding.bridge.close()
+    except Exception:
+        logger.exception(
+            "Failed closing bridge after activation error session=%s",
+            session_id,
+        )

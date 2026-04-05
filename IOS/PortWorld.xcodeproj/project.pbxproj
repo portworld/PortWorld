@@ -11,32 +11,19 @@
 		0C6663072F5351150084DE6C /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0C6663062F5351150084DE6C /* MWDATCore */; };
 /* End PBXBuildFile section */
 
-/* Begin PBXContainerItemProxy section */
-		AABB00072F53A0010084DE6C /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 0C6662D42F534F350084DE6C /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 0C6662DB2F534F350084DE6C;
-			remoteInfo = PortWorld;
-		};
-/* End PBXContainerItemProxy section */
-
 /* Begin PBXFileReference section */
 		0C6662DC2F534F350084DE6C /* PortWorld.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PortWorld.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0C66630A2F5353540084DE6C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		0C66635A2F535F2D0084DE6C /* PortWorld.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PortWorld.entitlements; sourceTree = "<group>"; };
-		AABB00012F53A0010084DE6C /* PortWorldTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PortWorldTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		0C66636B2F5361000084DE6C /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		0C66636C2F5361000084DE6C /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		0C66636D2F5361000084DE6C /* Config.xcconfig.template */ = {isa = PBXFileReference; lastKnownFileType = text; path = Config.xcconfig.template; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0C6662DE2F534F350084DE6C /* PortWorld */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = PortWorld;
-			sourceTree = "<group>";
-		};
-		AABB00022F53A0010084DE6C /* PortWorldTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = PortWorldTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -51,13 +38,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AABB00052F53A0010084DE6C /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -65,8 +45,8 @@
 			isa = PBXGroup;
 			children = (
 				0C6662DE2F534F350084DE6C /* PortWorld */,
-				AABB00022F53A0010084DE6C /* PortWorldTests */,
 				0C6662DD2F534F350084DE6C /* Products */,
+				0C66636E2F5361000084DE6C /* Config */,
 				0C66630A2F5353540084DE6C /* Info.plist */,
 				0C66635A2F535F2D0084DE6C /* PortWorld.entitlements */,
 			);
@@ -76,9 +56,18 @@
 			isa = PBXGroup;
 			children = (
 				0C6662DC2F534F350084DE6C /* PortWorld.app */,
-				AABB00012F53A0010084DE6C /* PortWorldTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		0C66636E2F5361000084DE6C /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				0C66636B2F5361000084DE6C /* Debug.xcconfig */,
+				0C66636C2F5361000084DE6C /* Release.xcconfig */,
+				0C66636D2F5361000084DE6C /* Config.xcconfig.template */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -108,27 +97,6 @@
 			productReference = 0C6662DC2F534F350084DE6C /* PortWorld.app */;
 			productType = "com.apple.product-type.application";
 		};
-		AABB00032F53A0010084DE6C /* PortWorldTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = AABB000B2F53A0010084DE6C /* Build configuration list for PBXNativeTarget "PortWorldTests" */;
-			buildPhases = (
-				AABB00042F53A0010084DE6C /* Sources */,
-				AABB00052F53A0010084DE6C /* Frameworks */,
-				AABB00062F53A0010084DE6C /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				AABB00082F53A0010084DE6C /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				AABB00022F53A0010084DE6C /* PortWorldTests */,
-			);
-			name = PortWorldTests;
-			productName = PortWorldTests;
-			productReference = AABB00012F53A0010084DE6C /* PortWorldTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -137,14 +105,10 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2630;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					0C6662DB2F534F350084DE6C = {
 						CreatedOnToolsVersion = 26.3;
-					};
-					AABB00032F53A0010084DE6C = {
-						CreatedOnToolsVersion = 26.3;
-						TestTargetID = 0C6662DB2F534F350084DE6C;
 					};
 				};
 			};
@@ -166,20 +130,12 @@
 			projectRoot = "";
 			targets = (
 				0C6662DB2F534F350084DE6C /* PortWorld */,
-				AABB00032F53A0010084DE6C /* PortWorldTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		0C6662DA2F534F350084DE6C /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		AABB00062F53A0010084DE6C /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -196,26 +152,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AABB00042F53A0010084DE6C /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		AABB00082F53A0010084DE6C /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 0C6662DB2F534F350084DE6C /* PortWorld */;
-			targetProxy = AABB00072F53A0010084DE6C /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		0C6662E52F534F360084DE6C /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C66636B2F5361000084DE6C /* Debug.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -273,6 +215,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -280,6 +223,7 @@
 		};
 		0C6662E62F534F360084DE6C /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C66636C2F5361000084DE6C /* Release.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -330,6 +274,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -337,10 +282,10 @@
 		};
 		0C6662E82F534F360084DE6C /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C66636B2F5361000084DE6C /* Debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = PortWorldIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLIENT_TOKEN = "";
 				CODE_SIGN_ENTITLEMENTS = PortWorld.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -348,13 +293,18 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_OTHER_PREPROCESSOR_FLAGS = "$(inherited) -traditional-cpp $(PORTWORLD_DAT_INFOPLIST_FLAGS)";
+				INFOPLIST_PREPROCESS = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				META_APP_ID = "";
-				PRODUCT_BUNDLE_IDENTIFIER = MistralParis.PortWorld;
+				MARKETING_VERSION = 0.2.0;
+				PORTWORLD_DAT_APP_LINK_URL_SCHEME = portworld;
+				PORTWORLD_DAT_CLIENT_TOKEN = "";
+				PORTWORLD_DAT_INFOPLIST_FLAGS = "";
+				PORTWORLD_DAT_META_APP_ID = "";
+				PRODUCT_BUNDLE_IDENTIFIER = MistralHackathon.PortWorld;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -368,10 +318,10 @@
 		};
 		0C6662E92F534F360084DE6C /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C66636C2F5361000084DE6C /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = PortWorldIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLIENT_TOKEN = "";
 				CODE_SIGN_ENTITLEMENTS = PortWorld.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -379,13 +329,18 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_OTHER_PREPROCESSOR_FLAGS = "$(inherited) -traditional-cpp $(PORTWORLD_DAT_INFOPLIST_FLAGS)";
+				INFOPLIST_PREPROCESS = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				META_APP_ID = "";
-				PRODUCT_BUNDLE_IDENTIFIER = MistralParis.PortWorld;
+				MARKETING_VERSION = 0.2.0;
+				PORTWORLD_DAT_APP_LINK_URL_SCHEME = portworld;
+				PORTWORLD_DAT_CLIENT_TOKEN = "";
+				PORTWORLD_DAT_INFOPLIST_FLAGS = "";
+				PORTWORLD_DAT_META_APP_ID = "";
+				PRODUCT_BUNDLE_IDENTIFIER = MistralHackathon.PortWorld;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -394,50 +349,6 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
-		AABB00092F53A0010084DE6C /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5YCVDGBTJR;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = MistralParis.PortWorldTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PortWorld.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PortWorld";
-			};
-			name = Debug;
-		};
-		AABB000A2F53A0010084DE6C /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5YCVDGBTJR;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = MistralParis.PortWorldTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PortWorld.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PortWorld";
 			};
 			name = Release;
 		};
@@ -462,15 +373,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		AABB000B2F53A0010084DE6C /* Build configuration list for PBXNativeTarget "PortWorldTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				AABB00092F53A0010084DE6C /* Debug */,
-				AABB000A2F53A0010084DE6C /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -479,7 +381,7 @@
 			repositoryURL = "https://github.com/facebook/meta-wearables-dat-ios";
 			requirement = {
 				kind = exactVersion;
-				version = 0.4.0;
+				version = 0.5.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
