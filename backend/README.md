@@ -145,8 +145,6 @@ Set `BACKEND_PROFILE=production` to enforce security defaults at startup:
 | Variable | Description |
 |----------|-------------|
 | `BACKEND_BEARER_TOKEN` | Required in production — protects all non-health endpoints |
-| `CORS_ORIGINS` | Set explicit origins; do not use wildcard `*` |
-| `BACKEND_ALLOWED_HOSTS` | Set explicit hosts; do not use wildcard `*` |
 | `BACKEND_ENABLE_IP_RATE_LIMITS` | Defaults to `true` in production |
 
 Generate a secure bearer token:
