@@ -9,9 +9,26 @@ __pycache__/
 *.swp
 *.swo
 .DS_Store
+.cursor/
+.idea/
+.vscode/
+.coverage
+coverage.xml
+htmlcov/
+.hypothesis/
+*.log
+uv.lock
+Port World logo.png
+.conductor/
+framework/
+skills/
+tests/
+**/node_modules/
 backend/.env
+**/.env.local
 backend/.venv/
 backend/.pytest_cache/
+backend/debug/
 backend/scripts/
 IOS/
 docs/
