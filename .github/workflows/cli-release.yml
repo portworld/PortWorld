@@ -197,6 +197,7 @@ jobs:
           PACKAGE_VERSION: ${{ needs.validate.outputs.version }}
         run: |
           uv tool install \
+            --index-strategy unsafe-best-match \
             --default-index https://test.pypi.org/simple \
             --index https://pypi.org/simple \
             "${PACKAGE_NAME}==${PACKAGE_VERSION}"

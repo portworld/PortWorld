@@ -26,6 +26,26 @@ must mirror the corresponding section in this changelog.
 
 - No user-visible security changes recorded yet.
 
+## [v0.2.2] - 2026-04-05
+
+### Added
+
+- No user-visible additions recorded yet.
+
+### Changed
+
+- No user-visible behavior changes recorded yet.
+
+### Fixed
+
+- TestPyPI smoke installs now let `uv` resolve the requested release version
+  across both TestPyPI and PyPI, avoiding false failures when the package name
+  already exists on PyPI at an older version.
+
+### Security
+
+- No user-visible security changes recorded yet.
+
 ## [v0.2.1] - 2026-04-05
 
 ### Added
