@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from portworld_cli.context import CLIContext
-from portworld_cli.release.lookup import ReleaseLookupResult
+from portworld_cli.release.lookup import ReleaseLookupResult, compare_numeric_versions
 from portworld_cli.services.update.service import _detect_cli_update_mode, run_update_cli
 from portworld_cli.workspace.discovery.paths import ProjectPaths
 
@@ -132,6 +132,15 @@ class UpdateCLITests(unittest.TestCase):
         self.assertIsNone(result.data["repo_root"])
         self.assertGreaterEqual(len(result.data["recommended_commands"]), 2)
         self.assertIn("recommended_commands:", result.message or "")
+
+    def test_compare_numeric_versions_treats_stable_as_newer_than_same_prerelease(self) -> None:
+        self.assertTrue(compare_numeric_versions("0.2.0b10", "v0.2.0"))
+
+    def test_compare_numeric_versions_does_not_recommend_older_stable_over_newer_prerelease(self) -> None:
+        self.assertFalse(compare_numeric_versions("0.2.1b3", "v0.2.0"))
+
+    def test_compare_numeric_versions_rejects_prerelease_target_tags(self) -> None:
+        self.assertIsNone(compare_numeric_versions("0.2.0b10", "v0.2.0b11"))
 
 
 if __name__ == "__main__":

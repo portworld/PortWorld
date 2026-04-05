@@ -38,11 +38,15 @@ def extract_latest_release_tag(payload: object) -> str | None:
 
 
 def compare_numeric_versions(current_version: str, target_version: str) -> bool | None:
-    current_parts = _parse_numeric_version_parts(current_version)
-    target_parts = _parse_numeric_version_parts(target_version)
-    if current_parts is None or target_parts is None:
+    current_release = _parse_release_version(current_version)
+    target_release = _parse_release_version(target_version)
+    if current_release is None or target_release is None:
         return None
-    return target_parts > current_parts
+    if target_release.is_prerelease:
+        return None
+    if target_release.parts != current_release.parts:
+        return target_release.parts > current_release.parts
+    return current_release.is_prerelease
 
 
 def normalize_numeric_package_version(value: str | None) -> str | None:
@@ -61,3 +65,27 @@ def _parse_numeric_version_parts(value: str) -> tuple[int, ...] | None:
     if normalized is None:
         return None
     return tuple(int(part) for part in normalized.split("."))
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedReleaseVersion:
+    parts: tuple[int, ...]
+    is_prerelease: bool
+
+
+def _parse_release_version(value: str) -> _ParsedReleaseVersion | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    match = re.fullmatch(
+        r"v?(?P<release>\d+(?:\.\d+)*)(?P<suffix>[-_.]?[A-Za-z][A-Za-z0-9.\-]*)?",
+        normalized,
+    )
+    if match is None:
+        return None
+    release = match.group("release")
+    suffix = match.group("suffix") or ""
+    return _ParsedReleaseVersion(
+        parts=tuple(int(part) for part in release.split(".")),
+        is_prerelease=bool(suffix),
+    )
