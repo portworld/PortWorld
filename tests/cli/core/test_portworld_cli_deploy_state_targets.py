@@ -37,6 +37,30 @@ class DeployStateTargetSerializationTests(unittest.TestCase):
                     loaded = read_deploy_state(path)
                     self.assertEqual(loaded.to_payload(), state.to_payload())
 
+    def test_from_payload_normalizes_blank_strings_and_non_integer_timestamp(self) -> None:
+        state = DeployState.from_payload(
+            {
+                "project_id": "  ",
+                "region": " us-central1 ",
+                "service_name": "svc",
+                "runtime_source": "",
+                "last_deployed_at_ms": "1700000000000",
+            }
+        )
+
+        self.assertIsNone(state.project_id)
+        self.assertEqual(state.region, "us-central1")
+        self.assertEqual(state.service_name, "svc")
+        self.assertIsNone(state.runtime_source)
+        self.assertIsNone(state.last_deployed_at_ms)
+
+    def test_has_data_is_false_for_empty_state_and_true_for_partial_state(self) -> None:
+        empty_state = DeployState.from_payload({})
+        partial_state = DeployState.from_payload({"service_name": "svc"})
+
+        self.assertFalse(empty_state.has_data())
+        self.assertTrue(partial_state.has_data())
+
 
 if __name__ == "__main__":
     unittest.main()
