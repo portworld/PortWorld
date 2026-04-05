@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from backend.bootstrap.runtime import check_runtime_configuration
 

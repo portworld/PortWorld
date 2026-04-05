@@ -4,7 +4,7 @@ from collections import OrderedDict
 from contextlib import ExitStack
 from pathlib import Path
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.aws.deploy import (
     DeployAWSECSFargateOptions,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.aws.stages.artifacts import ensure_s3_bucket
 from portworld_cli.aws.stages.config import ResolvedAWSDeployConfig

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.aws.doctor import evaluate_aws_ecs_fargate_readiness
 from portworld_cli.workspace.project_config import ProjectConfig

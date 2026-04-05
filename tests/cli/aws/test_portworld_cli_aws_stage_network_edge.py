@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.aws.stages.network_edge import wait_for_cloudfront_deployed
 
