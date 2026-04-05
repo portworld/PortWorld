@@ -20,6 +20,11 @@ from portworld_cli.workspace.session import SecretReadiness, WorkspaceSession
 
 
 class ProviderConfigFlowTests(unittest.TestCase):
+    def test_init_service_imports_confirmation_builder(self) -> None:
+        from portworld_cli.services.init import service
+
+        self.assertTrue(callable(service.build_init_confirmation_lines))
+
     def _build_session(
         self,
         workspace_root: Path,

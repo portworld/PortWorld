@@ -18,6 +18,7 @@ from portworld_cli.output import CommandResult, DiagnosticCheck
 from portworld_cli.runtime.published import build_compose_command
 from portworld_cli.services.config.edit_service import confirm_apply
 from portworld_cli.services.config.errors import ConfigRuntimeError, ConfigUsageError
+from portworld_cli.services.config.messages import build_init_confirmation_lines
 from portworld_cli.services.config.persistence import preview_secret_readiness, write_config_artifacts
 from portworld_cli.services.config.prompts import (
     resolve_required_text_value,
