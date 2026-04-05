@@ -15,6 +15,7 @@ from portworld_cli.azure.stages.container_app_runtime import (
 from portworld_cli.context import CLIContext
 from portworld_cli.deploy.config import DeployStageError
 from portworld_cli.deploy_artifacts import IMAGE_SOURCE_MODE_SOURCE_BUILD
+from portworld_cli.ux.progress import ProgressReporter
 
 
 def _base_config() -> ResolvedAzureDeployConfig:
@@ -41,6 +42,19 @@ def _base_config() -> ResolvedAzureDeployConfig:
         image_uri="pw.azurecr.io/app-backend:abc123",
         published_release_tag=None,
         published_image_ref=None,
+    )
+
+
+def _disabled_progress() -> ProgressReporter:
+    return ProgressReporter(
+        CLIContext(
+            project_root_override=None,
+            verbose=False,
+            json_output=False,
+            non_interactive=True,
+            yes=False,
+        ),
+        enabled=False,
     )
 
 
@@ -205,6 +219,7 @@ class AzureDeployTests(unittest.TestCase):
             env_values=env_values,
             stage_records=stages,
             adapters=adapters,
+            progress=_disabled_progress(),
         )
         self.assertEqual(result.fqdn, "app.westeurope.azurecontainerapps.io")
         update_call = adapters.compute.run_json.call_args_list[2].args[0]

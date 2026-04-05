@@ -17,6 +17,7 @@ from portworld_cli.aws.stages.database import DatabaseResolution
 from portworld_cli.context import CLIContext
 from portworld_cli.deploy.config import DeployStageError
 from portworld_cli.deploy_artifacts import IMAGE_SOURCE_MODE_PUBLISHED_RELEASE, IMAGE_SOURCE_MODE_SOURCE_BUILD
+from portworld_cli.ux.progress import ProgressReporter
 
 
 def _base_config(*, image_source_mode: str = IMAGE_SOURCE_MODE_SOURCE_BUILD) -> ResolvedAWSDeployConfig:
@@ -39,6 +40,19 @@ def _base_config(*, image_source_mode: str = IMAGE_SOURCE_MODE_SOURCE_BUILD) -> 
         rds_password_parameter_name="/portworld/service/rds-master-password",
         published_release_tag=None,
         published_image_ref=None,
+    )
+
+
+def _disabled_progress() -> ProgressReporter:
+    return ProgressReporter(
+        CLIContext(
+            project_root_override=None,
+            verbose=False,
+            json_output=False,
+            non_interactive=True,
+            yes=False,
+        ),
+        enabled=False,
     )
 
 
@@ -251,6 +265,7 @@ class AWSDeployTests(unittest.TestCase):
                 env_values=OrderedDict(),
                 stage_records=stage_records,
                 project_root=Path("/tmp/project"),
+                progress=_disabled_progress(),
             )
 
         ensure_s3_bucket.assert_called_once()
@@ -321,6 +336,7 @@ class AWSDeployTests(unittest.TestCase):
                 env_values=OrderedDict(),
                 stage_records=stage_records,
                 project_root=Path("/tmp/project"),
+                progress=_disabled_progress(),
             )
 
         ensure_repo.assert_not_called()
