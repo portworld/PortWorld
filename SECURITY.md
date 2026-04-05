@@ -13,7 +13,12 @@ Older tags and historical branches may not receive security updates.
 
 ## Reporting A Vulnerability
 
-Report potential security vulnerabilities by opening a GitHub issue in this repository.
+Report potential security vulnerabilities privately using GitHub's
+`Report a vulnerability` flow / private security advisories for this repository.
+
+Do not open a public GitHub issue for suspected vulnerabilities.
+Use normal public issues only for non-security bugs, crashes without security impact,
+and feature requests.
 
 Use a clear title prefix such as `security:` and include:
 
@@ -22,9 +27,9 @@ Use a clear title prefix such as `security:` and include:
 - reproduction steps or proof of concept
 - mitigation ideas (if available)
 
-Do not include secrets or private data in issues.
-Redact API keys, bearer tokens, internal URLs, personal data, and full production logs before posting.
-Do not upload screenshots, diagrams, or copied snippets unless you have the right to share them publicly.
+Do not include secrets or private data in a report.
+Redact API keys, bearer tokens, internal URLs, personal data, and full production logs.
+Do not upload screenshots, diagrams, or copied snippets unless you have the right to share them.
 
 If you accidentally expose a secret while reporting, rotate/revoke it immediately and update the issue with redacted content.
 
