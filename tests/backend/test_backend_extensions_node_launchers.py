@@ -6,8 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
-import unittest
-from unittest import mock
+from unittest import TestCase, mock, skipUnless
 
 from backend.bootstrap.runtime import check_runtime_configuration
 from backend.core.settings import Settings
@@ -16,7 +15,7 @@ from backend.extensions.models import MCPServerSpec
 from backend.extensions.runtime import collect_runtime_prerequisites, open_mcp_handle
 
 
-class BackendExtensionManifestNodeLauncherTests(unittest.TestCase):
+class BackendExtensionManifestNodeLauncherTests(TestCase):
     def _write_manifest(self, root: Path, payload: dict[str, object]) -> Path:
         path = root / "extensions.json"
         path.write_text(json.dumps(payload), encoding="utf-8")
@@ -169,7 +168,7 @@ class BackendExtensionManifestNodeLauncherTests(unittest.TestCase):
             result.warnings,
         )
 
-    @unittest.skipUnless(
+    @skipUnless(
         shutil.which("node") and shutil.which("npm") and shutil.which("npx"),
         "Node MCP prerequisites are not available on PATH.",
     )

@@ -4,7 +4,6 @@ import json
 import logging
 import re
 import shutil
-from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
@@ -179,7 +178,7 @@ class SessionStorageMixin:
                 continue
             try:
                 payload = json.loads(line)
-            except JSONDecodeError as exc:
+            except json.JSONDecodeError as exc:
                 logger.warning(
                     "VISION_EVENT_RECORD_SKIPPED session=%s line=%d reason=invalid_json details=%s",
                     session_id,
@@ -293,7 +292,7 @@ class SessionStorageMixin:
                 continue
             try:
                 payload = json.loads(line)
-            except JSONDecodeError:
+            except json.JSONDecodeError:
                 continue
             if not isinstance(payload, dict):
                 continue
@@ -561,7 +560,7 @@ class SessionStorageMixin:
             if row["error_details_json"] is not None:
                 try:
                     loaded_error_details = json.loads(str(row["error_details_json"]))
-                except JSONDecodeError:
+                except json.JSONDecodeError:
                     loaded_error_details = {"raw": str(row["error_details_json"])}
                 if isinstance(loaded_error_details, dict):
                     error_details = loaded_error_details

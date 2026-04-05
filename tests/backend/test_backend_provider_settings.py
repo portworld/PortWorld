@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import unittest
-from unittest import mock
 
 from backend.core.settings import Settings
 from backend.realtime.contracts import RealtimeProviderCapabilities
@@ -16,7 +15,7 @@ from backend.vision.providers.mistral.analyzer import build_mistral_vision_analy
 
 class BackendProviderSettingsTests(unittest.TestCase):
     def _settings(self, extra_env: dict[str, str]) -> Settings:
-        with mock.patch.dict(os.environ, extra_env, clear=True):
+        with unittest.mock.patch.dict(os.environ, extra_env, clear=True):
             return Settings.from_env()
 
     def test_gemini_live_realtime_settings_are_loaded(self) -> None:

@@ -4,12 +4,17 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from backend.realtime.audio_uplink import ClientAudioUplink
     from backend.realtime.contracts import EnvelopeSender, RealtimeLifecycleAdapter
     from backend.realtime.tool_dispatcher import ToolCallDispatcher
+else:
+    ClientAudioUplink = Any
+    EnvelopeSender = Any
+    RealtimeLifecycleAdapter = Any
+    ToolCallDispatcher = Any
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +61,10 @@ class TurnManager:
         session_id: str,
         config: TurnConfig,
         state: TurnState,
-        upstream_client: "RealtimeLifecycleAdapter",
-        audio_uplink: "ClientAudioUplink",
-        tool_dispatcher: "ToolCallDispatcher",
-        send_envelope: "EnvelopeSender",
+        upstream_client: RealtimeLifecycleAdapter,
+        audio_uplink: ClientAudioUplink,
+        tool_dispatcher: ToolCallDispatcher,
+        send_envelope: EnvelopeSender,
     ) -> None:
         self._session_id = session_id
         self._config = config

@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from backend.ws.session.session_registry import SessionRecord
+else:
+    SessionRecord = Any
 
 
 class ClientTransportClosedError(RuntimeError):
@@ -16,7 +18,7 @@ class SendControl(Protocol):
         message_type: str,
         payload: dict[str, Any],
         *,
-        target: "SessionRecord | None" = None,
+        target: SessionRecord | None = None,
         fallback_session_id: str = "unknown",
     ) -> None: ...
 

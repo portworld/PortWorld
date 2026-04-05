@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import sys
 from types import ModuleType
-import unittest
-from unittest import mock
+from unittest import TestCase, main, mock
 
 from backend.infrastructure.storage.object_store import build_object_store
 
 
-class BackendObjectStoreFactoryTests(unittest.TestCase):
+class BackendObjectStoreFactoryTests(TestCase):
     def _fake_module(self, class_name: str) -> tuple[ModuleType, type]:
         module = ModuleType("fake")
 
@@ -108,4 +107,4 @@ class BackendObjectStoreFactoryTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    main()
