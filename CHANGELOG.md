@@ -26,6 +26,38 @@ must mirror the corresponding section in this changelog.
 
 - No user-visible security changes recorded yet.
 
+## [v0.2.0] - 2026-04-05
+
+### Added
+
+- No user-visible additions recorded yet.
+
+### Changed
+
+- Published operator workflows now use the canonical released backend image
+  path on both GCP Cloud Run and AWS ECS/Fargate.
+- Published workspace runtime defaults now match the documented backend
+  defaults.
+- Removed pre-v1 compatibility aliases and stale legacy surfaces from the
+  supported backend and CLI operator flows.
+
+### Fixed
+
+- Restored managed-storage bootstrap and canonical user-memory paths for
+  published runtimes.
+- Hardened release automation and TestPyPI smoke sequencing during tagged
+  publishes.
+- Fixed the published Docker Compose healthcheck to probe `/livez`.
+- Stable update checks now correctly compare prerelease local installs against
+  the latest stable release.
+- Removed stale production-hardening doc references and obsolete runtime config
+  references from the supported release surface.
+
+### Security
+
+- Security reporting now directs vulnerability reports to the GitHub private
+  advisory flow instead of public issues.
+
 ## [v0.2.0b10] - 2026-03-27
 
 ### Added

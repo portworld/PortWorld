@@ -46,14 +46,21 @@ jobs:
           import os
           import tomllib
 
-          from backend import __version__
+          from backend import __version__ as backend_version
+          from portworld_cli.version import __version__ as cli_version
 
           tag = os.environ["GITHUB_REF_NAME"].strip()
-          version = __version__.strip()
+          version = cli_version.strip()
+          mirrored_backend_version = backend_version.strip()
+          if version != mirrored_backend_version:
+              raise SystemExit(
+                  "Version mismatch: portworld_cli.version.__version__ is "
+                  f"{version}, backend.__version__ is {mirrored_backend_version}"
+              )
           expected_tag = f"v{version}"
           if tag != expected_tag:
               raise SystemExit(
-                  f"Tag/version mismatch: git tag is {tag}, backend.__version__ expects {expected_tag}"
+                  f"Tag/version mismatch: git tag is {tag}, portworld_cli.version.__version__ expects {expected_tag}"
               )
           repo_owner = os.environ["GITHUB_REPOSITORY_OWNER"].strip()
           repo_owner_lower = repo_owner.lower()

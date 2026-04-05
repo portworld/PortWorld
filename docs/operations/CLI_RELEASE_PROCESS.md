@@ -15,7 +15,8 @@ This documents the tagged release flow for the public `portworld` CLI.
 
 ## Version Source
 
-- The packaged CLI version is sourced from `backend.__version__`.
+- The packaged CLI version is sourced from `portworld_cli.version.__version__`.
+- `backend.__version__` must mirror the CLI version for tagged releases.
 - Git tags should use the format `vX.Y.Z`.
 - The public installer resolves `latest` from GitHub Releases and installs the matching PyPI package version.
 
@@ -36,8 +37,8 @@ This documents the tagged release flow for the public `portworld` CLI.
 
 ## Release Steps
 
-1. Update `backend/__init__.py`
-   - bump `__version__` to the intended release version, for example `0.2.0`
+1. Update `portworld_cli/version.py` and `backend/__init__.py`
+   - bump both `__version__` values to the intended release version, for example `0.2.0`
 2. Verify local packaging and CLI smoke
    - `python -m py_compile $(find portworld_cli -name '*.py' | sort) backend/cli.py`
    - `python -m portworld_cli.main --help`
@@ -58,7 +59,7 @@ This documents the tagged release flow for the public `portworld` CLI.
    - `git push origin <branch>`
    - `git push origin vX.Y.Z`
 8. Wait for the `CLI Release` workflow on the pushed tag
-   - `validate`: assert `vX.Y.Z` matches `backend.__version__` and capture the package name from `pyproject.toml`
+   - `validate`: assert `vX.Y.Z` matches `portworld_cli.version.__version__`, confirm `backend.__version__` matches it, and capture the package name from `pyproject.toml`
    - `build`: build sdist and wheel once, then upload them as the shared workflow artifact
    - `publish_testpypi`: publish the built artifacts to TestPyPI through trusted publishing
    - `smoke_testpypi`: install the exact version from TestPyPI with `uv tool install` in a clean job and run CLI smoke commands
