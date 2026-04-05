@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.azure.stages.artifacts import ensure_storage
 from portworld_cli.azure.stages.config import ResolvedAzureDeployConfig

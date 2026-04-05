@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.azure.doctor import evaluate_azure_container_apps_readiness
 from portworld_cli.workspace.project_config import ProjectConfig

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.context import CLIContext
 from portworld_cli.ux.progress import ProgressReporter

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from pathlib import Path
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.azure.deploy import DeployAzureContainerAppsOptions, run_deploy_azure_container_apps
 from portworld_cli.azure.stages.config import ResolvedAzureDeployConfig

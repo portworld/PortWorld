@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.workspace.project_config import ProjectConfig, write_project_config
 from portworld_cli.workspace.published import (

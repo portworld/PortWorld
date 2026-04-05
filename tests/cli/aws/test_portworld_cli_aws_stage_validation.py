@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.aws.stages.validation import parse_http_status_code, wait_for_public_validation
 

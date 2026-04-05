@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections import OrderedDict
 from pathlib import Path
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.context import CLIContext
 from portworld_cli.deploy.config import DeployGCPCloudRunOptions, DeployStageError, ResolvedDeployConfig

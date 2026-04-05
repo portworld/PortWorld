@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.context import CLIContext
 from portworld_cli.release.lookup import ReleaseLookupResult, compare_numeric_versions

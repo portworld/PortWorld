@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from portworld_cli.extensions.doctor import run_extension_doctor
 
