@@ -19,13 +19,13 @@ STORAGE_BACKEND_MANAGED = "managed"
 SUPPORTED_STORAGE_BACKENDS = {"local", STORAGE_BACKEND_MANAGED}
 SUPPORTED_OBJECT_STORE_PROVIDERS = {"filesystem", "gcs", "s3", "azure_blob"}
 DEFAULT_VISION_MODELS_BY_PROVIDER: dict[str, str] = {
-    "mistral": "ministral-3b-2512",
+    "mistral": "ministral-14b-2512",
     "nvidia_integrate": "mistralai/ministral-14b-instruct-2512",
-    "openai": "gpt-4.1-mini",
-    "gemini": "gemini-2.0-flash",
-    "claude": "claude-3-5-sonnet-latest",
-    "bedrock": "anthropic.claude-3-5-sonnet-20240620-v1:0",
-    "groq": "llama-3.2-90b-vision-preview",
+    "openai": "gpt-5.4-nano",
+    "gemini": "gemini-3.1-flash-lite-preview",
+    "claude": "claude-haiku-4-5",
+    "bedrock": "mistral.ministral-3-3b-instruct",
+    "groq": "meta-llama/llama-4-scout-17b-16e-instruct",
 }
 
 _NVIDIA_VISION_HOST_MARKERS = (
@@ -655,7 +655,7 @@ def _load_realtime_settings() -> dict[str, str | int | bool | None]:
         ),
         "gemini_live_api_key": os.getenv("GEMINI_LIVE_API_KEY"),
         "gemini_live_model": (
-            _get_env("GEMINI_LIVE_MODEL") or "gemini-2.0-flash-live-001"
+            _get_env("GEMINI_LIVE_MODEL") or "gemini-2.5-flash-native-audio-preview-12-2025"
         ).strip(),
         "gemini_live_base_url": _get_env("GEMINI_LIVE_BASE_URL"),
         "gemini_live_endpoint": _get_env("GEMINI_LIVE_ENDPOINT"),
