@@ -65,9 +65,13 @@ class ProgressReporterTests(unittest.TestCase):
         with mock.patch.object(ProgressReporter, "_ensure_live"), mock.patch.object(ProgressReporter, "_refresh"):
             reporter = ProgressReporter(_cli_context(), enabled=True)
 
-            with self.assertRaisesRegex(RuntimeError, "boom"):
+            try:
                 with reporter.stage("Deploying Cloud Run service"):
                     raise RuntimeError("boom")
+            except RuntimeError as exc:
+                self.assertRegex(str(exc), "boom")
+            else:
+                self.fail("expected RuntimeError")
 
             snapshot = reporter.snapshot()
             self.assertEqual(
