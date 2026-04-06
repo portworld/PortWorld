@@ -1,95 +1,107 @@
+<h1 align="center">
+  Port:World
+</h1>
+
 <p align="center">
-  <img src="Port World logo.png" width="100%" alt="Port:World Logo">
+  <strong>Turn your Ray-Ban Meta glasses into a real-time AI assistant.</strong>
 </p>
 
 <p align="center">
-  <strong>Open-source runtime for voice-and-vision AI assistants connected to the real world.</strong>
+  Your AI sees what you see. Talks back instantly. Remembers everything.<br/>
+  Open-source iOS app + backend runtime for agents that live in the real world — not just in chat.
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
-  <a href="#quickstart"><img src="https://img.shields.io/badge/CLI-installer-3775A9" alt="PortWorld CLI installer" /></a>
+  <a href="https://pypi.org/project/portworld/"><img src="https://img.shields.io/pypi/v/portworld?color=3775A9&label=CLI" alt="PyPI" /></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+" />
   <img src="https://img.shields.io/badge/iOS-17%2B-black" alt="iOS 17+" />
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey" alt="Platform" />
+  <a href="https://github.com/portworld/PortWorld/stargazers"><img src="https://img.shields.io/github/stars/portworld/PortWorld?style=social" alt="GitHub Stars" /></a>
 </p>
-
----
-
-## What if AI could see the world the way we do?
-
-**Port:World** is an open source framework that lets anyone connect their Meta glasses to any AI.
-The AI sees exactly what the wearer sees and can respond with voice, reasoning, or actions.
-
-The use cases are infinite: connect your AI agents, customize them, prompt them, link your MCP, connect your OpenClaw…
-
-It connects an iOS app running on Meta glasses to a FastAPI backend that handles video streaming, AI inference, voice responses, and tool execution. You define the prompts and domain logic. Port:World handles the streaming, model routing, and real-time communication.
-
-Built during the Mistral Worldwide Hackathon 2026 by **Pierre Haas, Vassili de Rosen, Arman Artola.**
 
 <p align="center">
-  🏆 <strong>We finished top 10 out of 600 teams worldwide + won the Giant Venture prize "futur unicorn prize".</strong> 🏆
+  <sub>Top 10 at the Mistral Worldwide Hackathon 2026 · Winner of Giant Ventures' "Future Unicorn" prize</sub>
 </p>
 
----
+<br/>
 
-## Architecture
+<p align="center">
+  <strong>Look at something → ask a question → get an answer instantly</strong><br/>
+  <strong>Walk through the world → your AI remembers what mattered</strong><br/>
+  <strong>Talk naturally → no screen, no typing, no app switching</strong>
+</p>
 
-```mermaid
-graph LR
-  iOS["iOS App"] -->|"WebSocket audio"| Backend["FastAPI Backend"]
-  iOS -->|"Vision frames"| Backend
-  CLI["portworld CLI"] -->|"init / deploy / doctor"| Backend
-  Backend -->|"Realtime relay"| Providers["AI Providers"]
-  Backend -->|"Persistent memory"| Storage["Local / Cloud Storage"]
+<br/>
+
+**Get started in minutes**
+
+```bash
+pip install portworld
 ```
 
-| Surface | Description |
-|---------|-------------|
-| **[backend/](backend/)** | FastAPI server — realtime voice relay, memory, vision processing, tooling |
-| **[portworld_cli/](portworld_cli/)** | CLI — bootstrap, validate, deploy, and operate PortWorld |
-| **[portworld_shared/](portworld_shared/)** | Shared Python contracts between CLI and backend |
-| **[IOS/](IOS/)** | SwiftUI iOS app — connects Meta smart glasses to your backend |
+<br/>
 
-## Features
+## Demo
 
-- **Realtime voice relay** — bridges WebSocket audio sessions to OpenAI Realtime or Gemini Live
-- **Persistent memory** — per-session and cross-session markdown memory with configurable retention
-- **Visual memory** — ingests camera frames from Meta glasses, runs adaptive scene-change gating, and builds semantic memory via pluggable vision providers
-- **Durable-memory consolidation** — rewrites long-term user memory at session close
-- **Realtime tooling** — memory recall and web search tools injected into the active AI session
-- **Multi-provider support** — 8 vision providers, 2 realtime providers, web search via Tavily
-- **Cloud deployment** — one-command deploy to GCP Cloud Run, AWS ECS/Fargate, or Azure Container Apps
-- **Meta smart glasses** — full DAT integration for audio I/O and vision capture through Ray-Ban Meta glasses
-- **Bearer token auth and rate limiting** — production-ready security defaults
+<!-- Replace with your GIF or video when ready -->
+<!-- <p align="center"><img src="assets/demo.gif" width="720" alt="PortWorld demo" /></p> -->
+<!-- <p align="center"><a href="https://youtu.be/YOUR_VIDEO_ID"><img src="assets/demo-thumbnail.png" width="720" alt="Watch the demo" /></a></p> -->
+
+Imagine walking through a city with an AI that can:
+
+- **Identify** buildings, objects, and landmarks in real time
+- **Answer** follow-up questions by voice
+- **Remember** what you saw earlier in the day
+- **Act** through tools, APIs, and external agents
+
+> *"What is this building?"*
+> *"Where should I eat nearby?"*
+> *"What was the name of that church we passed earlier?"*
+
+<br/>
+
+## What Is Port:World?
+
+Port:World is a **runtime for AI agents in the physical world**.
+
+Instead of building chatbots, you build agents that:
+
+- **See** through a camera
+- **Hear** through a microphone
+- **Speak** back in real time
+- **Remember** across sessions
+- **Act** through tools
+
+This is not an app — it's a platform. You bring the agent logic. Port:World handles streaming, model routing, memory, and the glasses.
+
+<br/>
+
+## Who Is This For?
+
+- **AI engineers** building agent systems that go beyond text
+- **Developers** exploring wearable + AI integration
+- **Builders** who want to ship real-world AI — not another chat wrapper
+
+<br/>
 
 ## Quickstart
 
-### Run PortWorld (without cloning)
+> **Time to first interaction: ~5 minutes**
 
-Install the CLI and bootstrap a local workspace:
+### Option A: Install the CLI (no clone required)
 
 ```bash
-curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/portworld/PortWorld/main/install.sh | bash
+pip install portworld
 portworld init
-```
-
-Verify:
-
-```bash
 portworld doctor --target local
-portworld status
 ```
 
-### Backend contributor
-
-Clone the repo and start the backend with Docker:
+### Option B: Clone and run with Docker
 
 ```bash
-git clone https://github.com/portworld/PortWorld.git
-cd PortWorld
+git clone https://github.com/portworld/PortWorld.git && cd PortWorld
 cp backend/.env.example backend/.env
-# Edit backend/.env — set OPENAI_API_KEY or GEMINI_LIVE_API_KEY
+# Set at least one provider key — see "Minimum config" below
 docker compose up --build
 ```
 
@@ -100,108 +112,233 @@ curl http://127.0.0.1:8080/livez
 # → {"status":"ok","service":"portworld-backend"}
 ```
 
-### iOS contributor
-
-Start the backend (see above), then open the iOS project:
+### Connect the iOS app
 
 ```bash
 open IOS/PortWorld.xcodeproj
 ```
 
-1. Let Xcode resolve Swift Package dependencies.
-2. Build the **PortWorld** scheme.
-3. Configure the backend URL in the app and validate the connection.
+1. Let Xcode resolve Swift Package dependencies
+2. Build the **PortWorld** scheme
+3. Enter your backend URL in Settings and validate the connection
 
-## Minimum Viable Environment
+### Minimum config
 
-You only need **one API key** to get started. Pick a realtime provider:
+You only need **one API key** to start:
 
-| Provider | Set in `backend/.env` |
-|----------|----------------------|
-| OpenAI Realtime | `REALTIME_PROVIDER=openai` and `OPENAI_API_KEY=sk-...` |
-| Gemini Live | `REALTIME_PROVIDER=gemini_live` and `GEMINI_LIVE_API_KEY=...` |
+| Provider | `backend/.env` |
+|---|---|
+| OpenAI Realtime | `REALTIME_PROVIDER=openai` + `OPENAI_API_KEY=sk-...` |
+| Gemini Live | `REALTIME_PROVIDER=gemini_live` + `GEMINI_LIVE_API_KEY=...` |
 
-Everything else (vision, tooling, consolidation) is off by default and can be enabled incrementally. See [backend/README.md](backend/README.md) for the full configuration reference.
+Vision, search, memory consolidation, and tool integrations are all **off by default** — enable them as you need them.
+
+<br/>
+
+## What You Can Build
+
+| Use case | How it works |
+|---|---|
+| **Real-time travel guide** | Walk through a city — the agent identifies landmarks, translates signs, suggests restaurants based on what it sees |
+| **Hands-free field assistant** | Mechanics, surgeons, or technicians get step-by-step guidance while keeping both hands free |
+| **Accessibility companion** | Describe scenes, read text aloud, identify objects and people for visually impaired users |
+| **Personal memory engine** | "What was the name of that restaurant we passed?" — the agent remembers what you saw |
+| **Live coding pair** | Point your glasses at a whiteboard or screen — the agent reads, reasons, and discusses |
+| **Security / inspection** | Walk a site — the agent logs observations, flags anomalies, and generates reports |
+| **Your idea here** | Port:World is a runtime, not a single app. Build whatever you want on top of it. |
+
+<br/>
+
+## How It Works
+
+```
+┌──────────────┐       WebSocket (audio + control)       ┌──────────────────┐
+│              │ ◄──────────────────────────────────────► │                  │
+│  Ray-Ban     │                                          │   FastAPI        │
+│  Meta        │       HTTP (vision frames)               │   Backend        │
+│  Glasses     │ ──────────────────────────────────────►  │                  │
+│              │                                          │   ┌────────────┐ │
+│  ↕ DAT SDK   │                                          │   │ Realtime   │ │
+│              │                                          │   │ Bridge     │─┼──► OpenAI / Gemini
+│  iPhone      │                                          │   ├────────────┤ │
+│  (bridge)    │                                          │   │ Vision     │─┼──► Mistral / Claude / GPT-4o / ...
+│              │                                          │   ├────────────┤ │
+│              │                                          │   │ Memory     │ │
+│              │                                          │   ├────────────┤ │
+│              │                                          │   │ Tools      │─┼──► Web search, MCP, OpenClaw, ...
+│              │                                          │   └────────────┘ │
+└──────────────┘                                          └──────────────────┘
+```
+
+**Glasses** capture audio and camera frames via Meta's DAT SDK.
+**iPhone** bridges glasses I/O to the backend over WebSocket (audio) and HTTP (vision).
+**Backend** routes audio to a realtime AI provider, processes vision frames through pluggable analyzers, manages persistent memory, and executes tools during the conversation.
+
+### Component map
+
+| Surface | What it does |
+|---|---|
+| [`backend/`](backend/) | FastAPI server — realtime voice relay, vision pipeline, memory, tools, auth |
+| [`IOS/`](IOS/) | SwiftUI app — glasses integration (DAT), audio capture, wake word, WebSocket transport |
+| [`portworld_cli/`](portworld_cli/) | Developer CLI — init, doctor, deploy, status, logs, providers, extensions |
+| [`portworld_shared/`](portworld_shared/) | Shared Python contracts between CLI and backend |
+
+<br/>
 
 ## Supported Providers
 
-### Realtime
+### Realtime (voice)
 
-| Provider | ID | Required Key |
-|----------|----|--------------|
+| Provider | ID | Key |
+|---|---|---|
 | OpenAI Realtime | `openai` | `OPENAI_API_KEY` |
 | Gemini Live | `gemini_live` | `GEMINI_LIVE_API_KEY` |
 
 ### Vision (opt-in)
 
-| Provider | ID | Required Key(s) |
-|----------|----|-----------------|
+| Provider | ID | Key(s) |
+|---|---|---|
 | Mistral | `mistral` | `VISION_MISTRAL_API_KEY` |
-| NVIDIA Integrate | `nvidia_integrate` | `VISION_NVIDIA_API_KEY` |
 | OpenAI | `openai` | `VISION_OPENAI_API_KEY` |
-| Azure OpenAI | `azure_openai` | `VISION_AZURE_OPENAI_API_KEY` + `VISION_AZURE_OPENAI_ENDPOINT` |
 | Gemini | `gemini` | `VISION_GEMINI_API_KEY` |
 | Claude | `claude` | `VISION_CLAUDE_API_KEY` |
-| AWS Bedrock | `bedrock` | `VISION_BEDROCK_REGION` (+ optional IAM credentials) |
 | Groq | `groq` | `VISION_GROQ_API_KEY` |
+| NVIDIA | `nvidia_integrate` | `VISION_NVIDIA_API_KEY` |
+| Azure OpenAI | `azure_openai` | `VISION_AZURE_OPENAI_API_KEY` + endpoint |
+| AWS Bedrock | `bedrock` | `VISION_BEDROCK_REGION` (+ IAM) |
 
-### Search (opt-in)
+### Search & tools (opt-in)
 
-| Provider | ID | Required Key |
-|----------|----|--------------|
+| Provider | ID | Key |
+|---|---|---|
 | Tavily | `tavily` | `TAVILY_API_KEY` |
 
-Use `portworld providers list` and `portworld providers show <id>` to inspect providers from the CLI.
+```bash
+portworld providers list          # see all available providers
+portworld providers show <id>     # inspect a specific provider
+```
 
-## Cloud Deployment
+<br/>
 
-Deploy to managed cloud targets with the CLI:
+## Extending Port:World
+
+Port:World is designed to be extended. Here's how developers plug into the system:
+
+### Add a tool
+
+Tools are async functions the AI can call mid-conversation. Register a definition + executor in the tool catalog:
+
+```python
+registry.register(
+    ToolDefinition(
+        name="my_tool",
+        description="Does something useful",
+        parameters={"type": "object", "properties": { ... }},
+    ),
+    executor=my_tool_executor,
+)
+```
+
+### Add a vision provider
+
+Implement a vision analyzer and register it in the vision factory. Your analyzer receives camera frames and returns semantic descriptions that feed into the agent's memory.
+
+### Add a realtime provider
+
+Implement the realtime bridge interface and register it in the provider registry. The bridge handles upstream audio streaming and tool dispatch for any new model API.
+
+### Connect MCP servers
+
+The backend supports Model Context Protocol (MCP) extensions. Drop a server config into the extensions system and expose new capabilities to the agent without touching core code.
+
+### Delegate to external agents
+
+Use the OpenClaw delegation layer to offload long-running or tool-heavy tasks to external agent runtimes, while Port:World stays the live conversational orchestrator.
+
+See [backend/README.md](backend/README.md) for the full API and extension reference.
+
+<br/>
+
+## Deploy
+
+### Local (Docker Compose)
 
 ```bash
-portworld deploy gcp-cloud-run   --project <project> --region <region>
-portworld deploy aws-ecs-fargate --region <region>
+docker compose up --build
+```
+
+### Cloud (one command)
+
+```bash
+portworld deploy gcp-cloud-run       --project <id> --region <region>
+portworld deploy aws-ecs-fargate     --region <region>
 portworld deploy azure-container-apps --subscription <sub> --resource-group <rg> --region <region>
 ```
 
-See the [CLI README](portworld_cli/README.md) for readiness checks, log streaming, and redeployment.
+See [portworld_cli/README.md](portworld_cli/README.md) for readiness checks, log streaming, and redeployment.
+
+<br/>
+
+## Roadmap
+
+Port:World is evolving from a hackathon winner into a full wearable AI platform:
+
+- **Agentic delegation** — OpenClaw integration for heavy multi-step tasks
+- **Richer memory** — identity, routines, social graph, preferences, with confidence tracking
+- **Passive context** — ambient scene understanding even outside active conversations
+- **Proactive assistance** — timely suggestions earned through context quality and user trust
+- **Siri / App Shortcuts** — launch a session with your voice, no app interaction needed
+- **Android support** — bring the same glasses-first experience to Android
+- **Multi-agent coordination** — orchestrate multiple specialized agents in parallel
+
+Full roadmap: [docs/roadmap/AGENTIC_PERSONAL_ASSISTANT_ROADMAP.md](docs/roadmap/AGENTIC_PERSONAL_ASSISTANT_ROADMAP.md)
+
+<br/>
+
+## Project Status
+
+Port:World is in its first stable release phase. Core surfaces are release-ready.
+
+- **Stable:** backend self-hosting, CLI bootstrap/deploy, iOS app with Meta glasses
+- **Shipping:** first public PyPI + GHCR releases with `v0.2.x`
+- **Hardening:** managed cloud defaults, operator docs, production security posture
+
+### Known limitations
+
+- Provider API keys required — no keyless demo mode
+- AWS/Azure one-click deploys use public DB access by default (tighten before production)
+- Full glasses features require Meta hardware + Meta AI app
+- Xcode test schemes are not yet maintained
+
+<br/>
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [backend/README.md](backend/README.md) | Backend runtime, API reference, configuration, storage |
-| [portworld_cli/README.md](portworld_cli/README.md) | CLI installation, commands, deploy workflows |
-| [IOS/README.md](IOS/README.md) | iOS app setup, Meta DAT, permissions, architecture |
-| [GETTING_STARTED.md](GETTING_STARTED.md) | Extended onboarding guide with all setup paths |
+| Doc | What's inside |
+|---|---|
+| [backend/README.md](backend/README.md) | Backend API, config reference, storage, auth |
+| [portworld_cli/README.md](portworld_cli/README.md) | CLI install, commands, deploy workflows |
+| [IOS/README.md](IOS/README.md) | iOS setup, Meta DAT, permissions, architecture |
+| [GETTING_STARTED.md](GETTING_STARTED.md) | Extended onboarding for all setup paths |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
-| [docs/operations/CLI_RELEASE_PROCESS.md](docs/operations/CLI_RELEASE_PROCESS.md) | CLI release and versioning process |
 
-## Status
-
-PortWorld is in its first stable release cutover. The core product surfaces are release-ready, while managed deploy hardening and operator-facing documentation continue to improve.
-
-**Stable-targeted:** backend self-hosting, CLI bootstrap and deploy workflows, and the iOS app with Meta glasses integration.
-
-**Release rollout:** the first public PyPI publication and GitHub release packaging land with the `v0.2.0` release cut.
-
-**Hardening:** managed cloud deploy defaults, public-facing operator documentation, production security posture for one-click deploys.
-
-### Known Limitations
-
-- Provider API keys are required for runtime use — there is no keyless demo mode.
-- AWS and Azure one-click deploys provision databases with public access by default. Review and tighten before production use.
-- Full iOS runtime validation requires a reachable backend and, for glasses features, supported Meta hardware with the Meta AI app.
-- The shared Xcode schemes do not currently include a maintained test action.
+<br/>
 
 ## Contributing
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR.
 
-- Bug reports and feature requests: [open an issue](https://github.com/portworld/PortWorld/issues)
-- Security vulnerabilities: see [SECURITY.md](SECURITY.md)
-- Community expectations: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- **Bug reports & features:** [open an issue](https://github.com/portworld/PortWorld/issues)
+- **Security:** [SECURITY.md](SECURITY.md)
+- **Code of conduct:** [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
-Do not post secrets, tokens, private URLs, or unredacted production logs in public issues.
+<br/>
+
+## Origin
+
+Built during the **Mistral Worldwide Hackathon 2026** by [Pierre Haas](https://github.com/pierrehaas), Vassili de Rosen, and Arman Artola.
+
+<br/>
 
 ## License
 
