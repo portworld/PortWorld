@@ -2,10 +2,13 @@
 import SwiftUI
 
 struct MainAppView: View {
+  @Environment(\.scenePhase) private var scenePhase
   @StateObject private var appSettingsStore = AppSettingsStore()
   @StateObject private var onboardingStore = OnboardingStore()
   @ObservedObject private var wearablesRuntimeManager: WearablesRuntimeManager
   @State private var route: AppRoute = .splash
+  @State private var pendingLaunchCommand: AppLaunchCommand?
+  @State private var launchCommandAlert: LaunchCommandAlert?
 
   init(wearablesRuntimeManager: WearablesRuntimeManager) {
     self.wearablesRuntimeManager = wearablesRuntimeManager
@@ -69,6 +72,7 @@ struct MainAppView: View {
           appSettingsStore: appSettingsStore,
           wearablesRuntimeManager: wearablesRuntimeManager,
           shouldShowProfileSetupCallToAction: onboardingStore.shouldOfferProfileSetup,
+          pendingLaunchCommand: $pendingLaunchCommand,
           onOpenMetaSetup: { route = .metaConnection },
           onOpenProfileSetup: { route = .profileInterview }
         )
@@ -80,17 +84,36 @@ struct MainAppView: View {
       }
     }
     .animation(.easeOut(duration: 0.24), value: route)
-    .onAppear { refreshRoute() }
+    .onAppear {
+      refreshRoute()
+      consumePendingLaunchCommandIfNeeded()
+    }
     .onChange(of: wearablesRuntimeManager.configurationState) { _, newValue in
       refreshRoute(configurationState: newValue)
     }
     .onChange(of: onboardingStore.progress) { _, _ in
       refreshRoute()
     }
+    .onChange(of: scenePhase) { _, newValue in
+      guard newValue == .active else { return }
+      consumePendingLaunchCommandIfNeeded()
+    }
+    .alert(item: $launchCommandAlert) { alert in
+      Alert(
+        title: Text("Session Start Blocked"),
+        message: Text(alert.message),
+        dismissButton: .default(Text("OK"))
+      )
+    }
   }
 }
 
 private extension MainAppView {
+  struct LaunchCommandAlert: Identifiable {
+    let id = UUID()
+    let message: String
+  }
+
   func advanceOnboarding(_ mutation: () -> Void) {
     mutation()
     refreshRoute(preservingInProgressStep: false)
@@ -114,6 +137,25 @@ private extension MainAppView {
       currentRoute: route,
       preservingInProgressStep: preservingInProgressStep
     )
+  }
+
+  func consumePendingLaunchCommandIfNeeded() {
+    guard let command = AppLaunchCommandStore.consumePendingCommand() else { return }
+    handleLaunchCommand(command)
+  }
+
+  func handleLaunchCommand(_ command: AppLaunchCommand) {
+    switch command {
+    case .startSession:
+      guard onboardingStore.hasCompletedInitialOnboarding else {
+        launchCommandAlert = LaunchCommandAlert(message: AppLaunchCommandStore.onboardingBlockedMessage())
+        refreshRoute(preservingInProgressStep: false)
+        return
+      }
+
+      pendingLaunchCommand = .startSession
+      refreshRoute(preservingInProgressStep: false)
+    }
   }
 }
 

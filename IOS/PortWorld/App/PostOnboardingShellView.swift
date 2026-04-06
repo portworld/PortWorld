@@ -17,23 +17,27 @@ struct PostOnboardingShellView: View {
   @ObservedObject private var appSettingsStore: AppSettingsStore
   @ObservedObject private var wearablesRuntimeManager: WearablesRuntimeManager
   let shouldShowProfileSetupCallToAction: Bool
+  @Binding private var pendingLaunchCommand: AppLaunchCommand?
   let onOpenMetaSetup: () -> Void
   let onOpenProfileSetup: () -> Void
 
   @StateObject private var viewModel: AssistantRuntimeViewModel
   @State private var selectedTab: AppTab = .home
   @State private var settingsScrollTarget: SettingsScrollTarget?
+  @State private var launchCommandAlert: LaunchCommandAlert?
 
   init(
     appSettingsStore: AppSettingsStore,
     wearablesRuntimeManager: WearablesRuntimeManager,
     shouldShowProfileSetupCallToAction: Bool,
+    pendingLaunchCommand: Binding<AppLaunchCommand?>,
     onOpenMetaSetup: @escaping () -> Void,
     onOpenProfileSetup: @escaping () -> Void
   ) {
     self.appSettingsStore = appSettingsStore
     self.wearablesRuntimeManager = wearablesRuntimeManager
     self.shouldShowProfileSetupCallToAction = shouldShowProfileSetupCallToAction
+    _pendingLaunchCommand = pendingLaunchCommand
     self.onOpenMetaSetup = onOpenMetaSetup
     self.onOpenProfileSetup = onOpenProfileSetup
 
@@ -101,13 +105,34 @@ struct PostOnboardingShellView: View {
     .tint(PWColor.textPrimary)
     .toolbarBackground(PWColor.background, for: .tabBar)
     .toolbarBackground(.visible, for: .tabBar)
+    .onAppear {
+      handlePendingLaunchCommandIfNeeded()
+    }
     .onChange(of: scenePhase) { _, newValue in
       viewModel.handleScenePhaseChange(newValue)
+      if newValue == .active {
+        handlePendingLaunchCommandIfNeeded()
+      }
+    }
+    .onChange(of: pendingLaunchCommand) { _, _ in
+      handlePendingLaunchCommandIfNeeded()
+    }
+    .alert(item: $launchCommandAlert) { alert in
+      Alert(
+        title: Text("Session Start Blocked"),
+        message: Text(alert.message),
+        dismissButton: .default(Text("OK"))
+      )
     }
   }
 }
 
 private extension PostOnboardingShellView {
+  struct LaunchCommandAlert: Identifiable {
+    let id = UUID()
+    let message: String
+  }
+
   var readiness: HomeReadinessState {
     HomeReadinessState(
       settings: appSettingsStore.settings,
@@ -152,5 +177,30 @@ private extension PostOnboardingShellView {
 
   func disconnectGlasses() {
     wearablesRuntimeManager.disconnectGlasses()
+  }
+
+  func handlePendingLaunchCommandIfNeeded() {
+    guard pendingLaunchCommand == .startSession else { return }
+    pendingLaunchCommand = nil
+    selectedTab = .agent
+
+    guard readiness.canActivateAssistant else {
+      launchCommandAlert = LaunchCommandAlert(message: launchCommandBlockedMessage())
+      return
+    }
+
+    activateAssistant()
+  }
+
+  func launchCommandBlockedMessage() -> String {
+    if readiness.backendStatus.action == .openBackendSettings {
+      return "Siri opened PortWorld, but the assistant could not start because backend setup is not ready. \(readiness.backendStatus.detail)"
+    }
+
+    if readiness.glassesStatus.action == .openGlassesSettings || readiness.canActivateAssistant == false {
+      return "Siri opened PortWorld, but the assistant could not start because glasses are not ready. \(readiness.glassesStatus.detail)"
+    }
+
+    return "Siri opened PortWorld, but the assistant is not ready yet."
   }
 }
