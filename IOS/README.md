@@ -49,6 +49,18 @@ In the app's onboarding flow:
 2. The app validates the connection by calling `/livez` and `/readyz`.
 3. If using bearer auth, enter the token — it is stored securely in Keychain.
 
+## Siri Shortcuts
+
+The app includes a Siri shortcut that opens PortWorld and tries to start the assistant session immediately.
+
+Available phrases:
+
+- `Start PortWorld session`
+- `Start assistant in PortWorld`
+- `Launch PortWorld assistant session`
+
+If onboarding is not complete, backend setup is not ready, or glasses readiness is blocked, Siri still opens the app and PortWorld shows a blocked-state message instead of starting the session.
+
 ## App Flow
 
 ```mermaid

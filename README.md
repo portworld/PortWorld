@@ -122,6 +122,18 @@ open IOS/PortWorld.xcodeproj
 2. Build the **PortWorld** scheme
 3. Enter your backend URL in Settings and validate the connection
 
+### Siri shortcuts on iOS
+
+The iOS app exposes a Siri shortcut that opens PortWorld and attempts to start an assistant session.
+
+Available phrases:
+
+- `Start PortWorld session`
+- `Start assistant in PortWorld`
+- `Launch PortWorld assistant session`
+
+If onboarding is incomplete or backend or glasses readiness is blocked, Siri still opens the app but the session will not start until those requirements are met.
+
 ### Minimum config
 
 You only need **one API key** to start:
