@@ -49,3 +49,4 @@ That is optional; the canonical source for PortWorld remains this monorepo unles
 | Directory | Purpose |
 |-----------|---------|
 | [`portworld-cli-autopilot/`](portworld-cli-autopilot/) | Bootstrap and operate the `portworld` CLI (doctor, deploy, logs, config) |
+| [`openclaw-gateway-bridge/`](openclaw-gateway-bridge/) | Configure secure provider-agnostic remote OpenClaw gateway connectivity for PortWorld |

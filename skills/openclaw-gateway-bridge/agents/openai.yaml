@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenClaw Gateway Bridge"
+  short_description: "Set up secure remote OpenClaw connectivity for PortWorld"
+  default_prompt: "Use $openclaw-gateway-bridge to configure secure, provider-agnostic OpenClaw connectivity for PortWorld end-to-end."
