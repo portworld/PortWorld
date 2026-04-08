@@ -15,8 +15,6 @@ _BACKEND_ENV_PATH = _BACKEND_ROOT / ".env"
 
 
 DEFAULT_INSTRUCTIONS = "You are a concise assistant. Keep answers short, clear, and practical."
-STORAGE_BACKEND_MANAGED = "managed"
-SUPPORTED_STORAGE_BACKENDS = {"local", STORAGE_BACKEND_MANAGED}
 SUPPORTED_OBJECT_STORE_PROVIDERS = {"filesystem", "gcs", "s3", "azure_blob"}
 DEFAULT_VISION_MODELS_BY_PROVIDER: dict[str, str] = {
     "mistral": "ministral-3b-2512",
@@ -240,7 +238,6 @@ class Settings:
     backend_uplink_ack_every_n_frames: int
     backend_data_dir: Path
     backend_sqlite_path: Path
-    backend_storage_backend: str
     backend_database_url: str | None
     backend_object_store_provider: str
     backend_object_store_name: str | None
@@ -313,6 +310,10 @@ class Settings:
     def is_production_profile(self) -> bool:
         return self.backend_profile in {"prod", "production"}
 
+    @property
+    def backend_storage_backend(self) -> str:
+        return "local" if self.backend_object_store_provider == "filesystem" else "managed"
+
     def validate_production_posture(self) -> None:
         if not self.is_production_profile:
             return
@@ -322,13 +323,6 @@ class Settings:
             )
 
     def validate_storage_contract(self) -> None:
-        if self.backend_storage_backend not in SUPPORTED_STORAGE_BACKENDS:
-            supported = ", ".join(sorted(SUPPORTED_STORAGE_BACKENDS))
-            raise RuntimeError(
-                "BACKEND_STORAGE_BACKEND must be one of "
-                f"{supported}. Got {self.backend_storage_backend!r}."
-            )
-
         if self.backend_object_store_provider not in SUPPORTED_OBJECT_STORE_PROVIDERS:
             supported = ", ".join(sorted(SUPPORTED_OBJECT_STORE_PROVIDERS))
             raise RuntimeError(
@@ -336,38 +330,38 @@ class Settings:
                 f"{supported}. Got {self.backend_object_store_provider!r}."
             )
 
-        if self.backend_storage_backend == "local":
-            if self.backend_object_store_provider != "filesystem":
+        if self.backend_object_store_provider == "filesystem":
+            if self.backend_object_store_name is not None:
                 raise RuntimeError(
-                    "BACKEND_OBJECT_STORE_PROVIDER must be 'filesystem' when "
-                    "BACKEND_STORAGE_BACKEND=local."
+                    "BACKEND_OBJECT_STORE_NAME must be unset when "
+                    "BACKEND_OBJECT_STORE_PROVIDER=filesystem."
+                )
+            if self.backend_object_store_endpoint is not None:
+                raise RuntimeError(
+                    "BACKEND_OBJECT_STORE_ENDPOINT must be unset when "
+                    "BACKEND_OBJECT_STORE_PROVIDER=filesystem."
+                )
+            if self.backend_object_store_prefix is not None:
+                raise RuntimeError(
+                    "BACKEND_OBJECT_STORE_PREFIX must be unset when "
+                    "BACKEND_OBJECT_STORE_PROVIDER=filesystem."
                 )
             return
 
-        if self.backend_database_url is None:
+        if self.backend_object_store_name is None:
             raise RuntimeError(
-                "BACKEND_DATABASE_URL must be set when "
-                "BACKEND_STORAGE_BACKEND=managed."
-            )
-        if self.backend_object_store_provider == "filesystem":
-            raise RuntimeError(
-                "BACKEND_OBJECT_STORE_PROVIDER cannot be 'filesystem' when "
-                "BACKEND_STORAGE_BACKEND=managed."
+                "BACKEND_OBJECT_STORE_NAME must be set when "
+                "BACKEND_OBJECT_STORE_PROVIDER is a cloud object store."
             )
         if self.backend_object_store_provider == "azure_blob" and self.backend_object_store_endpoint is None:
             raise RuntimeError(
                 "BACKEND_OBJECT_STORE_ENDPOINT must be set when "
                 "BACKEND_OBJECT_STORE_PROVIDER=azure_blob."
             )
-        if self.backend_object_store_name is None:
-            raise RuntimeError(
-                "BACKEND_OBJECT_STORE_NAME must be set when "
-                "BACKEND_STORAGE_BACKEND=managed."
-            )
         if self.backend_object_store_prefix is None:
             raise RuntimeError(
                 "BACKEND_OBJECT_STORE_PREFIX must be set when "
-                "BACKEND_STORAGE_BACKEND=managed."
+                "BACKEND_OBJECT_STORE_PROVIDER is a cloud object store."
             )
 
     def require_openai_api_key(self) -> str:
@@ -679,7 +673,6 @@ def _load_storage_settings() -> dict[str, str | int | bool | Path]:
     backend_sqlite_path = Path(
         _get_env("BACKEND_SQLITE_PATH") or str(backend_data_dir / "portworld.db")
     )
-    backend_storage_backend = (_get_env("BACKEND_STORAGE_BACKEND") or "local").strip().lower()
     backend_database_url = (_get_env("BACKEND_DATABASE_URL") or "").strip() or None
     backend_object_store_provider = (
         _get_env("BACKEND_OBJECT_STORE_PROVIDER") or "filesystem"
@@ -690,7 +683,6 @@ def _load_storage_settings() -> dict[str, str | int | bool | Path]:
     return {
         "backend_data_dir": backend_data_dir,
         "backend_sqlite_path": backend_sqlite_path,
-        "backend_storage_backend": backend_storage_backend,
         "backend_database_url": backend_database_url,
         "backend_object_store_provider": backend_object_store_provider,
         "backend_object_store_name": backend_object_store_name,

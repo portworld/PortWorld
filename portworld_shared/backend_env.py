@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from typing import Mapping
 
 
-STORAGE_BACKEND_MANAGED = "managed"
-SUPPORTED_STORAGE_BACKENDS = {"local", STORAGE_BACKEND_MANAGED}
 SUPPORTED_OBJECT_STORE_PROVIDERS = {"filesystem", "gcs", "s3", "azure_blob"}
 
 
@@ -13,8 +11,6 @@ SUPPORTED_OBJECT_STORE_PROVIDERS = {"filesystem", "gcs", "s3", "azure_blob"}
 class BackendEnvContract:
     backend_profile: str
     backend_bearer_token: str | None
-    backend_storage_backend: str
-    backend_database_url: str | None
     backend_object_store_provider: str
     backend_object_store_name: str | None
     backend_object_store_endpoint: str | None
@@ -24,13 +20,15 @@ class BackendEnvContract:
     def is_production_profile(self) -> bool:
         return self.backend_profile in {"prod", "production"}
 
+    @property
+    def backend_storage_backend(self) -> str:
+        return "local" if self.backend_object_store_provider == "filesystem" else "managed"
+
 
 def build_backend_env_contract(values: Mapping[str, object]) -> BackendEnvContract:
     return BackendEnvContract(
         backend_profile=_normalize_text(values.get("BACKEND_PROFILE")) or "development",
         backend_bearer_token=_normalize_text(values.get("BACKEND_BEARER_TOKEN")),
-        backend_storage_backend=_normalize_text(values.get("BACKEND_STORAGE_BACKEND")) or "local",
-        backend_database_url=_normalize_text(values.get("BACKEND_DATABASE_URL")),
         backend_object_store_provider=(
             _normalize_text(values.get("BACKEND_OBJECT_STORE_PROVIDER")) or "filesystem"
         ),
@@ -50,13 +48,6 @@ def validate_production_posture(contract: BackendEnvContract) -> None:
 
 
 def validate_storage_contract(contract: BackendEnvContract) -> None:
-    if contract.backend_storage_backend not in SUPPORTED_STORAGE_BACKENDS:
-        supported = ", ".join(sorted(SUPPORTED_STORAGE_BACKENDS))
-        raise RuntimeError(
-            "BACKEND_STORAGE_BACKEND must be one of "
-            f"{supported}. Got {contract.backend_storage_backend!r}."
-        )
-
     if contract.backend_object_store_provider not in SUPPORTED_OBJECT_STORE_PROVIDERS:
         supported = ", ".join(sorted(SUPPORTED_OBJECT_STORE_PROVIDERS))
         raise RuntimeError(
@@ -64,22 +55,28 @@ def validate_storage_contract(contract: BackendEnvContract) -> None:
             f"{supported}. Got {contract.backend_object_store_provider!r}."
         )
 
-    if contract.backend_storage_backend == "local":
-        if contract.backend_object_store_provider != "filesystem":
+    if contract.backend_object_store_provider == "filesystem":
+        if contract.backend_object_store_name is not None:
             raise RuntimeError(
-                "BACKEND_OBJECT_STORE_PROVIDER must be 'filesystem' when "
-                "BACKEND_STORAGE_BACKEND=local."
+                "BACKEND_OBJECT_STORE_NAME must be unset when "
+                "BACKEND_OBJECT_STORE_PROVIDER=filesystem."
+            )
+        if contract.backend_object_store_endpoint is not None:
+            raise RuntimeError(
+                "BACKEND_OBJECT_STORE_ENDPOINT must be unset when "
+                "BACKEND_OBJECT_STORE_PROVIDER=filesystem."
+            )
+        if contract.backend_object_store_prefix is not None:
+            raise RuntimeError(
+                "BACKEND_OBJECT_STORE_PREFIX must be unset when "
+                "BACKEND_OBJECT_STORE_PROVIDER=filesystem."
             )
         return
 
-    if contract.backend_database_url is None:
+    if contract.backend_object_store_name is None:
         raise RuntimeError(
-            "BACKEND_DATABASE_URL must be set when BACKEND_STORAGE_BACKEND=managed."
-        )
-    if contract.backend_object_store_provider == "filesystem":
-        raise RuntimeError(
-            "BACKEND_OBJECT_STORE_PROVIDER cannot be 'filesystem' when "
-            "BACKEND_STORAGE_BACKEND=managed."
+            "BACKEND_OBJECT_STORE_NAME must be set when "
+            "BACKEND_OBJECT_STORE_PROVIDER is a cloud object store."
         )
     if (
         contract.backend_object_store_provider == "azure_blob"
@@ -89,13 +86,10 @@ def validate_storage_contract(contract: BackendEnvContract) -> None:
             "BACKEND_OBJECT_STORE_ENDPOINT must be set when "
             "BACKEND_OBJECT_STORE_PROVIDER=azure_blob."
         )
-    if contract.backend_object_store_name is None:
-        raise RuntimeError(
-            "BACKEND_OBJECT_STORE_NAME must be set when BACKEND_STORAGE_BACKEND=managed."
-        )
     if contract.backend_object_store_prefix is None:
         raise RuntimeError(
-            "BACKEND_OBJECT_STORE_PREFIX must be set when BACKEND_STORAGE_BACKEND=managed."
+            "BACKEND_OBJECT_STORE_PREFIX must be set when "
+            "BACKEND_OBJECT_STORE_PROVIDER is a cloud object store."
         )
 
 
