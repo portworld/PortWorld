@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.core.storage import now_ms
-from backend.memory.indexing_v2 import live_usefulness_score, sort_memory_items_for_live_use
+from backend.memory.indexing_v2 import live_usefulness_score, sort_memory_items_for_live_use, tokenize_retrieval_text
+from backend.memory.retrieval_policy_v2 import RetrievalPolicyV2, build_default_retrieval_policy
 from backend.memory.repository_v2 import MemoryRepositoryV2
 from backend.memory.types_v2 import MaintenanceState, MemoryEvidence, MemoryItem, RetrievalIndexState
 
@@ -18,8 +19,12 @@ def _truncate(text: str, *, max_chars: int) -> str:
 @dataclass(frozen=True, slots=True)
 class LiveMemoryBundleRequest:
     session_id: str | None
-    limit: int = 8
-    evidence_limit_per_item: int = 3
+    query_text: str | None = None
+    intention_text: str | None = None
+    memory_classes: tuple[str, ...] = ()
+    statuses: tuple[str, ...] = ()
+    limit: int | None = None
+    evidence_limit_per_item: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +74,8 @@ class LiveMemoryBundleEntry:
 @dataclass(frozen=True, slots=True)
 class LiveMemoryBundle:
     session_id: str | None
+    query_text: str | None
+    intention_text: str | None
     generated_at_ms: int
     entries: tuple[LiveMemoryBundleEntry, ...]
     retrieval_index_state: RetrievalIndexState
@@ -77,6 +84,8 @@ class LiveMemoryBundle:
     def to_dict(self) -> dict[str, object]:
         return {
             "session_id": self.session_id,
+            "query_text": self.query_text,
+            "intention_text": self.intention_text,
             "generated_at_ms": self.generated_at_ms,
             "count": len(self.entries),
             "items": [entry.to_dict() for entry in self.entries],
@@ -96,13 +105,24 @@ class LiveMemoryBundle:
 
 
 class MemoryRetrievalServiceV2:
-    def __init__(self, *, repository: MemoryRepositoryV2) -> None:
+    def __init__(
+        self,
+        *,
+        repository: MemoryRepositoryV2,
+        policy: RetrievalPolicyV2 | None = None,
+    ) -> None:
         self.repository = repository
+        self.policy = policy or build_default_retrieval_policy()
 
     def build_live_bundle(self, *, request: LiveMemoryBundleRequest) -> LiveMemoryBundle:
-        limit = max(0, request.limit)
-        evidence_limit = max(0, request.evidence_limit_per_item)
+        limit = self.policy.clamp_limit(request.limit)
+        evidence_limit = self.policy.clamp_evidence_limit(request.evidence_limit_per_item)
         generated_at_ms = now_ms()
+        merged_query = self._merge_query_text(request=request)
+        query_tokens = self.policy.normalize_query_tokens(merged_query)
+        query_tags = self.policy.normalize_query_tags(merged_query)
+        class_hints = self._extract_class_hints(query_tokens=query_tokens, explicit=request.memory_classes)
+        status_filter = self._normalize_status_filter(explicit=request.statuses)
 
         retrieval_state = self.repository.read_retrieval_index_state()
         maintenance_state = self.repository.read_maintenance_state()
@@ -118,6 +138,8 @@ class MemoryRetrievalServiceV2:
             item
             for item in self.repository.list_items()
             if item.status not in {"suppressed", "deleted", "archived"}
+            and (not status_filter or item.status in status_filter)
+            and (not class_hints or item.memory_class in class_hints)
         ]
         sorted_items = sort_memory_items_for_live_use(eligible_items)
 
@@ -126,10 +148,27 @@ class MemoryRetrievalServiceV2:
             base_score = float(indexed_scores.get(item.item_id, {}).get("index_score", 0.0))
             fallback_score = live_usefulness_score(item, reference_time_ms=generated_at_ms)
             effective_base = base_score if base_score > 0.0 else fallback_score
-            session_affinity_bonus = 0.12 if request.session_id and item.session_id == request.session_id else 0.0
+            session_affinity_bonus = (
+                self.policy.session_affinity_bonus
+                if request.session_id and item.session_id == request.session_id
+                else 0.0
+            )
             recency_bonus = self._compute_recency_bonus(item=item, reference_time_ms=generated_at_ms)
-            conflict_penalty = 0.18 if item.status == "conflicted" else 0.0
-            final_score = effective_base + session_affinity_bonus + recency_bonus - conflict_penalty
+            query_bonus, query_details = self._compute_query_bonus(
+                item=item,
+                query_tokens=query_tokens,
+                query_tags=query_tags,
+                class_hints=class_hints,
+            )
+            conflict_penalty = self.policy.conflict_penalty if item.status == "conflicted" else 0.0
+            final_score = effective_base + session_affinity_bonus + recency_bonus + query_bonus - conflict_penalty
+            inclusion_reasons = self._build_inclusion_reasons(
+                item=item,
+                request_session_id=request.session_id,
+                query_details=query_details,
+                recency_bonus=recency_bonus,
+                index_reasons=indexed_scores.get(item.item_id, {}).get("index_reasons", []),
+            )
             scored_entries.append(
                 (
                     final_score,
@@ -140,8 +179,22 @@ class MemoryRetrievalServiceV2:
                         "fallback_score": round(fallback_score, 6),
                         "session_affinity_bonus": round(session_affinity_bonus, 6),
                         "recency_bonus": round(recency_bonus, 6),
+                        "query_bonus": round(query_bonus, 6),
                         "conflict_penalty": round(conflict_penalty, 6),
                         "index_reasons": list(indexed_scores.get(item.item_id, {}).get("index_reasons", [])),
+                        "inclusion_reasons": inclusion_reasons,
+                        "query": {
+                            "tokens": list(query_tokens),
+                            "tags": list(query_tags),
+                            "class_hints": sorted(class_hints),
+                            "matched_summary_tokens": sorted(query_details.get("matched_summary_tokens", ())),
+                            "matched_tags": sorted(query_details.get("matched_tags", ())),
+                            "class_match": bool(query_details.get("class_match")),
+                        },
+                        "flags": {
+                            "is_conflicted": item.status == "conflicted",
+                            "has_query_match": bool(query_details.get("has_query_match")),
+                        },
                         "confidence": item.confidence,
                         "relevance": item.relevance,
                         "maturity": item.maturity,
@@ -169,23 +222,148 @@ class MemoryRetrievalServiceV2:
 
         return LiveMemoryBundle(
             session_id=request.session_id,
+            query_text=request.query_text,
+            intention_text=request.intention_text,
             generated_at_ms=generated_at_ms,
             entries=tuple(entries),
             retrieval_index_state=retrieval_state,
             maintenance_state=maintenance_state,
         )
 
-    @staticmethod
-    def _compute_recency_bonus(*, item: MemoryItem, reference_time_ms: int) -> float:
+    def _compute_recency_bonus(self, *, item: MemoryItem, reference_time_ms: int) -> float:
         if item.last_seen_at_ms is None:
             return 0.0
         age_ms = max(0, reference_time_ms - item.last_seen_at_ms)
         one_day_ms = 24 * 60 * 60 * 1000
         if age_ms <= one_day_ms:
-            return 0.08
+            return self.policy.recency_bonus_fresh
         if age_ms <= (3 * one_day_ms):
-            return 0.04
+            return self.policy.recency_bonus_recent
         return 0.0
+
+    @staticmethod
+    def _merge_query_text(*, request: LiveMemoryBundleRequest) -> str | None:
+        parts: list[str] = []
+        if request.query_text and request.query_text.strip():
+            parts.append(request.query_text.strip())
+        if request.intention_text and request.intention_text.strip():
+            parts.append(request.intention_text.strip())
+        if not parts:
+            return None
+        return " ".join(parts)
+
+    def _normalize_status_filter(self, *, explicit: tuple[str, ...]) -> set[str]:
+        normalized = {status.strip().lower() for status in explicit if status and status.strip()}
+        return normalized
+
+    @staticmethod
+    def _extract_class_hints(*, query_tokens: tuple[str, ...], explicit: tuple[str, ...]) -> set[str]:
+        known_classes = {
+            "identity",
+            "preference",
+            "routine",
+            "ongoing_thread",
+            "social",
+            "location",
+            "important_object",
+            "habit",
+            "recent_fact",
+        }
+        hints = {value.strip().lower() for value in explicit if value and value.strip()}
+        token_set = set(query_tokens)
+        class_aliases = {
+            "ongoing_thread": {"thread", "project", "workstream", "task"},
+            "important_object": {"object", "thing", "device", "item"},
+            "recent_fact": {"fact", "recent"},
+            "preference": {"preference", "prefer", "likes"},
+            "location": {"location", "place", "where"},
+            "routine": {"routine", "habitual"},
+            "identity": {"identity", "profile"},
+            "social": {"social", "relationship", "people"},
+            "habit": {"habit", "pattern"},
+        }
+        for memory_class in known_classes:
+            if memory_class in token_set:
+                hints.add(memory_class)
+                continue
+            if token_set.intersection(class_aliases.get(memory_class, set())):
+                hints.add(memory_class)
+        return {value for value in hints if value in known_classes}
+
+    def _compute_query_bonus(
+        self,
+        *,
+        item: MemoryItem,
+        query_tokens: tuple[str, ...],
+        query_tags: tuple[str, ...],
+        class_hints: set[str],
+    ) -> tuple[float, dict[str, object]]:
+        if not query_tokens and not query_tags and not class_hints:
+            return 0.0, {"has_query_match": False}
+
+        summary_tokens = set(tokenize_retrieval_text(item.summary))
+        query_token_set = set(query_tokens)
+        matched_summary_tokens = query_token_set.intersection(summary_tokens)
+
+        query_tag_set = set(query_tags)
+        item_tag_set = set(item.tags)
+        matched_tags = query_tag_set.intersection(item_tag_set)
+
+        class_match = bool(class_hints and item.memory_class in class_hints)
+
+        query_overlap_ratio = (
+            len(matched_summary_tokens) / float(len(query_token_set))
+            if query_token_set
+            else 0.0
+        )
+        tag_overlap_ratio = (
+            len(matched_tags) / float(len(query_tag_set))
+            if query_tag_set
+            else 0.0
+        )
+
+        summary_bonus = self.policy.query_match_bonus * query_overlap_ratio
+        tag_bonus = self.policy.tag_match_bonus * tag_overlap_ratio
+        class_bonus = self.policy.class_match_bonus if class_match else 0.0
+        total_bonus = summary_bonus + tag_bonus + class_bonus
+
+        return total_bonus, {
+            "has_query_match": total_bonus > 0.0,
+            "matched_summary_tokens": tuple(matched_summary_tokens),
+            "matched_tags": tuple(matched_tags),
+            "class_match": class_match,
+            "query_overlap_ratio": round(query_overlap_ratio, 6),
+            "tag_overlap_ratio": round(tag_overlap_ratio, 6),
+            "summary_bonus": round(summary_bonus, 6),
+            "tag_bonus": round(tag_bonus, 6),
+            "class_bonus": round(class_bonus, 6),
+        }
+
+    @staticmethod
+    def _build_inclusion_reasons(
+        *,
+        item: MemoryItem,
+        request_session_id: str | None,
+        query_details: dict[str, object],
+        recency_bonus: float,
+        index_reasons: list[str],
+    ) -> list[str]:
+        reasons: list[str] = []
+        reasons.extend(reason for reason in index_reasons if reason)
+        if request_session_id and item.session_id == request_session_id:
+            reasons.append("session_affinity")
+        if query_details.get("class_match"):
+            reasons.append("query_class_match")
+        if query_details.get("matched_tags"):
+            reasons.append("query_tag_overlap")
+        if query_details.get("matched_summary_tokens"):
+            reasons.append("query_summary_overlap")
+        if recency_bonus > 0.0:
+            reasons.append("recently_seen")
+        if item.status == "conflicted":
+            reasons.append("conflict_visible_penalized")
+        # Preserve order while removing duplicates.
+        return list(dict.fromkeys(reasons))
 
 
 def summarize_recent_maintenance(maintenance_state: MaintenanceState) -> dict[str, Any]:

@@ -15,7 +15,11 @@ from backend.tools.catalog import (
     TOOL_MEMORY_V2_GET_ITEM,
     TOOL_MEMORY_V2_GET_ITEM_EVIDENCE,
     TOOL_MEMORY_V2_GET_LIVE_BUNDLE,
+    TOOL_MEMORY_V2_GET_CONFLICT_GROUP,
     TOOL_MEMORY_V2_LIST_ITEMS,
+    TOOL_MEMORY_V2_LIST_CONFLICTS,
+    TOOL_MEMORY_V2_MERGE_ITEMS,
+    TOOL_MEMORY_V2_SUPPRESS_CONFLICT_SIDE,
     TOOL_MEMORY_V2_SUPPRESS_ITEM,
     TOOL_UPDATE_USER_MEMORY,
     TOOL_WEB_SEARCH,
@@ -37,15 +41,15 @@ def build_tool_usage_block(*, registry: RealtimeToolRegistry) -> str:
         )
     if registry.has_tool(TOOL_GET_CROSS_SESSION_MEMORY):
         guidance_lines.append(
-            "- Use get_cross_session_memory when the user asks about durable context from prior sessions."
+            "- Use get_cross_session_memory only when the user explicitly wants legacy markdown memory views for compatibility, debugging, or export-like inspection."
         )
     if registry.has_tool(TOOL_MEMORY_V2_LIST_ITEMS):
         guidance_lines.append(
-            "- Use memory_v2_list_items when the user asks what you remember durably and you need item-level memory instead of markdown summaries."
+            "- Use memory_v2_list_items when you need a broad inventory of durable memory items after memory_v2_get_live_bundle."
         )
     if registry.has_tool(TOOL_MEMORY_V2_GET_LIVE_BUNDLE):
         guidance_lines.append(
-            "- Use memory_v2_get_live_bundle when the user asks what matters most now; it returns ranked durable memory with evidence summaries."
+            "- Prefer memory_v2_get_live_bundle as the default first read for durable-memory questions; it returns ranked, evidence-backed context."
         )
     if registry.has_tool(TOOL_MEMORY_V2_GET_ITEM):
         guidance_lines.append(
@@ -54,6 +58,22 @@ def build_tool_usage_block(*, registry: RealtimeToolRegistry) -> str:
     if registry.has_tool(TOOL_MEMORY_V2_GET_ITEM_EVIDENCE):
         guidance_lines.append(
             "- Use memory_v2_get_item_evidence when provenance matters before relying on a remembered fact."
+        )
+    if registry.has_tool(TOOL_MEMORY_V2_LIST_CONFLICTS):
+        guidance_lines.append(
+            "- Use memory_v2_list_conflicts when the user wants to inspect memories that disagree and need explicit resolution."
+        )
+    if registry.has_tool(TOOL_MEMORY_V2_GET_CONFLICT_GROUP):
+        guidance_lines.append(
+            "- Use memory_v2_get_conflict_group to inspect the competing items inside one conflict group before taking action."
+        )
+    if registry.has_tool(TOOL_MEMORY_V2_MERGE_ITEMS):
+        guidance_lines.append(
+            "- Use memory_v2_merge_items only on explicit user intent to merge two conflicting durable memories."
+        )
+    if registry.has_tool(TOOL_MEMORY_V2_SUPPRESS_CONFLICT_SIDE):
+        guidance_lines.append(
+            "- Use memory_v2_suppress_conflict_side only on explicit user intent to suppress one side of a conflict."
         )
     if registry.has_tool(TOOL_MEMORY_V2_CORRECT_ITEM):
         guidance_lines.append(
@@ -114,6 +134,39 @@ def build_tool_usage_block(*, registry: RealtimeToolRegistry) -> str:
         ]
     )
     return "\n".join(guidance_lines)
+
+
+def build_memory_retrieval_preference_block(*, registry: RealtimeToolRegistry) -> str:
+    lines = ["Memory retrieval preference order:"]
+
+    if registry.has_tool(TOOL_MEMORY_V2_GET_LIVE_BUNDLE):
+        lines.append(
+            "- For durable-memory usefulness questions, call memory_v2_get_live_bundle first."
+        )
+    if registry.has_tool(TOOL_MEMORY_V2_GET_ITEM):
+        lines.append(
+            "- Use memory_v2_get_item only after the live bundle when the answer depends on one specific item."
+        )
+    if registry.has_tool(TOOL_MEMORY_V2_GET_ITEM_EVIDENCE):
+        lines.append(
+            "- Use memory_v2_get_item_evidence when the user asks if a memory is well-supported or where it came from."
+        )
+    if registry.has_tool(TOOL_GET_SHORT_TERM_MEMORY):
+        lines.append(
+            "- Use get_short_term_memory for immediate visual recency (what is visible now or what happened in the last moments)."
+        )
+    if registry.has_tool(TOOL_GET_LONG_TERM_MEMORY):
+        lines.append(
+            "- Use get_long_term_memory for broader within-session visual context."
+        )
+    if registry.has_tool(TOOL_GET_CROSS_SESSION_MEMORY):
+        lines.append(
+            "- Use get_cross_session_memory only for markdown compatibility/debug/export requests, not as the default durable-memory lookup."
+        )
+
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines)
 
 
 def build_user_memory_instruction_snippet(markdown: str) -> str:

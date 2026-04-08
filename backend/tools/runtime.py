@@ -16,7 +16,11 @@ from backend.tools.catalog import (
 from backend.extensions.models import ExtensionHealthSummary
 from backend.extensions.runtime import ExtensionRuntime
 from backend.tools.contracts import ToolCall, ToolDefinition, ToolResult
-from backend.tools.instructions import build_tool_usage_block, build_user_memory_instruction_snippet
+from backend.tools.instructions import (
+    build_memory_retrieval_preference_block,
+    build_tool_usage_block,
+    build_user_memory_instruction_snippet,
+)
 from backend.tools.openclaw_runtime import OpenClawDelegationRuntime
 from backend.tools.provider_factory import (
     SearchProviderBuilder,
@@ -193,6 +197,9 @@ class RealtimeToolingRuntime:
         tool_usage_block = build_tool_usage_block(registry=self.registry)
         if tool_usage_block:
             sections.append(tool_usage_block)
+        retrieval_preference_block = build_memory_retrieval_preference_block(registry=self.registry)
+        if retrieval_preference_block:
+            sections.append(retrieval_preference_block)
 
         try:
             user_memory_markdown = self.storage.read_user_memory()

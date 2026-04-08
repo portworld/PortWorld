@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Iterable
 
 from backend.core.storage import now_ms
-from backend.memory.normalization_v2 import normalize_retrieval_index_state, normalize_tags
+from backend.memory.normalization_v2 import (
+    normalize_retrieval_index_state,
+    normalize_semantic_key,
+    normalize_tags,
+)
 from backend.memory.types_v2 import MemoryItem, RetrievalIndexEntry, RetrievalIndexState
 
 
@@ -91,3 +95,17 @@ def build_retrieval_index_state(items: Iterable[MemoryItem]) -> RetrievalIndexSt
             metadata={"entry_count": len(entries)},
         )
     )
+
+
+def tokenize_retrieval_text(text: str | None) -> tuple[str, ...]:
+    if not text:
+        return ()
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for raw in text.split():
+        token = normalize_semantic_key(raw)
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        tokens.append(token)
+    return tuple(tokens)
