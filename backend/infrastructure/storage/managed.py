@@ -9,8 +9,8 @@ from typing import Any, Mapping
 
 from backend.core.storage import BackendStorage
 from backend.infrastructure.storage.errors import SessionNotFoundError
+from backend.infrastructure.storage.metadata_protocol import ManagedMetadataStore
 from backend.infrastructure.storage.object_store import ObjectStore, normalize_object_store_relative_path
-from backend.infrastructure.storage.postgres import PostgresMetadataStore
 from backend.infrastructure.storage.types import (
     ArtifactRecord,
     MemoryExportArtifact,
@@ -83,21 +83,21 @@ def _resolve_error_details_json(
 
 
 class ManagedBackendStorage(BackendStorage):
-    """Managed storage backed by Postgres metadata and object-store artifacts."""
+    """Managed storage backed by object-store metadata and object-store artifacts."""
 
     def __init__(
         self,
         *,
-        database_url: str,
         object_store: ObjectStore,
+        metadata_store: ManagedMetadataStore,
     ) -> None:
         self.object_store = object_store
-        self.metadata_store = PostgresMetadataStore(database_url=database_url)
+        self.metadata_store = metadata_store
         super().__init__(
             storage_info=StorageInfo(
                 backend="managed",
                 details={
-                    "database_url_configured": bool(database_url),
+                    "metadata_backend": "object_store",
                     "object_store_provider": object_store.provider_name,
                     "object_store_name": object_store.store_name,
                     "object_store_prefix": object_store.key_prefix,

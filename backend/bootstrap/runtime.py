@@ -8,6 +8,7 @@ from backend.core.storage import BackendStorage, StorageInfo, StoragePaths
 from backend.infrastructure.storage.object_store import build_object_store
 from backend.infrastructure.storage.local import LocalBackendStorage
 from backend.infrastructure.storage.managed import ManagedBackendStorage
+from backend.infrastructure.storage.object_store_metadata import ObjectStoreMetadataStore
 from backend.memory.consolidation import DurableMemoryConsolidationRuntime
 from backend.realtime.factory import RealtimeProviderFactory
 from backend.tools.runtime import RealtimeToolingRuntime
@@ -96,14 +97,15 @@ def build_backend_storage(settings: Settings) -> tuple[StorageInfo, BackendStora
         storage = LocalBackendStorage(paths=storage_paths)
         return storage.storage_info, storage
 
+    object_store = build_object_store(
+        provider=settings.backend_object_store_provider,
+        store_name=settings.backend_object_store_name or "",
+        endpoint=settings.backend_object_store_endpoint,
+        key_prefix=settings.backend_object_store_prefix or "",
+    )
     storage = ManagedBackendStorage(
-        database_url=settings.backend_database_url or "",
-        object_store=build_object_store(
-            provider=settings.backend_object_store_provider,
-            store_name=settings.backend_object_store_name or "",
-            endpoint=settings.backend_object_store_endpoint,
-            key_prefix=settings.backend_object_store_prefix or "",
-        ),
+        object_store=object_store,
+        metadata_store=ObjectStoreMetadataStore(object_store=object_store),
     )
     return storage.storage_info, storage
 
@@ -111,8 +113,7 @@ def build_backend_storage(settings: Settings) -> tuple[StorageInfo, BackendStora
 def build_storage_paths(settings: Settings) -> StoragePaths:
     if settings.backend_storage_backend != "local":
         raise RuntimeError(
-            "Local storage paths are only defined when "
-            "BACKEND_STORAGE_BACKEND=local."
+            "Local storage paths are only defined when BACKEND_OBJECT_STORE_PROVIDER=filesystem."
         )
     memory_root = settings.backend_data_dir / "memory"
     user_memory_path = memory_root / "USER.md"

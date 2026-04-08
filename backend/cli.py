@@ -66,7 +66,7 @@ def _bootstrap_storage(_: argparse.Namespace) -> int:
     _, storage = build_backend_storage(Settings.from_env())
     if not storage.is_local_backend:
         raise RuntimeError(
-            "bootstrap-storage is only supported when BACKEND_STORAGE_BACKEND=local. "
+            "bootstrap-storage is only supported when BACKEND_OBJECT_STORE_PROVIDER=filesystem. "
             "Managed metadata bootstrap runs through check-config --full or normal runtime startup."
         )
     result = storage.bootstrap()
@@ -103,7 +103,7 @@ def _migrate_storage_layout(_: argparse.Namespace) -> int:
     _, storage = build_backend_storage(Settings.from_env())
     if not storage.is_local_backend:
         raise RuntimeError(
-            "migrate-storage-layout is only supported when BACKEND_STORAGE_BACKEND=local."
+            "migrate-storage-layout is only supported when BACKEND_OBJECT_STORE_PROVIDER=filesystem."
         )
     storage.bootstrap()
     migrate = getattr(storage, "migrate_legacy_storage_layout", None)
