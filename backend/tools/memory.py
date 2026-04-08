@@ -29,6 +29,10 @@ class MemoryV2ToolMode(str, Enum):
     GET_ITEM = "get_item"
     GET_ITEM_EVIDENCE = "get_item_evidence"
     GET_LIVE_BUNDLE = "get_live_bundle"
+    LIST_CONFLICTS = "list_conflicts"
+    GET_CONFLICT_GROUP = "get_conflict_group"
+    MERGE_ITEMS = "merge_items"
+    SUPPRESS_CONFLICT_SIDE = "suppress_conflict_side"
     CORRECT_ITEM = "correct_item"
     SUPPRESS_ITEM = "suppress_item"
     DELETE_ITEM = "delete_item"
@@ -110,6 +114,30 @@ class MemoryV2ToolExecutor:
                     repository,
                     call.arguments,
                     call.session_id,
+                )
+            elif self.mode is MemoryV2ToolMode.LIST_CONFLICTS:
+                payload = await asyncio.to_thread(
+                    self._list_conflicts_payload,
+                    repository,
+                    call.arguments,
+                )
+            elif self.mode is MemoryV2ToolMode.GET_CONFLICT_GROUP:
+                payload = await asyncio.to_thread(
+                    self._get_conflict_group_payload,
+                    repository,
+                    call.arguments,
+                )
+            elif self.mode is MemoryV2ToolMode.MERGE_ITEMS:
+                payload = await asyncio.to_thread(
+                    self._merge_items_payload,
+                    repository,
+                    call.arguments,
+                )
+            elif self.mode is MemoryV2ToolMode.SUPPRESS_CONFLICT_SIDE:
+                payload = await asyncio.to_thread(
+                    self._suppress_conflict_side_payload,
+                    repository,
+                    call.arguments,
                 )
             elif self.mode is MemoryV2ToolMode.CORRECT_ITEM:
                 payload = await asyncio.to_thread(self._correct_item_payload, repository, call.arguments)
@@ -224,16 +252,89 @@ class MemoryV2ToolExecutor:
         requested_session_id = self._optional_str(arguments.get("session_id"))
         limit = self._optional_int(arguments.get("limit"))
         evidence_limit_per_item = self._optional_int(arguments.get("evidence_limit_per_item"))
+        memory_classes = self._optional_str_tuple(arguments.get("memory_classes"))
+        statuses = self._optional_str_tuple(arguments.get("statuses"))
         bundle = retrieval.build_live_bundle(
             request=LiveMemoryBundleRequest(
                 session_id=requested_session_id or default_session_id,
-                limit=8 if limit is None else limit,
-                evidence_limit_per_item=(
-                    3 if evidence_limit_per_item is None else evidence_limit_per_item
-                ),
+                query_text=self._optional_str(arguments.get("query_text")),
+                intention_text=self._optional_str(arguments.get("intention_text")),
+                memory_classes=memory_classes or (),
+                statuses=statuses or (),
+                limit=limit,
+                evidence_limit_per_item=evidence_limit_per_item,
             )
         )
         return bundle.to_dict()
+
+    def _list_conflicts_payload(
+        self,
+        repository: MemoryRepositoryV2,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        groups = repository.list_conflict_groups()
+        limit = self._optional_int(arguments.get("limit"))
+        selected = groups[:limit] if isinstance(limit, int) and limit >= 0 else groups
+        return {
+            "count": len(selected),
+            "total_conflict_groups": len(groups),
+            "groups": [group.to_dict() for group in selected],
+        }
+
+    def _get_conflict_group_payload(
+        self,
+        repository: MemoryRepositoryV2,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        group_key = self._required_str(arguments, "group_key")
+        group = repository.get_conflict_group(group_key=group_key)
+        if group is None:
+            return {"found": False, "group_key": group_key}
+        return {"found": True, "group": group.to_dict()}
+
+    def _merge_items_payload(
+        self,
+        repository: MemoryRepositoryV2,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        target_item_id = self._required_str(arguments, "target_item_id")
+        source_item_id = self._required_str(arguments, "source_item_id")
+        reason = self._required_str(arguments, "reason")
+        actor = self._optional_str(arguments.get("actor")) or "assistant_tool"
+        suppress_source = self._optional_bool(arguments.get("suppress_source"))
+        merge_result = repository.merge_items(
+            target_item_id=target_item_id,
+            source_item_id=source_item_id,
+            actor=actor,
+            reason=reason,
+            suppress_source=True if suppress_source is None else suppress_source,
+        )
+        target_item = merge_result.get("target_item")
+        source_item = merge_result.get("source_item")
+        merge_event = merge_result.get("merge_event")
+        return {
+            "merged": True,
+            "target_item": self._serialize_item(target_item) if isinstance(target_item, MemoryItem) else None,
+            "source_item": self._serialize_item(source_item) if isinstance(source_item, MemoryItem) else None,
+            "merge_event": dict(merge_event) if isinstance(merge_event, dict) else {},
+        }
+
+    def _suppress_conflict_side_payload(
+        self,
+        repository: MemoryRepositoryV2,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        item_id = self._required_str(arguments, "item_id")
+        reason = self._required_str(arguments, "reason")
+        actor = self._optional_str(arguments.get("actor")) or "assistant_tool"
+        item = repository.suppress_conflict_side(
+            item_id=item_id,
+            actor=actor,
+            reason=reason,
+        )
+        if item is None:
+            return {"suppressed": False, "item_id": item_id}
+        return {"suppressed": True, "item": self._serialize_item(item)}
 
     def _suppress_item_payload(
         self,
@@ -337,6 +438,19 @@ class MemoryV2ToolExecutor:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _optional_bool(value: object) -> bool | None:
+        if isinstance(value, bool):
+            return value
+        return None
+
+    @classmethod
+    def _optional_str_tuple(cls, value: object) -> tuple[str, ...] | None:
+        normalized = cls._optional_str_list(value)
+        if normalized is None:
+            return None
+        return tuple(normalized)
 
     @staticmethod
     def _optional_str_list(value: object) -> list[str] | None:

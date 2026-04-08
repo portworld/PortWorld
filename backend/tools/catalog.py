@@ -25,6 +25,10 @@ TOOL_MEMORY_V2_LIST_ITEMS = "memory_v2_list_items"
 TOOL_MEMORY_V2_GET_ITEM = "memory_v2_get_item"
 TOOL_MEMORY_V2_GET_ITEM_EVIDENCE = "memory_v2_get_item_evidence"
 TOOL_MEMORY_V2_GET_LIVE_BUNDLE = "memory_v2_get_live_bundle"
+TOOL_MEMORY_V2_LIST_CONFLICTS = "memory_v2_list_conflicts"
+TOOL_MEMORY_V2_GET_CONFLICT_GROUP = "memory_v2_get_conflict_group"
+TOOL_MEMORY_V2_MERGE_ITEMS = "memory_v2_merge_items"
+TOOL_MEMORY_V2_SUPPRESS_CONFLICT_SIDE = "memory_v2_suppress_conflict_side"
 TOOL_MEMORY_V2_CORRECT_ITEM = "memory_v2_correct_item"
 TOOL_MEMORY_V2_SUPPRESS_ITEM = "memory_v2_suppress_item"
 TOOL_MEMORY_V2_DELETE_ITEM = "memory_v2_delete_item"
@@ -46,6 +50,10 @@ DEFAULT_MODE_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset(
         TOOL_MEMORY_V2_GET_ITEM,
         TOOL_MEMORY_V2_GET_ITEM_EVIDENCE,
         TOOL_MEMORY_V2_GET_LIVE_BUNDLE,
+        TOOL_MEMORY_V2_LIST_CONFLICTS,
+        TOOL_MEMORY_V2_GET_CONFLICT_GROUP,
+        TOOL_MEMORY_V2_MERGE_ITEMS,
+        TOOL_MEMORY_V2_SUPPRESS_CONFLICT_SIDE,
         TOOL_MEMORY_V2_CORRECT_ITEM,
         TOOL_MEMORY_V2_SUPPRESS_ITEM,
         TOOL_MEMORY_V2_DELETE_ITEM,
@@ -184,9 +192,60 @@ _MEMORY_V2_GET_LIVE_BUNDLE_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "session_id": {"type": "string"},
+        "query_text": {"type": "string"},
+        "intention_text": {"type": "string"},
+        "memory_classes": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "statuses": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
         "limit": {"type": "integer", "minimum": 0},
         "evidence_limit_per_item": {"type": "integer", "minimum": 0},
     },
+    "additionalProperties": False,
+}
+
+_MEMORY_V2_LIST_CONFLICTS_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "limit": {"type": "integer", "minimum": 0},
+    },
+    "additionalProperties": False,
+}
+
+_MEMORY_V2_GET_CONFLICT_GROUP_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "group_key": {"type": "string"},
+    },
+    "required": ["group_key"],
+    "additionalProperties": False,
+}
+
+_MEMORY_V2_MERGE_ITEMS_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "target_item_id": {"type": "string"},
+        "source_item_id": {"type": "string"},
+        "reason": {"type": "string"},
+        "actor": {"type": "string"},
+        "suppress_source": {"type": "boolean"},
+    },
+    "required": ["target_item_id", "source_item_id", "reason"],
+    "additionalProperties": False,
+}
+
+_MEMORY_V2_SUPPRESS_CONFLICT_SIDE_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "item_id": {"type": "string"},
+        "reason": {"type": "string"},
+        "actor": {"type": "string"},
+    },
+    "required": ["item_id", "reason"],
     "additionalProperties": False,
 }
 
@@ -355,6 +414,48 @@ def _register_memory_tools(
                 build_executor=lambda ctx: MemoryV2ToolExecutor(
                     storage=ctx.user_memory_storage,
                     mode=MemoryV2ToolMode.GET_LIVE_BUNDLE,
+                ),
+            ),
+            ToolSpec(
+                name=TOOL_MEMORY_V2_LIST_CONFLICTS,
+                description="List Memory v2 conflict groups that require explicit merge or suppression actions.",
+                input_schema=_MEMORY_V2_LIST_CONFLICTS_INPUT_SCHEMA,
+                build_executor=lambda ctx: MemoryV2ToolExecutor(
+                    storage=ctx.user_memory_storage,
+                    mode=MemoryV2ToolMode.LIST_CONFLICTS,
+                ),
+            ),
+            ToolSpec(
+                name=TOOL_MEMORY_V2_GET_CONFLICT_GROUP,
+                description="Inspect a specific Memory v2 conflict group by key.",
+                input_schema=_MEMORY_V2_GET_CONFLICT_GROUP_INPUT_SCHEMA,
+                build_executor=lambda ctx: MemoryV2ToolExecutor(
+                    storage=ctx.user_memory_storage,
+                    mode=MemoryV2ToolMode.GET_CONFLICT_GROUP,
+                ),
+            ),
+            ToolSpec(
+                name=TOOL_MEMORY_V2_MERGE_ITEMS,
+                description=(
+                    "Explicitly merge a source Memory v2 item into a target conflict-side item. "
+                    "This is a write action and requires a reason."
+                ),
+                input_schema=_MEMORY_V2_MERGE_ITEMS_INPUT_SCHEMA,
+                build_executor=lambda ctx: MemoryV2ToolExecutor(
+                    storage=ctx.user_memory_storage,
+                    mode=MemoryV2ToolMode.MERGE_ITEMS,
+                ),
+            ),
+            ToolSpec(
+                name=TOOL_MEMORY_V2_SUPPRESS_CONFLICT_SIDE,
+                description=(
+                    "Explicitly suppress one side of a Memory v2 conflict group. "
+                    "This is a write action and requires a reason."
+                ),
+                input_schema=_MEMORY_V2_SUPPRESS_CONFLICT_SIDE_INPUT_SCHEMA,
+                build_executor=lambda ctx: MemoryV2ToolExecutor(
+                    storage=ctx.user_memory_storage,
+                    mode=MemoryV2ToolMode.SUPPRESS_CONFLICT_SIDE,
                 ),
             ),
             ToolSpec(

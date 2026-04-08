@@ -101,6 +101,43 @@ class MemoryLiveBundleResponse(BaseModel):
     bundle: dict[str, object]
 
 
+class MemoryConflictGroupListResponse(BaseModel):
+    count: int
+    groups: list[dict[str, object]]
+
+
+class MemoryConflictGroupLookupResponse(BaseModel):
+    found: bool
+    group: dict[str, object] | None = None
+
+
+class MemoryConflictMergePayload(BaseModel):
+    target_item_id: str
+    source_item_id: str
+    actor: str | None = None
+    reason: str | None = None
+    suppress_source: bool = True
+    merged_at_ms: int | None = None
+
+
+class MemoryConflictMergeResponse(BaseModel):
+    merged: bool
+    target_item: dict[str, object] | None = None
+    source_item: dict[str, object] | None = None
+    merge_event: dict[str, object] | None = None
+
+
+class MemoryConflictSuppressPayload(BaseModel):
+    actor: str | None = None
+    reason: str | None = None
+    updated_at_ms: int | None = None
+
+
+class MemoryItemAuditTrailResponse(BaseModel):
+    found: bool
+    audit_trail: dict[str, object] | None = None
+
+
 def _serialize_item(item) -> dict[str, object]:
     return {
         "item_id": item.item_id,
@@ -152,6 +189,16 @@ ItemIdPath = Annotated[
         max_length=128,
         pattern=r"^[a-zA-Z0-9_\-]+$",
         description="Memory v2 item identifier",
+    ),
+]
+
+ConflictGroupKeyPath = Annotated[
+    str,
+    Path(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[a-zA-Z0-9_\-]+$",
+        description="Memory v2 conflict group key",
     ),
 ]
 
@@ -350,6 +397,106 @@ async def delete_memory_item(
     return {"item_id": item_id, "deleted": bool(deleted)}
 
 
+@router.get("/memory/conflicts", response_model=MemoryConflictGroupListResponse)
+async def list_memory_conflicts(request: Request) -> MemoryConflictGroupListResponse:
+    runtime = get_app_runtime(request.app)
+    require_http_bearer_auth(request=request, settings=runtime.settings)
+    await enforce_http_rate_limit(request, "memory_conflicts_list")
+    repository = MemoryRepositoryV2(storage=runtime.storage)
+    groups = await asyncio.to_thread(repository.list_conflict_groups)
+    return MemoryConflictGroupListResponse(
+        count=len(groups),
+        groups=[group.to_dict() for group in groups],
+    )
+
+
+@router.get("/memory/conflicts/{group_key}", response_model=MemoryConflictGroupLookupResponse)
+async def get_memory_conflict_group(
+    request: Request,
+    group_key: ConflictGroupKeyPath,
+) -> MemoryConflictGroupLookupResponse:
+    runtime = get_app_runtime(request.app)
+    require_http_bearer_auth(request=request, settings=runtime.settings)
+    await enforce_http_rate_limit(request, "memory_conflicts_get")
+    repository = MemoryRepositoryV2(storage=runtime.storage)
+    group = await asyncio.to_thread(repository.get_conflict_group, group_key=group_key)
+    if group is None:
+        return MemoryConflictGroupLookupResponse(found=False, group=None)
+    return MemoryConflictGroupLookupResponse(found=True, group=group.to_dict())
+
+
+@router.post("/memory/conflicts/merge", response_model=MemoryConflictMergeResponse)
+async def merge_memory_conflict_items(
+    request: Request,
+    payload: MemoryConflictMergePayload,
+) -> MemoryConflictMergeResponse:
+    runtime = get_app_runtime(request.app)
+    require_http_bearer_auth(request=request, settings=runtime.settings)
+    await enforce_http_rate_limit(request, "memory_conflicts_merge")
+    repository = MemoryRepositoryV2(storage=runtime.storage)
+    actor = (payload.actor or "operator").strip() or "operator"
+    reason = (payload.reason or "manual_merge").strip() or "manual_merge"
+    try:
+        result = await asyncio.to_thread(
+            repository.merge_items,
+            target_item_id=payload.target_item_id,
+            source_item_id=payload.source_item_id,
+            actor=actor,
+            reason=reason,
+            merged_at_ms=payload.merged_at_ms,
+            suppress_source=payload.suppress_source,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return MemoryConflictMergeResponse(
+        merged=True,
+        target_item=_serialize_item(result["target_item"]),
+        source_item=_serialize_item(result["source_item"]),
+        merge_event=dict(result["merge_event"]),
+    )
+
+
+@router.post("/memory/conflicts/{item_id}/suppress", response_model=MemoryItemLookupResponse)
+async def suppress_memory_conflict_side(
+    request: Request,
+    item_id: ItemIdPath,
+    payload: MemoryConflictSuppressPayload,
+) -> MemoryItemLookupResponse:
+    runtime = get_app_runtime(request.app)
+    require_http_bearer_auth(request=request, settings=runtime.settings)
+    await enforce_http_rate_limit(request, "memory_conflicts_suppress")
+    repository = MemoryRepositoryV2(storage=runtime.storage)
+    actor = (payload.actor or "operator").strip() or "operator"
+    reason = (payload.reason or "manual_conflict_suppress").strip() or "manual_conflict_suppress"
+    item = await asyncio.to_thread(
+        repository.suppress_conflict_side,
+        item_id=item_id,
+        actor=actor,
+        reason=reason,
+        updated_at_ms=payload.updated_at_ms,
+    )
+    if item is None:
+        return MemoryItemLookupResponse(found=False, item=None)
+    return MemoryItemLookupResponse(found=True, item=_serialize_item(item))
+
+
+@router.get("/memory/items/{item_id}/audit-trail", response_model=MemoryItemAuditTrailResponse)
+async def get_memory_item_audit_trail(
+    request: Request,
+    item_id: ItemIdPath,
+) -> MemoryItemAuditTrailResponse:
+    runtime = get_app_runtime(request.app)
+    require_http_bearer_auth(request=request, settings=runtime.settings)
+    await enforce_http_rate_limit(request, "memory_items_audit_trail")
+    repository = MemoryRepositoryV2(storage=runtime.storage)
+    audit_trail = await asyncio.to_thread(repository.build_item_audit_trail, item_id=item_id)
+    if audit_trail is None:
+        return MemoryItemAuditTrailResponse(found=False, audit_trail=None)
+    return MemoryItemAuditTrailResponse(found=True, audit_trail=dict(audit_trail))
+
+
 @router.get("/memory/sessions/{session_id}/status")
 async def session_memory_status(request: Request, session_id: SessionIdPath) -> dict[str, object]:
     runtime = get_app_runtime(request.app)
@@ -383,8 +530,12 @@ async def get_memory_maintenance_state(request: Request) -> MemoryMaintenanceSta
 async def get_memory_live_bundle(
     request: Request,
     session_id: str | None = Query(default=None),
-    limit: int = Query(default=8, ge=0),
-    evidence_limit_per_item: int = Query(default=3, ge=0),
+    query_text: str | None = Query(default=None),
+    intention_text: str | None = Query(default=None),
+    memory_classes: list[str] | None = Query(default=None),
+    statuses: list[str] | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=0),
+    evidence_limit_per_item: int | None = Query(default=None, ge=0),
 ) -> MemoryLiveBundleResponse:
     runtime = get_app_runtime(request.app)
     require_http_bearer_auth(request=request, settings=runtime.settings)
@@ -395,6 +546,10 @@ async def get_memory_live_bundle(
         service.build_live_bundle,
         request=LiveMemoryBundleRequest(
             session_id=session_id,
+            query_text=query_text,
+            intention_text=intention_text,
+            memory_classes=tuple(memory_classes or ()),
+            statuses=tuple(statuses or ()),
             limit=limit,
             evidence_limit_per_item=evidence_limit_per_item,
         ),
