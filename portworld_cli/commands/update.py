@@ -29,8 +29,6 @@ def update_cli_command(cli_context: CLIContext, json_output: bool) -> None:
 @click.option("--gcp-region", default=None, help="Target GCP region.")
 @click.option("--gcp-service", default=None, help="Cloud Run service name.")
 @click.option("--gcp-artifact-repo", default=None, help="Artifact Registry repository name.")
-@click.option("--gcp-sql-instance", default=None, help="Cloud SQL instance name.")
-@click.option("--gcp-database", default=None, help="Cloud SQL database name.")
 @click.option("--gcp-bucket", default=None, help="GCS bucket name for managed memory objects.")
 @click.option("--gcp-min-instances", type=int, default=None, help="Minimum Cloud Run instances.")
 @click.option("--gcp-max-instances", type=int, default=None, help="Maximum Cloud Run instances.")
@@ -39,9 +37,8 @@ def update_cli_command(cli_context: CLIContext, json_output: bool) -> None:
 @click.option("--gcp-memory", default=None, help="Cloud Run memory setting, for example 1Gi.")
 @click.option("--aws-region", default=None, help="Target AWS region.")
 @click.option("--aws-service", default=None, help="AWS ECS service name.")
-@click.option("--aws-vpc-id", default=None, help="Override VPC id for RDS provisioning.", hidden=True)
-@click.option("--aws-subnet-ids", default=None, help="Override subnet ids for RDS provisioning.", hidden=True)
-@click.option("--aws-database-url", default=None, help="Existing managed PostgreSQL URL.")
+@click.option("--aws-vpc-id", default=None, help="Override VPC id for managed networking.", hidden=True)
+@click.option("--aws-subnet-ids", default=None, help="Override subnet ids for managed networking.", hidden=True)
 @click.option("--aws-s3-bucket", default=None, help="S3 bucket name for managed memory objects.")
 @click.option("--aws-ecr-repo", default=None, help="ECR repository name.")
 @click.option("--azure-subscription", default=None, help="Target Azure subscription id.")
@@ -49,7 +46,6 @@ def update_cli_command(cli_context: CLIContext, json_output: bool) -> None:
 @click.option("--azure-region", default=None, help="Target Azure region.")
 @click.option("--azure-environment", default=None, help="Container Apps environment name.")
 @click.option("--azure-app", default=None, help="Container App name.")
-@click.option("--azure-database-url", default=None, help="Existing managed PostgreSQL URL.")
 @click.option("--azure-storage-account", default=None, help="Azure Storage account name.")
 @click.option("--azure-blob-container", default=None, help="Azure Blob container name.")
 @click.option("--azure-blob-endpoint", default=None, help="Azure Blob endpoint URL.")
@@ -63,8 +59,6 @@ def update_deploy_command(
     gcp_region: str | None,
     gcp_service: str | None,
     gcp_artifact_repo: str | None,
-    gcp_sql_instance: str | None,
-    gcp_database: str | None,
     gcp_bucket: str | None,
     gcp_min_instances: int | None,
     gcp_max_instances: int | None,
@@ -75,7 +69,6 @@ def update_deploy_command(
     aws_service: str | None,
     aws_vpc_id: str | None,
     aws_subnet_ids: str | None,
-    aws_database_url: str | None,
     aws_s3_bucket: str | None,
     aws_ecr_repo: str | None,
     azure_subscription: str | None,
@@ -83,7 +76,6 @@ def update_deploy_command(
     azure_region: str | None,
     azure_environment: str | None,
     azure_app: str | None,
-    azure_database_url: str | None,
     azure_storage_account: str | None,
     azure_blob_container: str | None,
     azure_blob_endpoint: str | None,
@@ -104,8 +96,6 @@ def update_deploy_command(
                         region=gcp_region,
                         service=gcp_service,
                         artifact_repo=gcp_artifact_repo,
-                        sql_instance=gcp_sql_instance,
-                        database=gcp_database,
                         bucket=gcp_bucket,
                         min_instances=gcp_min_instances,
                         max_instances=gcp_max_instances,
@@ -118,7 +108,6 @@ def update_deploy_command(
                         service=aws_service,
                         vpc_id=aws_vpc_id,
                         subnet_ids=aws_subnet_ids,
-                        database_url=aws_database_url,
                         s3_bucket=aws_s3_bucket,
                         ecr_repo=aws_ecr_repo,
                     ),
@@ -128,7 +117,6 @@ def update_deploy_command(
                         region=azure_region,
                         environment=azure_environment,
                         app=azure_app,
-                        database_url=azure_database_url,
                         storage_account=azure_storage_account,
                         blob_container=azure_blob_container,
                         blob_endpoint=azure_blob_endpoint,

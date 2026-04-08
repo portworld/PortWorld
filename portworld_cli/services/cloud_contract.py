@@ -41,8 +41,6 @@ class GCPCloudOptions:
     region: str | None = None
     service: str | None = None
     artifact_repo: str | None = None
-    sql_instance: str | None = None
-    database: str | None = None
     bucket: str | None = None
     min_instances: int | None = None
     max_instances: int | None = None
@@ -58,8 +56,6 @@ class GCPCloudOptions:
                 self.region,
                 self.service,
                 self.artifact_repo,
-                self.sql_instance,
-                self.database,
                 self.bucket,
                 self.min_instances,
                 self.max_instances,
@@ -76,7 +72,6 @@ class AWSCloudOptions:
     service: str | None = None
     vpc_id: str | None = None
     subnet_ids: str | None = None
-    database_url: str | None = None
     s3_bucket: str | None = None
     ecr_repo: str | None = None
 
@@ -88,7 +83,6 @@ class AWSCloudOptions:
                 self.service,
                 self.vpc_id,
                 self.subnet_ids,
-                self.database_url,
                 self.s3_bucket,
                 self.ecr_repo,
             )
@@ -102,7 +96,6 @@ class AzureCloudOptions:
     region: str | None = None
     environment: str | None = None
     app: str | None = None
-    database_url: str | None = None
     storage_account: str | None = None
     blob_container: str | None = None
     blob_endpoint: str | None = None
@@ -118,7 +111,6 @@ class AzureCloudOptions:
                 self.region,
                 self.environment,
                 self.app,
-                self.database_url,
                 self.storage_account,
                 self.blob_container,
                 self.blob_endpoint,
@@ -161,7 +153,6 @@ class AWSDoctorOptions:
     service: str | None
     vpc_id: str | None
     subnet_ids: str | None
-    database_url: str | None
     s3_bucket: str | None
 
 
@@ -172,7 +163,6 @@ class AzureDoctorOptions:
     region: str | None
     environment: str | None
     app: str | None
-    database_url: str | None
     storage_account: str | None
     blob_container: str | None
     blob_endpoint: str | None
@@ -269,7 +259,6 @@ def to_aws_doctor_options(cloud_options: CloudProviderOptions) -> AWSDoctorOptio
         service=cloud_options.aws.service,
         vpc_id=cloud_options.aws.vpc_id,
         subnet_ids=cloud_options.aws.subnet_ids,
-        database_url=cloud_options.aws.database_url,
         s3_bucket=cloud_options.aws.s3_bucket,
     )
 
@@ -281,7 +270,6 @@ def to_azure_doctor_options(cloud_options: CloudProviderOptions) -> AzureDoctorO
         region=cloud_options.azure.region,
         environment=cloud_options.azure.environment,
         app=cloud_options.azure.app,
-        database_url=cloud_options.azure.database_url,
         storage_account=cloud_options.azure.storage_account,
         blob_container=cloud_options.azure.blob_container,
         blob_endpoint=cloud_options.azure.blob_endpoint,
@@ -297,8 +285,6 @@ def to_gcp_deploy_options(cloud_options: CloudProviderOptions, *, tag: str | Non
         region=gcp.region,
         service=gcp.service,
         artifact_repo=gcp.artifact_repo,
-        sql_instance=gcp.sql_instance,
-        database=gcp.database,
         bucket=gcp.bucket,
         tag=tag,
         min_instances=gcp.min_instances,
@@ -318,7 +304,6 @@ def to_aws_deploy_options(cloud_options: CloudProviderOptions, *, tag: str | Non
         service=aws.service,
         vpc_id=aws.vpc_id,
         subnet_ids=aws.subnet_ids,
-        database_url=aws.database_url,
         bucket=aws.s3_bucket,
         ecr_repo=aws.ecr_repo,
         tag=tag,
@@ -335,7 +320,6 @@ def to_azure_deploy_options(cloud_options: CloudProviderOptions, *, tag: str | N
         region=azure.region,
         environment=azure.environment,
         app=azure.app,
-        database_url=azure.database_url,
         storage_account=azure.storage_account,
         blob_container=azure.blob_container,
         blob_endpoint=azure.blob_endpoint,

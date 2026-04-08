@@ -24,42 +24,14 @@ def resolve_or_provision_database(
     *,
     stage_records: list[dict[str, object]],
 ) -> DatabaseResolution:
-    if config.explicit_database_url:
-        stage_records.append(stage_ok("rds_database", "Using externally provided BACKEND_DATABASE_URL."))
-        return DatabaseResolution(
-            database_url=config.explicit_database_url,
-            resolved_vpc_id=None,
-            resolved_subnet_ids=(),
-            rds_security_group_id=None,
-            used_external_database=True,
-        )
-
-    vpc_id, subnet_ids = resolve_vpc_and_subnets(config)
-    subnet_group_name = f"{config.rds_instance_identifier}-subnets"
-    ensure_db_subnet_group(
-        region=config.region,
-        subnet_group_name=subnet_group_name,
-        subnet_ids=subnet_ids,
-        stage_records=stage_records,
-    )
-    security_group_id = ensure_rds_security_group(
-        region=config.region,
-        vpc_id=vpc_id,
-        app_name=config.app_name,
-        stage_records=stage_records,
-    )
-    database_url = ensure_rds_instance(
-        config,
-        subnet_group_name=subnet_group_name,
-        security_group_id=security_group_id,
-        stage_records=stage_records,
-    )
-    return DatabaseResolution(
-        database_url=database_url,
-        resolved_vpc_id=vpc_id,
-        resolved_subnet_ids=subnet_ids,
-        rds_security_group_id=security_group_id,
-        used_external_database=False,
+    del config, stage_records
+    raise DeployStageError(
+        stage="aws_database_setup",
+        message=(
+            "AWS managed deploy no longer provisions or consumes PostgreSQL/RDS. "
+            "Use the S3-backed object-store runtime path."
+        ),
+        action="Re-run the deploy path without database-specific assumptions.",
     )
 
 

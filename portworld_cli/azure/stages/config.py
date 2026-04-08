@@ -6,7 +6,6 @@ from pathlib import Path
 
 from portworld_cli.azure.client import AzureAdapters
 from portworld_cli.azure.common import (
-    is_postgres_url,
     normalize_optional_text,
     read_dict_string,
     validate_blob_container_name,
@@ -15,7 +14,6 @@ from portworld_cli.azure.common import (
 )
 from portworld_cli.azure.stages.shared import (
     build_acr_name,
-    build_postgres_server_name,
     build_storage_account_name,
     now_ms,
     stable_suffix,
@@ -32,24 +30,22 @@ DEFAULT_AZURE_REGION = "eastus"
 DEFAULT_RESOURCE_GROUP = "portworld-rg"
 DEFAULT_APP_NAME = "portworld-backend"
 DEFAULT_BLOB_CONTAINER = "portworld-memory"
-DEFAULT_POSTGRES_DATABASE = "portworld"
-DEFAULT_POSTGRES_ADMIN_USERNAME = "pwadmin"
 
 
 @dataclass(frozen=True, slots=True)
 class DeployAzureContainerAppsOptions:
-    subscription: str | None
-    resource_group: str | None
-    region: str | None
-    environment: str | None
-    app: str | None
-    database_url: str | None
-    storage_account: str | None
-    blob_container: str | None
-    blob_endpoint: str | None
-    acr_server: str | None
-    acr_repo: str | None
-    tag: str | None
+    subscription: str | None = None
+    resource_group: str | None = None
+    region: str | None = None
+    environment: str | None = None
+    app: str | None = None
+    storage_account: str | None = None
+    blob_container: str | None = None
+    blob_endpoint: str | None = None
+    acr_server: str | None = None
+    acr_repo: str | None = None
+    tag: str | None = None
+    database_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,16 +58,12 @@ class ResolvedAzureDeployConfig:
     region: str
     environment_name: str
     app_name: str
-    database_url: str | None
     storage_account: str
     blob_container: str
     blob_endpoint: str
     acr_name: str
     acr_server: str
     acr_repo: str
-    postgres_server_name: str
-    postgres_database_name: str
-    postgres_admin_username: str
     image_tag: str
     image_uri: str
     published_release_tag: str | None
@@ -130,9 +122,8 @@ def resolve_azure_deploy_config(
         prompt="Container Apps environment name",
         error="Container Apps environment name is required.",
     )
-    database_url = first_non_empty(options.database_url, env_values.get("BACKEND_DATABASE_URL"))
-    if database_url and not is_postgres_url(database_url):
-        raise DeployUsageError("BACKEND_DATABASE_URL must use postgres:// or postgresql://.")
+    # Azure managed deploy no longer uses database URL wiring in v2.
+    _ = first_non_empty(options.database_url, env_values.get("BACKEND_DATABASE_URL"))
 
     hash_seed = f"{subscription_id}:{resource_group}:{app_name}"
     unique_suffix = stable_suffix(hash_seed, length=6)
@@ -185,8 +176,6 @@ def resolve_azure_deploy_config(
         prompt="ACR repository name",
         error="ACR repository is required.",
     )
-    postgres_server_name = build_postgres_server_name(app_name, unique_suffix)
-    postgres_database_name = DEFAULT_POSTGRES_DATABASE
 
     image_source_mode = IMAGE_SOURCE_MODE_SOURCE_BUILD
     published_release_tag: str | None = None
@@ -219,16 +208,12 @@ def resolve_azure_deploy_config(
         region=region,
         environment_name=environment_name,
         app_name=app_name,
-        database_url=database_url,
         storage_account=storage_account,
         blob_container=blob_container,
         blob_endpoint=blob_endpoint,
         acr_name=acr_name,
         acr_server=acr_server,
         acr_repo=acr_repo,
-        postgres_server_name=postgres_server_name,
-        postgres_database_name=postgres_database_name,
-        postgres_admin_username=DEFAULT_POSTGRES_ADMIN_USERNAME,
         image_tag=image_tag,
         image_uri=image_uri,
         published_release_tag=published_release_tag,

@@ -27,7 +27,6 @@ from portworld_cli.aws.stages import (
     ensure_target_group,
     register_task_definition,
     resolve_aws_deploy_config,
-    resolve_or_provision_database,
     resolve_vpc_and_subnets,
     upsert_ecs_service,
     wait_for_cloudfront_deployed,
@@ -49,7 +48,6 @@ from portworld_cli.ux.progress import ProgressReporter
 
 @dataclass(frozen=True, slots=True)
 class AWSDeployMutationResult:
-    database_url: str
     ecs_cluster_name: str
     ecs_service_name: str
     task_definition_arn: str
@@ -61,8 +59,6 @@ class AWSDeployMutationResult:
     resolved_subnet_ids: tuple[str, ...]
     alb_security_group_id: str | None
     ecs_security_group_id: str | None
-    rds_security_group_id: str | None
-    used_external_database: bool
 
 
 def run_deploy_aws_ecs_fargate(
@@ -108,7 +104,6 @@ def run_deploy_aws_ecs_fargate(
                 "ecs_service_name": config.app_name,
                 "bucket_name": config.bucket_name,
                 "image_uri": config.image_uri,
-                "rds_instance_identifier": config.rds_instance_identifier,
             }
         )
         if config.ecr_repository is not None:
@@ -132,8 +127,6 @@ def run_deploy_aws_ecs_fargate(
         resources["resolved_subnet_ids"] = list(result.resolved_subnet_ids)
         resources["alb_security_group_id"] = result.alb_security_group_id
         resources["ecs_security_group_id"] = result.ecs_security_group_id
-        resources["rds_security_group_id"] = result.rds_security_group_id
-        resources["database_url_source"] = "external" if result.used_external_database else "provisioned"
 
         with progress.stage(humanize_stage_label("post_deploy_validation")):
             livez_ok, ws_ok = wait_for_public_validation(
@@ -173,7 +166,7 @@ def run_deploy_aws_ecs_fargate(
                         artifact_repository=config.ecr_repository,
                         artifact_repository_base=config.ecr_repository,
                         cloud_sql_instance=None,
-                        database_name=(config.rds_db_name if not result.used_external_database else "external"),
+                        database_name=None,
                         bucket_name=config.bucket_name,
                         image=config.image_uri,
                         published_release_tag=config.published_release_tag,
@@ -191,7 +184,7 @@ def run_deploy_aws_ecs_fargate(
                 ) from exc
             stage_records.append(stage_ok("state_write", "Wrote AWS deploy state."))
 
-        runtime_env = build_runtime_env_vars(env_values, config, database_url=result.database_url)
+        runtime_env = build_runtime_env_vars(env_values, config)
         message_lines = [
             f"target: {TARGET_AWS_ECS_FARGATE}",
             f"account_id: {config.account_id}",
@@ -204,7 +197,6 @@ def run_deploy_aws_ecs_fargate(
             f"image_source_mode: {config.image_source_mode}",
             f"image_uri: {config.image_uri}",
             f"bucket_name: {config.bucket_name}",
-            f"database_url_source: {'external' if result.used_external_database else 'provisioned_rds'}",
             f"websocket_validation: {'validated' if ws_ok else 'timed_out_warn_only'}",
             "next_steps:",
             f"- curl {result.service_url.rstrip('/')}/livez",
@@ -312,15 +304,12 @@ def _run_aws_deploy_mutations(
                 )
             )
 
-    with progress.stage(humanize_stage_label("aws_database_setup")):
-        database_resolution = resolve_or_provision_database(config, stage_records=stage_records)
-
     with progress.stage(humanize_stage_label("aws_network_edge_setup")):
         vpc_id, subnet_ids = resolve_vpc_and_subnets(config)
         alb_security_group_id, ecs_security_group_id = ensure_service_security_groups(
             config=config,
             vpc_id=vpc_id,
-            rds_security_group_id=database_resolution.rds_security_group_id,
+            rds_security_group_id=None,
             stage_records=stage_records,
         )
         alb_arn, alb_dns_name = ensure_application_load_balancer(
@@ -348,7 +337,6 @@ def _run_aws_deploy_mutations(
     runtime_env = build_runtime_env_vars(
         env_values,
         config,
-        database_url=database_resolution.database_url,
     )
     with progress.stage(humanize_stage_label("aws_runtime_setup")):
         execution_role_arn = ensure_ecs_execution_role(stage_records=stage_records)
@@ -387,7 +375,6 @@ def _run_aws_deploy_mutations(
         )
     service_url = normalize_service_url(cloudfront_domain_name)
     return AWSDeployMutationResult(
-        database_url=database_resolution.database_url,
         ecs_cluster_name=cluster_name,
         ecs_service_name=service_name,
         task_definition_arn=task_definition_arn,
@@ -399,8 +386,6 @@ def _run_aws_deploy_mutations(
         resolved_subnet_ids=subnet_ids,
         alb_security_group_id=alb_security_group_id,
         ecs_security_group_id=ecs_security_group_id,
-        rds_security_group_id=database_resolution.rds_security_group_id,
-        used_external_database=database_resolution.used_external_database,
     )
 
 
@@ -409,8 +394,7 @@ def _sanitize_runtime_env_for_output(runtime_env: OrderedDict[str, str]) -> Orde
     for key, value in runtime_env.items():
         upper = key.upper()
         if (
-            key in {"BACKEND_DATABASE_URL", "DATABASE_URL"}
-            or "TOKEN" in upper
+            "TOKEN" in upper
             or "SECRET" in upper
             or "PASSWORD" in upper
             or upper.endswith("_KEY")
@@ -433,7 +417,6 @@ def _confirm_mutations(cli_context: CLIContext, config: ResolvedAWSDeployConfig)
                 f"region: {config.region}",
                 f"ecs_service: {config.app_name}",
                 f"bucket: {config.bucket_name}",
-                f"rds_instance: {config.rds_instance_identifier}",
                 f"image_uri: {config.image_uri}",
             ]
         ),

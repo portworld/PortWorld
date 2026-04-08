@@ -28,8 +28,6 @@ def deploy_group() -> None:
 @click.option("--region", default=None, help="Target GCP region.")
 @click.option("--service", default=None, help="Cloud Run service name.")
 @click.option("--artifact-repo", default=None, help="Artifact Registry repository name.")
-@click.option("--sql-instance", default=None, help="Cloud SQL instance name.")
-@click.option("--database", default=None, help="Cloud SQL database name.")
 @click.option("--bucket", default=None, help="GCS bucket name for managed artifacts.")
 @click.option("--tag", default=None, help="Container image tag.")
 @click.option("--min-instances", type=int, default=None, help="Minimum Cloud Run instances.")
@@ -44,8 +42,6 @@ def deploy_gcp_cloud_run_command(
     region: str | None,
     service: str | None,
     artifact_repo: str | None,
-    sql_instance: str | None,
-    database: str | None,
     bucket: str | None,
     tag: str | None,
     min_instances: int | None,
@@ -64,8 +60,6 @@ def deploy_gcp_cloud_run_command(
                 region=region,
                 service=service,
                 artifact_repo=artifact_repo,
-                sql_instance=sql_instance,
-                database=database,
                 bucket=bucket,
                 tag=tag,
                 min_instances=min_instances,
@@ -85,7 +79,6 @@ def _run_aws_deploy(
     service: str | None,
     vpc_id: str | None,
     subnet_ids: str | None,
-    database_url: str | None,
     bucket: str | None,
     ecr_repo: str | None,
     tag: str | None,
@@ -99,7 +92,6 @@ def _run_aws_deploy(
                 service=service,
                 vpc_id=vpc_id,
                 subnet_ids=subnet_ids,
-                database_url=database_url,
                 bucket=bucket,
                 ecr_repo=ecr_repo,
                 tag=tag,
@@ -113,7 +105,6 @@ def _run_aws_deploy(
 @click.option("--service", default=None, help="ECS service name.")
 @click.option("--vpc-id", default=None, help="VPC id.", hidden=True)
 @click.option("--subnet-ids", default=None, help="Subnet ids (comma-separated).", hidden=True)
-@click.option("--database-url", default=None, help="Existing managed PostgreSQL URL.")
 @click.option("--bucket", default=None, help="S3 bucket name for managed memory objects.")
 @click.option("--ecr-repo", default=None, help="ECR repository name.")
 @click.option("--tag", default=None, help="Container image tag.")
@@ -124,7 +115,6 @@ def deploy_aws_ecs_fargate_command(
     service: str | None,
     vpc_id: str | None,
     subnet_ids: str | None,
-    database_url: str | None,
     bucket: str | None,
     ecr_repo: str | None,
     tag: str | None,
@@ -136,7 +126,6 @@ def deploy_aws_ecs_fargate_command(
         service=service,
         vpc_id=vpc_id,
         subnet_ids=subnet_ids,
-        database_url=database_url,
         bucket=bucket,
         ecr_repo=ecr_repo,
         tag=tag,
@@ -148,7 +137,6 @@ def deploy_aws_ecs_fargate_command(
 @click.option("--region", default=None, help="Target Azure region.")
 @click.option("--environment", default=None, help="Container Apps environment name.")
 @click.option("--app", default=None, help="Container App name.")
-@click.option("--database-url", default=None, help="Existing managed PostgreSQL URL.")
 @click.option("--storage-account", default=None, help="Azure Storage account name.")
 @click.option("--blob-container", default=None, help="Azure Blob container name.")
 @click.option("--blob-endpoint", default=None, help="Azure Blob endpoint URL.")
@@ -163,7 +151,6 @@ def deploy_azure_container_apps_command(
     region: str | None,
     environment: str | None,
     app: str | None,
-    database_url: str | None,
     storage_account: str | None,
     blob_container: str | None,
     blob_endpoint: str | None,
@@ -182,7 +169,6 @@ def deploy_azure_container_apps_command(
                 region=region,
                 environment=environment,
                 app=app,
-                database_url=database_url,
                 storage_account=storage_account,
                 blob_container=blob_container,
                 blob_endpoint=blob_endpoint,

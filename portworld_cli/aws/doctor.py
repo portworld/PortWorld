@@ -6,7 +6,6 @@ import os
 from portworld_cli.aws.client import AWSAdapters
 from portworld_cli.aws.common import (
     aws_cli_available,
-    is_postgres_url,
     normalize_optional_text,
     s3_bucket_name_tls_warning,
     split_csv_values,
@@ -28,7 +27,6 @@ class AWSDoctorDetails:
     subnet_ids: tuple[str, ...]
     bucket_name: str | None
     ecr_repository: str | None
-    rds_instance_identifier: str | None
     alb_dns_name: str | None
     cloudfront_distribution_id: str | None
     cloudfront_domain_name: str | None
@@ -45,7 +43,6 @@ class AWSDoctorDetails:
             "subnet_ids": list(self.subnet_ids),
             "bucket_name": self.bucket_name,
             "ecr_repository": self.ecr_repository,
-            "rds_instance_identifier": self.rds_instance_identifier,
             "alb_dns_name": self.alb_dns_name,
             "cloudfront_distribution_id": self.cloudfront_distribution_id,
             "cloudfront_domain_name": self.cloudfront_domain_name,
@@ -94,7 +91,7 @@ def evaluate_aws_ecs_fargate_readiness(
         explicit_value=explicit_subnet_ids,
         configured=(() if aws_defaults is None else aws_defaults.subnet_ids),
     )
-    database_url = _first_non_empty(
+    _unused_database_url = _first_non_empty(
         explicit_database_url,
         env_values.get("BACKEND_DATABASE_URL"),
     )
@@ -106,7 +103,6 @@ def evaluate_aws_ecs_fargate_readiness(
     ecr_repository = None
     if runtime_source != RUNTIME_SOURCE_PUBLISHED and service_name is not None:
         ecr_repository = f"{service_name}-backend"
-    rds_instance_identifier = None if service_name is None else _normalize_rds_identifier(f"{service_name}-pg")
     alb_name = None if service_name is None else f"{service_name}-alb"[:32]
     cloudfront_comment = None if service_name is None else f"PortWorld managed {service_name}"
 
@@ -177,35 +173,17 @@ def evaluate_aws_ecs_fargate_readiness(
         )
     )
 
-    db_shape_ok = database_url is None or is_postgres_url(database_url)
-    checks.append(
-        DiagnosticCheck(
-            id="database_strategy_ready",
-            status="pass" if db_shape_ok else "fail",
-            message=(
-                "Using externally provided PostgreSQL database URL."
-                if database_url and db_shape_ok
-                else "No external database URL provided; doctor expects one-click RDS provisioning."
-                if database_url is None
-                else "BACKEND_DATABASE_URL is not PostgreSQL-shaped."
-            ),
-            action=None if db_shape_ok else "Use a postgres:// or postgresql:// URL.",
-        )
-    )
-    checks.extend(_build_runtime_contract_checks(env_values))
-    checks.extend(_build_production_posture_checks(env_values=env_values, project_config=project_config))
-    if database_url is None:
+    if _unused_database_url is not None:
         checks.append(
             DiagnosticCheck(
-                id="managed_database_network_posture",
+                id="database_url_ignored",
                 status="warn",
-                message=(
-                    "The current AWS one-click path provisions RDS with public accessibility and broad ingress "
-                    "for MVP simplicity."
-                ),
-                action="Validate and tighten database network posture before production use.",
+                message="`BACKEND_DATABASE_URL` is set but AWS managed deploy no longer uses database URLs.",
+                action="Remove database URL settings from workspace config if they are no longer needed.",
             )
         )
+    checks.extend(_build_runtime_contract_checks(env_values))
+    checks.extend(_build_production_posture_checks(env_values=env_values, project_config=project_config))
 
     if bucket_name is None:
         checks.append(
@@ -277,18 +255,6 @@ def evaluate_aws_ecs_fargate_readiness(
         if service_url is None and cloudfront_domain_name is not None:
             service_url = _normalize_service_url(cloudfront_domain_name)
 
-    if cli_ok and region and database_url is None and rds_instance_identifier:
-        assert aws_adapters is not None
-        checks.extend(
-            _rds_provisioning_checks(
-                adapters=aws_adapters,
-                region=region,
-                explicit_vpc_id=vpc_id,
-                explicit_subnet_ids=subnet_ids,
-                rds_instance_identifier=rds_instance_identifier,
-            )
-        )
-
     details = AWSDoctorDetails(
         account_id=account_id,
         arn=arn,
@@ -299,7 +265,6 @@ def evaluate_aws_ecs_fargate_readiness(
         subnet_ids=subnet_ids,
         bucket_name=bucket_name,
         ecr_repository=ecr_repository,
-        rds_instance_identifier=rds_instance_identifier,
         alb_dns_name=alb_dns_name,
         cloudfront_distribution_id=cloudfront_distribution_id,
         cloudfront_domain_name=cloudfront_domain_name,
@@ -849,23 +814,8 @@ def _lower_message(message: str | None) -> str:
 
 
 def _build_runtime_contract_checks(env_values: dict[str, str]) -> list[DiagnosticCheck]:
-    storage_backend = _first_non_empty(env_values.get("BACKEND_STORAGE_BACKEND"))
     object_store_provider = _first_non_empty(env_values.get("BACKEND_OBJECT_STORE_PROVIDER"))
     return [
-        DiagnosticCheck(
-            id="managed_storage_backend_contract",
-            status="pass" if storage_backend == "managed" else "warn",
-            message=(
-                "BACKEND_STORAGE_BACKEND is set to managed."
-                if storage_backend == "managed"
-                else "BACKEND_STORAGE_BACKEND is not set to managed in the current workspace config."
-            ),
-            action=(
-                None
-                if storage_backend == "managed"
-                else "The deploy path will override this to managed for AWS."
-            ),
-        ),
         DiagnosticCheck(
             id="managed_object_store_provider_contract",
             status="pass" if object_store_provider == "s3" else "warn",

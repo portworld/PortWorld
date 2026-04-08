@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from portworld_cli.azure.client import AzureAdapters
 from portworld_cli.azure.common import (
     azure_cli_available,
-    is_postgres_url,
     normalize_optional_text,
     read_dict_string,
     validate_blob_container_name,
@@ -20,7 +19,6 @@ DEFAULT_AZURE_REGION = "eastus"
 DEFAULT_RESOURCE_GROUP = "portworld-rg"
 DEFAULT_APP_NAME = "portworld-backend"
 DEFAULT_BLOB_CONTAINER = "portworld-memory"
-DEFAULT_POSTGRES_DATABASE = "portworld"
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,8 +35,6 @@ class AzureDoctorDetails:
     blob_endpoint: str | None
     acr_name: str | None
     acr_server: str | None
-    postgres_server_name: str | None
-    postgres_database_name: str | None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -54,8 +50,6 @@ class AzureDoctorDetails:
             "blob_endpoint": self.blob_endpoint,
             "acr_name": self.acr_name,
             "acr_server": self.acr_server,
-            "postgres_server_name": self.postgres_server_name,
-            "postgres_database_name": self.postgres_database_name,
         }
 
 
@@ -107,7 +101,8 @@ def evaluate_azure_container_apps_readiness(
         None if azure_defaults is None else azure_defaults.environment_name,
         None if app_name is None else f"{app_name}-env",
     )
-    database_url = _first_non_empty(explicit_database_url, env_values.get("BACKEND_DATABASE_URL"))
+    # Azure managed runtime no longer consumes BACKEND_DATABASE_URL in v2.
+    _ = _first_non_empty(explicit_database_url, env_values.get("BACKEND_DATABASE_URL"))
 
     seed = f"{subscription_id or 'unknown'}:{resource_group or 'unknown'}:{app_name or 'unknown'}"
     unique_suffix = _stable_suffix(seed, length=6)
@@ -127,8 +122,6 @@ def evaluate_azure_container_apps_readiness(
     )
     acr_name = None if app_name is None else _build_acr_name(app_name, unique_suffix)
     acr_server = None if acr_name is None else f"{acr_name}.azurecr.io"
-    postgres_server_name = None if app_name is None else _build_postgres_server_name(app_name, unique_suffix)
-    postgres_database_name = DEFAULT_POSTGRES_DATABASE
 
     cli_ok = azure_cli_available()
     checks.append(
@@ -266,33 +259,8 @@ def evaluate_azure_container_apps_readiness(
             )
         )
 
-    checks.append(
-        DiagnosticCheck(
-            id="database_url_shape",
-            status="pass" if (database_url is None or is_postgres_url(database_url)) else "fail",
-            message=(
-                "BACKEND_DATABASE_URL is PostgreSQL-shaped."
-                if database_url is not None and is_postgres_url(database_url)
-                else "BACKEND_DATABASE_URL is not required for one-click provisioning."
-                if database_url is None
-                else "BACKEND_DATABASE_URL is not PostgreSQL-shaped."
-            ),
-            action=None if (database_url is None or is_postgres_url(database_url)) else "Use a postgres:// or postgresql:// URL.",
-        )
-    )
     checks.extend(_build_runtime_contract_checks(env_values))
     checks.extend(_build_production_posture_checks(env_values=env_values, project_config=project_config))
-    if database_url is None:
-        checks.append(
-            DiagnosticCheck(
-                id="managed_database_network_posture",
-                status="warn",
-                message=(
-                    "The current Azure one-click path provisions PostgreSQL with public access for MVP simplicity."
-                ),
-                action="Validate and tighten database network posture before production use.",
-            )
-        )
 
     fqdn: str | None = None
     if (
@@ -303,7 +271,6 @@ def evaluate_azure_container_apps_readiness(
         and environment_name
         and storage_account
         and blob_container
-        and postgres_server_name
         and acr_name
     ):
         assert azure_adapters is not None
@@ -311,16 +278,6 @@ def evaluate_azure_container_apps_readiness(
         checks.append(_resource_group_exists_check(azure_adapters, subscription_id, resource_group))
         checks.append(_acr_exists_check(azure_adapters, subscription_id, resource_group, acr_name))
         checks.extend(_storage_checks(azure_adapters, subscription_id, resource_group, storage_account, blob_container))
-        checks.append(_postgres_server_exists_check(azure_adapters, subscription_id, resource_group, postgres_server_name))
-        checks.append(
-            _postgres_database_exists_check(
-                azure_adapters,
-                subscription_id,
-                resource_group,
-                postgres_server_name,
-                postgres_database_name,
-            )
-        )
         checks.append(_container_apps_environment_exists_check(azure_adapters, subscription_id, resource_group, environment_name))
         app_check, fqdn, app_payload = _container_app_checks(
             azure_adapters=azure_adapters,
@@ -345,8 +302,6 @@ def evaluate_azure_container_apps_readiness(
         blob_endpoint=blob_endpoint,
         acr_name=acr_name,
         acr_server=acr_server,
-        postgres_server_name=postgres_server_name,
-        postgres_database_name=postgres_database_name,
     )
     return AzureDoctorEvaluation(
         ok=all(check.status != "fail" for check in checks),
@@ -364,7 +319,6 @@ def _provider_registration_checks(
         "Microsoft.App",
         "Microsoft.ContainerRegistry",
         "Microsoft.Storage",
-        "Microsoft.DBforPostgreSQL",
     ):
         provider = azure_adapters.compute.run_json(
             [
@@ -597,92 +551,6 @@ def _storage_checks(
     return checks
 
 
-def _postgres_server_exists_check(
-    azure_adapters: AzureAdapters,
-    subscription_id: str,
-    resource_group: str,
-    server_name: str,
-) -> DiagnosticCheck:
-    result = azure_adapters.database.run_json(
-        [
-            "postgres",
-            "flexible-server",
-            "show",
-            "--subscription",
-            subscription_id,
-            "--resource-group",
-            resource_group,
-            "--name",
-            server_name,
-        ]
-    )
-    exists = result.ok and isinstance(result.value, dict)
-    if exists:
-        return DiagnosticCheck(
-            id="azure_postgres_server_exists",
-            status="pass",
-            message=f"PostgreSQL server `{server_name}` exists.",
-        )
-    if _looks_like_not_found(result.message):
-        return DiagnosticCheck(
-            id="azure_postgres_server_exists",
-            status="warn",
-            message=f"PostgreSQL server `{server_name}` is not provisioned yet.",
-            action="Run deploy to provision PostgreSQL.",
-        )
-    return DiagnosticCheck(
-        id="azure_postgres_server_exists",
-        status="fail",
-        message=result.message or f"Unable to resolve PostgreSQL server `{server_name}`.",
-        action="Verify PostgreSQL flexible-server permissions and provider availability.",
-    )
-
-
-def _postgres_database_exists_check(
-    azure_adapters: AzureAdapters,
-    subscription_id: str,
-    resource_group: str,
-    server_name: str,
-    database_name: str,
-) -> DiagnosticCheck:
-    result = azure_adapters.database.run_json(
-        [
-            "postgres",
-            "flexible-server",
-            "db",
-            "show",
-            "--subscription",
-            subscription_id,
-            "--resource-group",
-            resource_group,
-            "--server-name",
-            server_name,
-            "--database-name",
-            database_name,
-        ]
-    )
-    exists = result.ok and isinstance(result.value, dict)
-    if exists:
-        return DiagnosticCheck(
-            id="azure_postgres_database_exists",
-            status="pass",
-            message=f"PostgreSQL database `{database_name}` exists.",
-        )
-    if _looks_like_not_found(result.message):
-        return DiagnosticCheck(
-            id="azure_postgres_database_exists",
-            status="warn",
-            message=f"PostgreSQL database `{database_name}` is not provisioned yet.",
-            action="Run deploy to provision the database.",
-        )
-    return DiagnosticCheck(
-        id="azure_postgres_database_exists",
-        status="fail",
-        message=result.message or f"Unable to resolve PostgreSQL database `{database_name}`.",
-        action="Verify PostgreSQL database read/create permissions.",
-    )
-
-
 def _container_apps_environment_exists_check(
     azure_adapters: AzureAdapters,
     subscription_id: str,
@@ -830,14 +698,6 @@ def _runtime_contract_checks(
     checks.append(
         _env_value_check(
             env_map,
-            "BACKEND_STORAGE_BACKEND",
-            "managed",
-            "runtime_storage_backend_managed",
-        )
-    )
-    checks.append(
-        _env_value_check(
-            env_map,
             "BACKEND_OBJECT_STORE_PROVIDER",
             "azure_blob",
             "runtime_object_store_provider_azure_blob",
@@ -857,23 +717,6 @@ def _runtime_contract_checks(
             "BACKEND_OBJECT_STORE_ENDPOINT",
             blob_endpoint,
             "runtime_object_store_endpoint_matches_blob_endpoint",
-        )
-    )
-    db_entry = env_map.get("BACKEND_DATABASE_URL")
-    db_ok = False
-    if db_entry is not None:
-        value, secret_ref = db_entry
-        db_ok = bool(secret_ref) or (value is not None and is_postgres_url(value))
-    checks.append(
-        DiagnosticCheck(
-            id="runtime_database_url_configured",
-            status="pass" if db_ok else "fail",
-            message=(
-                "BACKEND_DATABASE_URL is configured (secretRef or PostgreSQL URL)."
-                if db_ok
-                else "BACKEND_DATABASE_URL is missing from the Container App runtime env."
-            ),
-            action=None if db_ok else "Run deploy to set BACKEND_DATABASE_URL.",
         )
     )
     return checks
@@ -974,11 +817,6 @@ def _build_acr_name(app_name: str, suffix: str) -> str:
     return candidate[:50]
 
 
-def _build_postgres_server_name(app_name: str, suffix: str) -> str:
-    token = _sanitize_name_token(app_name) or "portworld"
-    return f"pwpg{token}{suffix}"[:63]
-
-
 def _extract_fqdn(container_app_payload: dict[str, object]) -> str | None:
     properties = container_app_payload.get("properties")
     if not isinstance(properties, dict):
@@ -1014,23 +852,8 @@ def _first_non_empty(*values: str | None) -> str | None:
 
 
 def _build_runtime_contract_checks(env_values: dict[str, str]) -> list[DiagnosticCheck]:
-    storage_backend = _first_non_empty(env_values.get("BACKEND_STORAGE_BACKEND"))
     object_store_provider = _first_non_empty(env_values.get("BACKEND_OBJECT_STORE_PROVIDER"))
     return [
-        DiagnosticCheck(
-            id="managed_storage_backend_contract",
-            status="pass" if storage_backend == "managed" else "warn",
-            message=(
-                "BACKEND_STORAGE_BACKEND is set to managed."
-                if storage_backend == "managed"
-                else "BACKEND_STORAGE_BACKEND is not set to managed in the current workspace config."
-            ),
-            action=(
-                None
-                if storage_backend == "managed"
-                else "The deploy path will override this to managed for Azure."
-            ),
-        ),
         DiagnosticCheck(
             id="managed_object_store_provider_contract",
             status="pass" if object_store_provider == "azure_blob" else "warn",

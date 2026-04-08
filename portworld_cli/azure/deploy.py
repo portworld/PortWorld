@@ -79,8 +79,6 @@ def run_deploy_azure_container_apps(
                 "image_uri": config.image_uri,
                 "storage_account": config.storage_account,
                 "blob_container": config.blob_container,
-                "postgres_server_name": config.postgres_server_name,
-                "postgres_database_name": config.postgres_database_name,
             }
         )
 
@@ -129,7 +127,7 @@ def run_deploy_azure_container_apps(
                     artifact_repository=config.acr_repo,
                     artifact_repository_base=config.acr_repo,
                     cloud_sql_instance=None,
-                    database_name=config.postgres_database_name,
+                    database_name=None,
                     bucket_name=config.blob_container,
                     image=deploy_result.image_uri,
                     published_release_tag=config.published_release_tag,
@@ -186,7 +184,6 @@ def run_deploy_azure_container_apps(
                     build_runtime_env_vars(
                         env_values,
                         config,
-                        database_url=deploy_result.database_url,
                     )
                 ),
             },
@@ -261,7 +258,6 @@ def _confirm_mutations(cli_context: CLIContext, config: ResolvedAzureDeployConfi
                 f"app: {config.app_name}",
                 f"acr: {config.acr_name}",
                 f"storage_account: {config.storage_account}",
-                f"postgres_server: {config.postgres_server_name}",
                 f"image_uri: {config.image_uri}",
             ]
         ),

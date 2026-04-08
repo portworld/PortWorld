@@ -19,7 +19,6 @@ from portworld_cli.azure.stages.container_app_runtime import (
     sanitize_runtime_env_for_output,
     split_runtime_env_for_azure,
 )
-from portworld_cli.azure.stages.database import ensure_postgres_and_database_url
 from portworld_cli.azure.stages.shared import now_ms, stage_ok
 from portworld_cli.azure.stages.validation import probe_livez, probe_ws
 
@@ -29,7 +28,6 @@ __all__ = (
     "ResolvedAzureDeployConfig",
     "build_runtime_env_vars",
     "ensure_acr",
-    "ensure_postgres_and_database_url",
     "ensure_resource_group",
     "ensure_resource_provider",
     "ensure_storage",

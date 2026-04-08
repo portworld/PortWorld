@@ -55,7 +55,7 @@ def ensure_runtime_service_account(*, adapters: GCPAdapters, config: ResolvedDep
         account_id=account_id,
         project_id=config.project_id,
     )
-    for role in ("roles/secretmanager.secretAccessor", "roles/cloudsql.client"):
+    for role in ("roles/secretmanager.secretAccessor",):
         bind_result = adapters.iam.bind_project_role(
             project_id=config.project_id,
             service_account_email=service_account_email,
@@ -177,4 +177,3 @@ def _runtime_service_account_id(service_name: str) -> str:
     if len(account_id) < 6:
         account_id = (account_id + "-runtime")[:6]
     return account_id
-

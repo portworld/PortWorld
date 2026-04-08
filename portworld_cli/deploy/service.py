@@ -21,7 +21,6 @@ from portworld_cli.deploy.reporting import (
     build_failure_result,
     build_feature_summary,
     build_next_steps,
-    build_success_message,
     humanize_stage_label,
     record_stage,
 )
@@ -37,7 +36,6 @@ from portworld_cli.deploy.stages.runtime import (
     build_cloud_run_secret_bindings as stage_build_cloud_run_secret_bindings,
     build_runtime_env_vars as stage_build_runtime_env_vars,
     deploy_cloud_run_service as stage_deploy_cloud_run_service,
-    ensure_cloud_sql as stage_ensure_cloud_sql,
     validate_final_settings as stage_validate_final_settings,
 )
 from portworld_cli.deploy.stages.secrets import ensure_core_secrets as stage_ensure_core_secrets
@@ -61,10 +59,6 @@ from portworld_cli.workspace.discovery.paths import ProjectRootResolutionError
 from portworld_cli.workspace.state.state_store import CLIStateDecodeError, CLIStateTypeError
 
 DEFAULT_TIMEOUT = "3600s"
-DEFAULT_SQL_DATABASE_VERSION = "POSTGRES_16"
-DEFAULT_SQL_CPU_COUNT = 1
-DEFAULT_SQL_MEMORY = "3840MiB"
-DEFAULT_SQL_USER_NAME = "portworld_app"
 INGRESS_SETTING = "all"
 PUBLISHED_REMOTE_REPOSITORY_DESCRIPTION = "PortWorld published backend image mirror"
 PUBLISHED_REMOTE_REPOSITORY_CONFIG_DESCRIPTION = "Remote Docker repository proxying ghcr.io"
@@ -130,8 +124,6 @@ def run_deploy_gcp_cloud_run(
                     "project_id": config.project_id,
                     "region": config.region,
                     "artifact_registry_repository": config.artifact_repository,
-                    "cloud_sql_instance": config.sql_instance_name,
-                    "database_name": config.database_name,
                     "bucket_name": config.bucket_name,
                 }
             )
@@ -144,8 +136,6 @@ def run_deploy_gcp_cloud_run(
                     "region": config.region,
                     "service_name": config.service_name,
                     "artifact_repository": config.artifact_repository,
-                    "sql_instance_name": config.sql_instance_name,
-                    "database_name": config.database_name,
                     "bucket_name": config.bucket_name,
                     "runtime_source": config.runtime_source,
                     "image_source_mode": config.image_source_mode,
@@ -266,28 +256,6 @@ def run_deploy_gcp_cloud_run(
                 details={"secrets": non_db_secret_names},
             )
 
-        with progress.stage(humanize_stage_label("cloud_sql_setup")):
-            sql_instance_ref, database_url_secret_name, database_url_for_validation = stage_ensure_cloud_sql(
-                adapters=adapters,
-                config=config,
-                default_sql_database_version=DEFAULT_SQL_DATABASE_VERSION,
-                default_sql_cpu_count=DEFAULT_SQL_CPU_COUNT,
-                default_sql_memory=DEFAULT_SQL_MEMORY,
-                default_sql_user_name=DEFAULT_SQL_USER_NAME,
-            )
-            resources["cloud_sql_instance"] = sql_instance_ref.instance_name
-            record_stage(
-                stage_records,
-                stage="cloud_sql_setup",
-                message="Ensured Cloud SQL instance, database, user, and database URL secret for operational runtime metadata.",
-                details={
-                    "instance_name": sql_instance_ref.instance_name,
-                    "connection_name": sql_instance_ref.connection_name,
-                    "database_url_secret_name": database_url_secret_name,
-                    "cloud_sql_role": "operational_metadata",
-                },
-            )
-
         with progress.stage(humanize_stage_label("gcs_bucket_setup")):
             bucket_name = stage_ensure_gcs_bucket(adapters=adapters, cli_context=cli_context, config=config)
             resources["bucket_name"] = bucket_name
@@ -315,7 +283,6 @@ def run_deploy_gcp_cloud_run(
             secret_bindings = stage_build_cloud_run_secret_bindings(
                 provider_secret_names=provider_secret_names,
                 bearer_secret_name=bearer_secret_name,
-                database_url_secret_name=database_url_secret_name,
             )
             stage_validate_final_settings(
                 env_vars=env_vars,
@@ -323,7 +290,6 @@ def run_deploy_gcp_cloud_run(
                 secret_placeholders={
                     **provider_secret_values,
                     "BACKEND_BEARER_TOKEN": bearer_token_for_validation,
-                    "BACKEND_DATABASE_URL": database_url_for_validation,
                 },
             )
             record_stage(
@@ -335,6 +301,7 @@ def run_deploy_gcp_cloud_run(
                     "secret_binding_count": len(secret_bindings),
                     "storage_backend": "managed",
                     "object_store_provider": "gcs",
+                    "metadata_backend": "object_store",
                 },
             )
 
@@ -346,7 +313,6 @@ def run_deploy_gcp_cloud_run(
                 service_account_email=service_account_email,
                 env_vars=env_vars,
                 secret_bindings=secret_bindings,
-                sql_instance_ref=sql_instance_ref,
                 default_timeout=DEFAULT_TIMEOUT,
                 ingress_setting=INGRESS_SETTING,
             )
@@ -399,8 +365,8 @@ def run_deploy_gcp_cloud_run(
                     image_source_mode=config.image_source_mode,
                     artifact_repository=config.artifact_repository_base,
                     artifact_repository_base=config.artifact_repository_base,
-                    cloud_sql_instance=config.sql_instance_name,
-                    database_name=config.database_name,
+                    cloud_sql_instance=None,
+                    database_name=None,
                     bucket_name=bucket_name,
                     image=image_uri,
                     published_release_tag=config.published_release_tag,
@@ -418,7 +384,7 @@ def run_deploy_gcp_cloud_run(
             region=config.region,
             bearer_secret_name=bearer_secret_name,
         )
-        message = build_success_message(
+        message = _build_success_message(
             config=config,
             service_url=service_ref.url,
             image_uri=image_uri,
@@ -451,10 +417,9 @@ def run_deploy_gcp_cloud_run(
                 "published_image_ref": config.published_image_ref,
                 "resources": {
                     "artifact_registry_repository": config.artifact_repository,
-                    "cloud_sql_instance": config.sql_instance_name,
-                    "database_name": config.database_name,
                     "bucket_name": bucket_name,
                     "service_account": service_account_email,
+                    "metadata_backend": "object_store",
                 },
                 "features": features,
                 "next_steps": next_steps,
@@ -574,7 +539,6 @@ def _confirm_mutations(cli_context: CLIContext, *, config: ResolvedDeployConfig)
             f"image_source_mode: {config.image_source_mode}",
             f"published_release_tag: {config.published_release_tag}" if config.published_release_tag else "",
             f"artifact_repo: {config.artifact_repository}",
-            f"sql_instance: {config.sql_instance_name}",
             f"bucket: {config.bucket_name}",
         ]
     )
@@ -606,3 +570,37 @@ def _problem_next_message(*, problem: str, next_step: str, stage: str | None = N
     lines.append(f"problem: {problem}")
     lines.append(f"next: {next_step}")
     return "\n".join(lines)
+
+
+def _build_success_message(
+    *,
+    config: ResolvedDeployConfig,
+    service_url: str | None,
+    image_uri: str,
+    service_account_email: str,
+    bucket_name: str,
+    features: dict[str, object],
+    next_steps: list[str],
+) -> str:
+    lines = [
+        f"project_id: {config.project_id}",
+        f"region: {config.region}",
+        f"service_name: {config.service_name}",
+        f"service_url: {service_url}",
+        f"runtime_source: {config.runtime_source}",
+        f"image_source_mode: {config.image_source_mode}",
+        f"published_release_tag: {config.published_release_tag}",
+        f"published_image_ref: {config.published_image_ref}",
+        f"image: {image_uri}",
+        f"artifact_repository: {config.artifact_repository}",
+        f"bucket_name: {bucket_name}",
+        "memory_source_of_truth: object_store_files",
+        "metadata_backend: object_store",
+        f"service_account: {service_account_email}",
+        f"vision_memory: {features.get('vision_memory')}",
+        f"realtime_tooling: {features.get('realtime_tooling')}",
+        f"web_search_provider: {features.get('web_search_provider')}",
+        "next_steps:",
+    ]
+    lines.extend(f"- {step}" for step in next_steps)
+    return "\n".join(line for line in lines if line and not line.endswith(": None"))

@@ -19,13 +19,11 @@ from portworld_cli.workspace.project_config import (
     DEFAULT_GCP_ARTIFACT_REPOSITORY,
     DEFAULT_GCP_CONCURRENCY,
     DEFAULT_GCP_CPU,
-    DEFAULT_GCP_DATABASE_NAME,
     DEFAULT_GCP_MAX_INSTANCES,
     DEFAULT_GCP_MEMORY,
     DEFAULT_GCP_MIN_INSTANCES,
     DEFAULT_GCP_REGION,
     DEFAULT_GCP_SERVICE_NAME,
-    DEFAULT_GCP_SQL_INSTANCE_NAME,
     RUNTIME_SOURCE_PUBLISHED,
     RUNTIME_SOURCE_SOURCE,
     ProjectConfig,
@@ -42,8 +40,6 @@ from portworld_cli.ux.prompts import prompt_text
 DEFAULT_REGION = DEFAULT_GCP_REGION
 DEFAULT_SERVICE_NAME = DEFAULT_GCP_SERVICE_NAME
 DEFAULT_ARTIFACT_REPOSITORY = DEFAULT_GCP_ARTIFACT_REPOSITORY
-DEFAULT_SQL_INSTANCE_NAME = DEFAULT_GCP_SQL_INSTANCE_NAME
-DEFAULT_DATABASE_NAME = DEFAULT_GCP_DATABASE_NAME
 DEFAULT_CPU = DEFAULT_GCP_CPU
 DEFAULT_MEMORY = DEFAULT_GCP_MEMORY
 DEFAULT_MIN_INSTANCES = DEFAULT_GCP_MIN_INSTANCES
@@ -65,19 +61,19 @@ class DeployStageError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class DeployGCPCloudRunOptions:
-    project: str | None
-    region: str | None
-    service: str | None
-    artifact_repo: str | None
-    sql_instance: str | None
-    database: str | None
-    bucket: str | None
-    tag: str | None
-    min_instances: int | None
-    max_instances: int | None
-    concurrency: int | None
-    cpu: str | None
-    memory: str | None
+    project: str | None = None
+    region: str | None = None
+    service: str | None = None
+    artifact_repo: str | None = None
+    bucket: str | None = None
+    tag: str | None = None
+    min_instances: int | None = None
+    max_instances: int | None = None
+    concurrency: int | None = None
+    cpu: str | None = None
+    memory: str | None = None
+    sql_instance: str | None = None
+    database: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,13 +178,14 @@ def resolve_deploy_config(
         ),
         default=DEFAULT_ARTIFACT_REPOSITORY,
     )
+    # Deprecated: kept on the resolved config for compatibility with older reporting surfaces.
     sql_instance_name = _resolve_text_value(
         explicit=options.sql_instance,
         remembered=_first_non_empty(
             None if gcp_defaults is None else gcp_defaults.sql_instance_name,
             remembered_state.cloud_sql_instance,
         ),
-        default=DEFAULT_SQL_INSTANCE_NAME,
+        default="",
     )
     database_name = _resolve_text_value(
         explicit=options.database,
@@ -196,7 +193,7 @@ def resolve_deploy_config(
             None if gcp_defaults is None else gcp_defaults.database_name,
             remembered_state.database_name,
         ),
-        default=DEFAULT_DATABASE_NAME,
+        default="",
     )
     bucket_name = _resolve_text_value(
         explicit=options.bucket,

@@ -602,8 +602,7 @@ def _build_managed_storage_architecture_checks(payload: dict[str, object]) -> tu
             id="managed_memory_architecture",
             status="pass",
             message=(
-                "Recommended managed GCP architecture uses object-store files as memory source of truth; "
-                "Cloud SQL is reserved for operational runtime metadata."
+                "Managed GCP architecture uses object-store files as memory and metadata source of truth."
             ),
         )
     )
@@ -612,17 +611,17 @@ def _build_managed_storage_architecture_checks(payload: dict[str, object]) -> tu
             id="managed_storage_backend_shape",
             status="pass" if backend_storage_backend == "managed" else "warn",
             message=(
-                "BACKEND_STORAGE_BACKEND is already managed."
+                "Backend runtime reports managed storage mode."
                 if backend_storage_backend == "managed"
                 else (
-                    f"BACKEND_STORAGE_BACKEND is '{backend_storage_backend}'; "
-                    "deploy will override it to managed."
+                    f"Backend runtime currently reports storage mode '{backend_storage_backend}'. "
+                    "Managed deploy uses object-store backed managed mode."
                 )
             ),
             action=(
                 None
                 if backend_storage_backend == "managed"
-                else "No local change is required; deploy will set BACKEND_STORAGE_BACKEND=managed."
+                else "No local change is required; deploy/runtime will resolve managed mode from object-store provider."
             ),
         )
     )

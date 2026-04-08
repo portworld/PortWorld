@@ -4,8 +4,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
-from portworld_cli.aws.common import is_postgres_url, normalize_optional_text, run_aws_json, split_csv_values, validate_s3_bucket_name
-from portworld_cli.aws.constants import RDS_PASSWORD_PARAM_PREFIX
+from portworld_cli.aws.common import normalize_optional_text, run_aws_json, split_csv_values, validate_s3_bucket_name
 from portworld_cli.aws.stages.shared import now_ms, read_dict_string
 from portworld_cli.context import CLIContext
 from portworld_cli.deploy.config import DeployStageError, DeployUsageError
@@ -18,14 +17,14 @@ from portworld_cli.workspace.project_config import RUNTIME_SOURCE_PUBLISHED
 
 @dataclass(frozen=True, slots=True)
 class DeployAWSECSFargateOptions:
-    region: str | None
-    service: str | None
-    vpc_id: str | None
-    subnet_ids: str | None
-    database_url: str | None
-    bucket: str | None
-    ecr_repo: str | None
-    tag: str | None
+    region: str | None = None
+    service: str | None = None
+    vpc_id: str | None = None
+    subnet_ids: str | None = None
+    bucket: str | None = None
+    ecr_repo: str | None = None
+    tag: str | None = None
+    database_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,15 +36,10 @@ class ResolvedAWSDeployConfig:
     app_name: str
     requested_vpc_id: str | None
     requested_subnet_ids: tuple[str, ...]
-    explicit_database_url: str | None
     bucket_name: str
     ecr_repository: str | None
     image_tag: str
     image_uri: str
-    rds_instance_identifier: str
-    rds_db_name: str
-    rds_master_username: str
-    rds_password_parameter_name: str
     published_release_tag: str | None
     published_image_ref: str | None
 
@@ -79,10 +73,6 @@ def resolve_aws_deploy_config(
 
     requested_vpc_id = first_non_empty(options.vpc_id, aws_defaults.vpc_id)
     requested_subnet_ids = split_csv_values(options.subnet_ids) or tuple(aws_defaults.subnet_ids)
-
-    explicit_database_url = first_non_empty(options.database_url, env_values.get("BACKEND_DATABASE_URL"))
-    if explicit_database_url and not is_postgres_url(explicit_database_url):
-        raise DeployUsageError("BACKEND_DATABASE_URL must use postgres:// or postgresql://.")
 
     bucket_name = first_non_empty(
         options.bucket,
@@ -139,11 +129,6 @@ def resolve_aws_deploy_config(
             f"{ecr_repository}:{image_tag}"
         )
 
-    rds_instance_identifier = normalize_rds_identifier(f"{app_name}-pg")
-    rds_db_name = "portworld"
-    rds_master_username = "portworld"
-    rds_password_parameter_name = f"{RDS_PASSWORD_PARAM_PREFIX}/{app_name}/rds-master-password"
-
     return ResolvedAWSDeployConfig(
         runtime_source=runtime_source,
         image_source_mode=image_source_mode,
@@ -152,15 +137,10 @@ def resolve_aws_deploy_config(
         app_name=app_name,
         requested_vpc_id=requested_vpc_id,
         requested_subnet_ids=requested_subnet_ids,
-        explicit_database_url=explicit_database_url,
         bucket_name=bucket_name,
         ecr_repository=ecr_repository,
         image_tag=image_tag,
         image_uri=image_uri,
-        rds_instance_identifier=rds_instance_identifier,
-        rds_db_name=rds_db_name,
-        rds_master_username=rds_master_username,
-        rds_password_parameter_name=rds_password_parameter_name,
         published_release_tag=published_release_tag,
         published_image_ref=published_image_ref,
     )
@@ -190,18 +170,3 @@ def first_non_empty(*values: str | None) -> str | None:
         if normalized is not None:
             return normalized
     return None
-
-
-def normalize_rds_identifier(value: str) -> str:
-    lowered = "".join(ch.lower() if ch.isalnum() else "-" for ch in value)
-    compact = []
-    for ch in lowered:
-        if ch == "-" and compact and compact[-1] == "-":
-            continue
-        compact.append(ch)
-    normalized = "".join(compact).strip("-")
-    if not normalized:
-        normalized = "portworld-pg"
-    if not normalized[0].isalpha():
-        normalized = "p" + normalized
-    return normalized[:63]

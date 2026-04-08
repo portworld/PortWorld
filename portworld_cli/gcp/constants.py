@@ -6,6 +6,5 @@ REQUIRED_GCP_SERVICES: tuple[str, ...] = (
     "cloudbuild.googleapis.com",
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
-    "sqladmin.googleapis.com",
     "storage.googleapis.com",
 )

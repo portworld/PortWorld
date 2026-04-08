@@ -12,7 +12,6 @@ from portworld_cli.azure.stages.artifacts import (
     ensure_storage,
 )
 from portworld_cli.azure.stages.config import ResolvedAzureDeployConfig
-from portworld_cli.azure.stages.database import ensure_postgres_and_database_url
 from portworld_cli.azure.stages.shared import stage_ok, to_azure_secret_name
 from portworld_cli.deploy.config import DeployStageError
 from portworld_cli.deploy.reporting import humanize_stage_label
@@ -22,7 +21,6 @@ from portworld_cli.ux.progress import ProgressReporter
 @dataclass(frozen=True, slots=True)
 class AzureDeployMutationResult:
     fqdn: str | None
-    database_url: str
     image_uri: str
 
 
@@ -64,12 +62,6 @@ def run_azure_deploy_mutations(
             adapters=adapters,
             namespace="Microsoft.Storage",
         )
-        ensure_resource_provider(
-            config,
-            stage_records=stage_records,
-            adapters=adapters,
-            namespace="Microsoft.DBforPostgreSQL",
-        )
 
     with progress.stage(humanize_stage_label("azure_registry_setup")):
         acr_server, acr_username, acr_password = ensure_acr(config, stage_records=stage_records, adapters=adapters)
@@ -78,7 +70,6 @@ def run_azure_deploy_mutations(
     with progress.stage(humanize_stage_label("azure_runtime_infra")):
         ensure_storage(config, stage_records=stage_records, adapters=adapters)
         ensure_container_apps_environment(config, stage_records=stage_records, adapters=adapters)
-        database_url = ensure_postgres_and_database_url(config, stage_records=stage_records, adapters=adapters)
 
     current_app = adapters.compute.run_json(
         [
@@ -98,7 +89,7 @@ def run_azure_deploy_mutations(
     else:
         stage_records.append(stage_ok("container_app_lookup", f"Container App `{config.app_name}` will be created."))
 
-    runtime_env = build_runtime_env_vars(env_values, config, database_url=database_url)
+    runtime_env = build_runtime_env_vars(env_values, config)
     plain_env, secret_env = split_runtime_env_for_azure(runtime_env)
     env_args = [f"{key}={value}" for key, value in plain_env.items()]
     env_args.extend(f"{key}=secretref:{secret_name}" for key, secret_name in secret_env.items())
@@ -199,7 +190,7 @@ def run_azure_deploy_mutations(
                 action="Inspect Container App revisions and ingress settings.",
             )
         stage_records.append(stage_ok("container_app_wait_ready", f"Container App is ready at `{fqdn}`."))
-    return AzureDeployMutationResult(fqdn=fqdn, database_url=database_url, image_uri=image_uri)
+    return AzureDeployMutationResult(fqdn=fqdn, image_uri=image_uri)
 
 
 def ensure_container_apps_environment(
@@ -389,8 +380,6 @@ def extract_fqdn_and_external(payload: dict[str, object]) -> str | None:
 def build_runtime_env_vars(
     env_values: OrderedDict[str, str],
     config: ResolvedAzureDeployConfig,
-    *,
-    database_url: str,
 ) -> OrderedDict[str, str]:
     final_env: OrderedDict[str, str] = OrderedDict()
     excluded = {
@@ -401,7 +390,7 @@ def build_runtime_env_vars(
         "BACKEND_OBJECT_STORE_NAME",
         "BACKEND_OBJECT_STORE_ENDPOINT",
         "BACKEND_OBJECT_STORE_PREFIX",
-        "BACKEND_DATABASE_URL",
+        "BACKEND_STORAGE_BACKEND",
         "PORT",
     }
     for key, value in env_values.items():
@@ -410,12 +399,10 @@ def build_runtime_env_vars(
         final_env[key] = value
 
     final_env["BACKEND_PROFILE"] = "production"
-    final_env["BACKEND_STORAGE_BACKEND"] = "managed"
     final_env["BACKEND_OBJECT_STORE_PROVIDER"] = "azure_blob"
     final_env["BACKEND_OBJECT_STORE_NAME"] = config.blob_container
     final_env["BACKEND_OBJECT_STORE_ENDPOINT"] = config.blob_endpoint
     final_env["BACKEND_OBJECT_STORE_PREFIX"] = config.app_name
-    final_env["BACKEND_DATABASE_URL"] = database_url
     return final_env
 
 
@@ -424,8 +411,7 @@ def sanitize_runtime_env_for_output(runtime_env: OrderedDict[str, str]) -> Order
     for key, value in runtime_env.items():
         upper = key.upper()
         if (
-            key in {"BACKEND_DATABASE_URL", "DATABASE_URL"}
-            or "TOKEN" in upper
+            "TOKEN" in upper
             or "SECRET" in upper
             or "PASSWORD" in upper
             or upper.endswith("_KEY")
@@ -450,8 +436,7 @@ def split_runtime_env_for_azure(runtime_env: OrderedDict[str, str]) -> tuple[Ord
 def is_sensitive_env_key(key: str) -> bool:
     upper = key.upper()
     return (
-        key in {"BACKEND_DATABASE_URL", "DATABASE_URL"}
-        or "TOKEN" in upper
+        "TOKEN" in upper
         or "SECRET" in upper
         or "PASSWORD" in upper
         or upper.endswith("_KEY")

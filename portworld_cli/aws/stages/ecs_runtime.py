@@ -21,8 +21,6 @@ from portworld_cli.deploy.config import DeployStageError
 def build_runtime_env_vars(
     env_values: OrderedDict[str, str],
     config: ResolvedAWSDeployConfig,
-    *,
-    database_url: str,
 ) -> OrderedDict[str, str]:
     final_env: OrderedDict[str, str] = OrderedDict()
     excluded = {
@@ -32,7 +30,6 @@ def build_runtime_env_vars(
         "BACKEND_OBJECT_STORE_PROVIDER",
         "BACKEND_OBJECT_STORE_NAME",
         "BACKEND_OBJECT_STORE_PREFIX",
-        "BACKEND_DATABASE_URL",
         "PORT",
     }
     for key, value in env_values.items():
@@ -41,11 +38,9 @@ def build_runtime_env_vars(
         final_env[key] = value
 
     final_env["BACKEND_PROFILE"] = "production"
-    final_env["BACKEND_STORAGE_BACKEND"] = "managed"
     final_env["BACKEND_OBJECT_STORE_PROVIDER"] = "s3"
     final_env["BACKEND_OBJECT_STORE_NAME"] = config.bucket_name
     final_env["BACKEND_OBJECT_STORE_PREFIX"] = config.app_name
-    final_env["BACKEND_DATABASE_URL"] = database_url
     final_env["PORT"] = "8080"
     return final_env
 

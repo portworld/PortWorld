@@ -2,7 +2,7 @@
 
 from portworld_cli.aws.stages.artifacts import build_and_push_image, docker_login_to_ecr, ensure_ecr_repository, ensure_s3_bucket
 from portworld_cli.aws.stages.config import DeployAWSECSFargateOptions, ResolvedAWSDeployConfig, resolve_aws_deploy_config
-from portworld_cli.aws.stages.database import DatabaseResolution, resolve_or_provision_database, resolve_vpc_and_subnets
+from portworld_cli.aws.stages.database import resolve_vpc_and_subnets
 from portworld_cli.aws.stages.ecs_runtime import (
     build_runtime_env_vars,
     ensure_ecs_cluster,
@@ -25,7 +25,6 @@ from portworld_cli.aws.stages.network_edge import (
 from portworld_cli.aws.stages.validation import wait_for_public_validation
 
 __all__ = (
-    "DatabaseResolution",
     "DeployAWSECSFargateOptions",
     "ResolvedAWSDeployConfig",
     "build_and_push_image",
@@ -45,7 +44,6 @@ __all__ = (
     "ensure_target_group",
     "register_task_definition",
     "resolve_aws_deploy_config",
-    "resolve_or_provision_database",
     "resolve_vpc_and_subnets",
     "upsert_ecs_service",
     "wait_for_cloudfront_deployed",

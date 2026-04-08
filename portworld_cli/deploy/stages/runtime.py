@@ -3,11 +3,10 @@ from __future__ import annotations
 import os
 from collections import OrderedDict
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Iterator
 
 from portworld_cli.deploy.config import DeployStageError, ResolvedDeployConfig
 from portworld_cli.deploy.gcp_errors import gcp_error_action, gcp_error_message
-from portworld_cli.gcp import GCPAdapters, build_postgres_url
 from portworld_shared.backend_env import validate_backend_env_contract
 from portworld_shared.providers import list_provider_requirements
 from portworld_shared.runtime_secrets import ADDITIONAL_DEPLOY_SENSITIVE_ENV_KEYS
@@ -38,7 +37,6 @@ _CORE_SENSITIVE_ENV_KEYS: tuple[str, ...] = tuple(
             *_DEPRECATED_SENSITIVE_ENV_KEYS,
             *ADDITIONAL_DEPLOY_SENSITIVE_ENV_KEYS,
             "BACKEND_BEARER_TOKEN",
-            "BACKEND_DATABASE_URL",
         )
     ).keys()
 )
@@ -52,103 +50,6 @@ LOCAL_ONLY_ENV_KEYS: tuple[str, ...] = (
 def _effective_sensitive_env_keys(env_values: OrderedDict[str, str]) -> tuple[str, ...]:
     del env_values
     return _CORE_SENSITIVE_ENV_KEYS
-
-
-def ensure_cloud_sql(
-    *,
-    adapters: GCPAdapters,
-    config: ResolvedDeployConfig,
-    default_sql_database_version: str,
-    default_sql_cpu_count: int,
-    default_sql_memory: str,
-    default_sql_user_name: str,
-) -> tuple[Any, str, str]:
-    instance_result = adapters.cloud_sql.create_instance(
-        project_id=config.project_id,
-        region=config.region,
-        instance_name=config.sql_instance_name,
-        database_version=default_sql_database_version,
-        cpu_count=default_sql_cpu_count,
-        memory=default_sql_memory,
-    )
-    if not instance_result.ok:
-        raise DeployStageError(
-            stage="cloud_sql_setup",
-            message=gcp_error_message(instance_result.error, "Failed creating Cloud SQL instance."),
-            action=gcp_error_action(instance_result.error, "Verify Cloud SQL Admin permissions and retry."),
-        )
-    assert instance_result.value is not None
-    instance_ref = instance_result.value.resource
-
-    database_result = adapters.cloud_sql.create_database(
-        project_id=config.project_id,
-        instance_name=config.sql_instance_name,
-        database_name=config.database_name,
-    )
-    if not database_result.ok:
-        raise DeployStageError(
-            stage="cloud_sql_setup",
-            message=gcp_error_message(database_result.error, "Failed creating Cloud SQL database."),
-            action=gcp_error_action(database_result.error, "Verify Cloud SQL permissions and retry."),
-        )
-
-    db_password = _generate_secure_token(length=24)
-    user_result = adapters.cloud_sql.create_or_update_user(
-        project_id=config.project_id,
-        instance_name=config.sql_instance_name,
-        user_name=default_sql_user_name,
-        password=db_password,
-    )
-    if not user_result.ok:
-        raise DeployStageError(
-            stage="cloud_sql_setup",
-            message=gcp_error_message(user_result.error, "Failed creating or updating the Cloud SQL application user."),
-            action=gcp_error_action(user_result.error, "Verify Cloud SQL permissions and retry."),
-        )
-
-    if not instance_ref.connection_name or not instance_ref.primary_ip_address:
-        refreshed = adapters.cloud_sql.get_instance(
-            project_id=config.project_id,
-            instance_name=config.sql_instance_name,
-        )
-        if not refreshed.ok:
-            raise DeployStageError(
-                stage="cloud_sql_setup",
-                message=gcp_error_message(refreshed.error, "Failed refreshing Cloud SQL instance details."),
-                action=gcp_error_action(refreshed.error, "Wait for the instance to finish provisioning and rerun deploy."),
-            )
-        if refreshed.value is not None:
-            instance_ref = refreshed.value
-
-    if instance_ref.connection_name:
-        database_url = build_postgres_url(
-            username=default_sql_user_name,
-            password=db_password,
-            database_name=config.database_name,
-            unix_socket_path=f"/cloudsql/{instance_ref.connection_name}",
-        )
-    elif instance_ref.primary_ip_address:
-        database_url = build_postgres_url(
-            username=default_sql_user_name,
-            password=db_password,
-            database_name=config.database_name,
-            host=instance_ref.primary_ip_address,
-        )
-    else:
-        raise DeployStageError(
-            stage="cloud_sql_setup",
-            message="Cloud SQL instance does not expose a connection name or primary IP address yet.",
-            action="Wait for the instance to finish provisioning, then rerun deploy.",
-        )
-    database_url_secret_name = _service_secret_name(config.service_name, "backend-database-url")
-    _ensure_secret_version(
-        adapters=adapters,
-        project_id=config.project_id,
-        secret_name=database_url_secret_name,
-        secret_value=database_url,
-        stage="cloud_sql_setup",
-    )
-    return instance_ref, database_url_secret_name, database_url
 
 
 def build_runtime_env_vars(
@@ -165,7 +66,6 @@ def build_runtime_env_vars(
         final_env[key] = value
 
     final_env["BACKEND_PROFILE"] = "production"
-    final_env["BACKEND_STORAGE_BACKEND"] = "managed"
     final_env["BACKEND_OBJECT_STORE_PROVIDER"] = "gcs"
     final_env["BACKEND_OBJECT_STORE_NAME"] = bucket_name
     final_env["BACKEND_OBJECT_STORE_PREFIX"] = config.service_name
@@ -176,11 +76,9 @@ def build_cloud_run_secret_bindings(
     *,
     provider_secret_names: dict[str, str],
     bearer_secret_name: str,
-    database_url_secret_name: str,
 ) -> dict[str, str]:
     bindings: dict[str, str] = {
         "BACKEND_BEARER_TOKEN": f"{bearer_secret_name}:latest",
-        "BACKEND_DATABASE_URL": f"{database_url_secret_name}:latest",
     }
     for env_key, secret_name in provider_secret_names.items():
         bindings[env_key] = f"{secret_name}:latest"
@@ -201,9 +99,9 @@ def validate_final_settings(
             combined_env[key] = local_value
     combined_env.update(secret_placeholders)
     contract = validate_backend_env_contract(combined_env)
-    if contract.backend_storage_backend != "managed":
+    if contract.backend_object_store_provider == "filesystem":
         raise RuntimeError(
-            "Managed Cloud Run deploy requires BACKEND_STORAGE_BACKEND=managed."
+            "Managed Cloud Run deploy requires a managed object store provider."
         )
     if contract.backend_object_store_provider != "gcs":
         raise RuntimeError(
@@ -219,7 +117,6 @@ def deploy_cloud_run_service(
     service_account_email: str,
     env_vars: dict[str, str],
     secret_bindings: dict[str, str],
-    sql_instance_ref: Any,
     default_timeout: str,
     ingress_setting: str,
 ):
@@ -231,7 +128,7 @@ def deploy_cloud_run_service(
         service_account_email=service_account_email,
         env_vars=env_vars,
         secrets=secret_bindings,
-        cloudsql_connection_name=sql_instance_ref.connection_name,
+        cloudsql_connection_name=None,
         timeout=default_timeout,
         cpu=config.cpu,
         memory=config.memory,
@@ -320,12 +217,6 @@ def _service_secret_name(service_name: str, suffix: str) -> str:
 
     normalized_service = re.sub(r"[^a-z0-9-]+", "-", service_name.strip().lower()).strip("-")
     return f"{normalized_service}-{suffix}"
-
-
-def _generate_secure_token(*, length: int = 32) -> str:
-    import secrets
-
-    return secrets.token_urlsafe(length)
 
 
 @contextmanager
