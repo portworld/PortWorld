@@ -6,12 +6,14 @@ from portworld_cli.context import CLIContext
 from portworld_cli.output import CommandResult
 from portworld_cli.runtime.published import (
     run_export_memory_published,
+    run_memory_maintenance_published,
     run_ops_check_config_published,
     run_ops_command_published,
 )
 from portworld_cli.runtime.source import (
     run_bootstrap_storage_source,
     run_export_memory_source,
+    run_memory_maintenance_source,
     run_migrate_storage_layout_source,
     run_ops_check_config_source,
 )
@@ -85,6 +87,36 @@ def run_migrate_storage_layout(cli_context: CLIContext) -> CommandResult:
                 backend_args=["migrate-storage-layout"],
             )
         return run_migrate_storage_layout_source(session)
+    except Exception as exc:
+        return _error_result(command, exc)
+
+
+def run_memory_maintenance(
+    cli_context: CLIContext,
+    *,
+    scope: str,
+    session_id: str | None,
+    phase: str,
+    dry_run: bool,
+) -> CommandResult:
+    command = "portworld ops memory-maintenance run"
+    try:
+        session = _load_runtime_session(cli_context)
+        if session.effective_runtime_source == "published":
+            return run_memory_maintenance_published(
+                session,
+                scope=scope,
+                session_id=session_id,
+                phase=phase,
+                dry_run=dry_run,
+            )
+        return run_memory_maintenance_source(
+            session,
+            scope=scope,
+            session_id=session_id,
+            phase=phase,
+            dry_run=dry_run,
+        )
     except Exception as exc:
         return _error_result(command, exc)
 

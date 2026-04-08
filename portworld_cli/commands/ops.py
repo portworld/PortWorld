@@ -12,6 +12,7 @@ from portworld_cli.services.ops import (
     run_export_memory,
     run_migrate_storage_layout,
 )
+from portworld_cli.services.ops.service import run_memory_maintenance
 
 
 @click.group("ops")
@@ -63,3 +64,57 @@ def export_memory_command(cli_context: CLIContext, output: Path | None) -> None:
 def migrate_storage_layout_command(cli_context: CLIContext) -> None:
     """Migrate legacy storage layout artifacts."""
     exit_with_result(cli_context, run_migrate_storage_layout(cli_context))
+
+
+@ops_group.group("memory-maintenance")
+def memory_maintenance_group() -> None:
+    """Run memory v2 maintenance operations."""
+
+
+@memory_maintenance_group.command("run")
+@click.option(
+    "--scope",
+    type=click.Choice(("global", "session"), case_sensitive=True),
+    default="global",
+    show_default=True,
+    help="Run across all sessions or for a single session.",
+)
+@click.option(
+    "--session-id",
+    default=None,
+    help="Required when --scope=session.",
+)
+@click.option(
+    "--phase",
+    type=click.Choice(("full", "candidates", "observations", "retrieval", "decay"), case_sensitive=True),
+    default="full",
+    show_default=True,
+    help="Limit maintenance to a specific phase.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Compute maintenance decisions without persisting changes.",
+)
+@click.pass_obj
+def memory_maintenance_run_command(
+    cli_context: CLIContext,
+    scope: str,
+    session_id: str | None,
+    phase: str,
+    dry_run: bool,
+) -> None:
+    """Run memory v2 maintenance and promotion phases."""
+    if scope == "session" and not session_id:
+        raise click.UsageError("--session-id is required when --scope=session.")
+    exit_with_result(
+        cli_context,
+        run_memory_maintenance(
+            cli_context,
+            scope=scope,
+            session_id=session_id,
+            phase=phase,
+            dry_run=dry_run,
+        ),
+    )

@@ -441,6 +441,46 @@ def run_export_memory_published(
     )
 
 
+def run_memory_maintenance_published(
+    session,
+    *,
+    scope: str,
+    session_id: str | None,
+    phase: str,
+    dry_run: bool,
+) -> CommandResult:
+    backend_args = ["memory-maintenance-run", "--scope", scope, "--phase", phase]
+    if session_id:
+        backend_args.extend(["--session-id", session_id])
+    if dry_run:
+        backend_args.append("--dry-run")
+    completed = run_backend_compose_cli(
+        session.workspace_root,
+        backend_args=backend_args,
+    )
+    payload = coerce_backend_cli_payload(
+        completed,
+        default_message="Containerized memory-maintenance-run did not return structured JSON output.",
+    )
+    message = format_key_value_lines(
+        ("scope", payload.get("scope")),
+        ("phase", payload.get("phase")),
+        ("dry_run", payload.get("dry_run")),
+        ("session_id", payload.get("session_id")),
+        ("processed_sessions", payload.get("processed_sessions")),
+        ("processed_candidates", payload.get("processed_candidates")),
+        ("promoted_items", payload.get("promoted_items")),
+        ("conflicts", payload.get("conflicts")),
+    )
+    return CommandResult(
+        ok=completed.returncode == 0,
+        command="portworld ops memory-maintenance run",
+        message=message or str(payload.get("message") or payload),
+        data=payload,
+        exit_code=0 if completed.returncode == 0 else 1,
+    )
+
+
 def collect_local_runtime_status(session) -> LocalRuntimeStatus | None:
     if session.config_session.effective_runtime_source != "published":
         return None
